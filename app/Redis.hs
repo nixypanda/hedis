@@ -59,6 +59,7 @@ data Command
     | Set Key RedisValue (Maybe Expiry)
     | Get Key
     | Rpush Key [ByteString]
+    | Lpush Key [ByteString]
     | Lrange Key Int Int
     deriving (Show, Eq)
 
@@ -72,6 +73,7 @@ respToCommand (Array 5 [BulkStr "SET", BulkStr key, BulkStr val, BulkStr "PX", B
 respToCommand (Array 3 [BulkStr "SET", BulkStr key, BulkStr val]) = pure $ Set key (Simple val) Nothing
 respToCommand (Array 2 [BulkStr "GET", BulkStr key]) = pure $ Get key
 respToCommand (Array _ ((BulkStr "RPUSH") : (BulkStr key) : vals)) = pure $ Rpush key (map (\(BulkStr x) -> x) vals)
+respToCommand (Array _ ((BulkStr "LPUSH") : (BulkStr key) : vals)) = pure $ Lpush key (map (\(BulkStr x) -> x) vals)
 respToCommand (Array 4 [BulkStr "LRANGE", BulkStr key, BulkStr start, BulkStr stop]) = case (readInt start, readInt stop) of
     (Just start', Just stop') -> pure $ Lrange key (fst start') (fst stop')
     v -> Left $ "Invalid Integers" <> show v
@@ -104,6 +106,14 @@ runCmd cmd = do
             let (rMap', len) = case EM.lookup key currTime rMap of
                     Just (Simple _) -> (EM.insert key (List xs) currTime Nothing rMap, length xs)
                     Just (List xs') -> (EM.insert key (List $ xs' ++ xs) currTime Nothing rMap, length $ xs' ++ xs)
+                    Nothing -> (EM.insert key (List xs) currTime Nothing rMap, length xs)
+            writeTVar eMap rMap'
+            pure $ Int len
+        (Lpush key xs) -> liftIO . atomically $ do
+            rMap <- readTVar eMap
+            let (rMap', len) = case EM.lookup key currTime rMap of
+                    Just (Simple _) -> (EM.insert key (List xs) currTime Nothing rMap, length xs)
+                    Just (List xs') -> (EM.insert key (List $ reverse xs ++ xs') currTime Nothing rMap, length $ xs' ++ xs)
                     Nothing -> (EM.insert key (List xs) currTime Nothing rMap, length xs)
             writeTVar eMap rMap'
             pure $ Int len
