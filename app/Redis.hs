@@ -61,6 +61,7 @@ data Command
     | Rpush Key [ByteString]
     | Lpush Key [ByteString]
     | Lrange Key Int Int
+    | Llen Key
     deriving (Show, Eq)
 
 respToCommand :: Resp -> Either String Command
@@ -74,6 +75,7 @@ respToCommand (Array 3 [BulkStr "SET", BulkStr key, BulkStr val]) = pure $ Set k
 respToCommand (Array 2 [BulkStr "GET", BulkStr key]) = pure $ Get key
 respToCommand (Array _ ((BulkStr "RPUSH") : (BulkStr key) : vals)) = pure $ Rpush key (map (\(BulkStr x) -> x) vals)
 respToCommand (Array _ ((BulkStr "LPUSH") : (BulkStr key) : vals)) = pure $ Lpush key (map (\(BulkStr x) -> x) vals)
+respToCommand (Array 2 [BulkStr "LLEN", BulkStr key]) = pure $ Llen key
 respToCommand (Array 4 [BulkStr "LRANGE", BulkStr key, BulkStr start, BulkStr stop]) = case (readInt start, readInt stop) of
     (Just start', Just stop') -> pure $ Lrange key (fst start') (fst stop')
     v -> Left $ "Invalid Integers" <> show v
@@ -124,6 +126,13 @@ runCmd cmd = do
                 Nothing -> pure $ redisValueToResp $ List []
                 Just (Simple _) -> throwError $ InvalidCommand "Invalid command for Simple value"
                 Just (List xs) -> pure $ redisValueToResp $ List $ slice start stop xs
+        (Llen key) -> do
+            rMap <- liftIO $ readTVarIO eMap
+            let val = EM.lookup key currTime rMap
+            case val of
+                Nothing -> pure $ Int 0
+                Just (Simple _) -> throwError $ InvalidCommand "Invalid command for Simple value"
+                Just (List xs) -> pure $ Int $ length xs
 
 normalize :: Int -> Int -> Int
 normalize len i
