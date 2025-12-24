@@ -17,8 +17,8 @@ main = do
     hPutStrLn stderr "Logs from your program will appear here"
 
     -- Uncomment the code below to pass the first stage stage 1
-    -- let port = "6379"
-    -- putStrLn $ "Redis server listening on port " ++ port
-    -- serve HostAny port $ \(socket, address) -> do
-    --     putStrLn $ "successfully connected client: " ++ show address
-    --     closeSock socket
+    let port = "6379"
+    putStrLn $ "Redis server listening on port " ++ port
+    serve HostAny port $ \(socket, address) -> do
+        putStrLn $ "successfully connected client: " ++ show address
+        closeSock socket
