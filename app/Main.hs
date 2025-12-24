@@ -9,19 +9,22 @@ import Control.Monad.IO.Class (MonadIO (liftIO))
 import Control.Monad.Reader (MonadReader, ReaderT (runReaderT), asks)
 import Data.Bifunctor (Bifunctor (first))
 import Data.ByteString (ByteString)
-import Data.Map (Map)
-import Data.Map qualified as M
+import Data.ByteString.Char8 (readInteger)
+import Data.Maybe (fromJust)
+import ExpiringMap (ExpiringMap)
+import ExpiringMap qualified as EM
 import Network.Simple.TCP (HostPreference (HostAny), Socket, closeSock, recv, send, serve)
 import System.IO (BufferMode (NoBuffering), hSetBuffering, stderr, stdout)
 import System.Log.FastLogger (LogType' (..), TimedFastLogger, defaultBufSize, newTimeCache, newTimedFastLogger, toLogStr)
 import System.Log.FastLogger.Date (simpleTimeFormat)
 import Text.Parsec (ParseError)
 
+import Data.Time (getCurrentTime)
 import Resp (Resp (..), decode, encode)
 
 -- Command execution
 
-type MemDB = Map ByteString ByteString
+type MemDB = ExpiringMap ByteString ByteString
 data RedisError
     = ParsingError ParseError
     | EncodeError String
@@ -40,16 +43,24 @@ newtype Redis a = MkRedis {runRedis :: ReaderT Env (ExceptT RedisError IO) a}
 runCmd :: Resp -> Redis Resp
 runCmd (Array 1 [BulkStr "PING"]) = pure $ Str "PONG"
 runCmd (Array 2 [BulkStr "ECHO", BulkStr xs]) = pure $ BulkStr xs
+runCmd (Array 5 [BulkStr "SET", BulkStr key, BulkStr val, BulkStr "PX", BulkStr t]) = do
+    eMap <- asks db
+    let milliSeconds = fst <$> readInteger t
+    logDebug $ show milliSeconds
+    currTime <- liftIO getCurrentTime
+    liftIO . atomically $ modifyTVar' eMap $ EM.insertWithExpiry key val currTime (fromJust milliSeconds)
+    pure $ Str "OK"
 runCmd (Array 3 [BulkStr "SET", BulkStr key, BulkStr val]) = do
-    rMap <- asks db
-    liftIO . atomically $ modifyTVar' rMap (M.insert key val)
+    eMap <- asks db
+    currTime <- liftIO getCurrentTime
+    liftIO . atomically $ modifyTVar' eMap (EM.insert key val currTime)
     logInfo ("SET " <> show key)
     pure $ Str "OK"
 runCmd (Array 2 [BulkStr "GET", BulkStr key]) = do
     tVarMap <- asks db
+    currTime <- liftIO getCurrentTime
     rMap <- liftIO $ readTVarIO tVarMap
-    let val = M.lookup key rMap
-    logDebug ("GET " <> show key)
+    let val = EM.lookup key currTime rMap
     case val of
         Just x -> pure $ BulkStr x
         Nothing -> pure NullBulk
@@ -87,8 +98,8 @@ main = do
 
     timeCache <- newTimeCache simpleTimeFormat
     (logger, _cleanup) <- newTimedFastLogger timeCache (LogStderr defaultBufSize)
-    tv <- newTVarIO M.empty
-    let env = MkEnv{db = tv, envLogger = logger}
+    tvDB <- newTVarIO EM.empty
+    let env = MkEnv{db = tvDB, envLogger = logger}
         logInfo' msg = logger (\t -> toLogStr (show t <> "[INFO] " <> msg <> "\n"))
         logError' msg = logger (\t -> toLogStr (show t <> "[ERROR] " <> msg <> "\n"))
 
