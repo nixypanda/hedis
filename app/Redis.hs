@@ -113,4 +113,7 @@ runCmd cmd = do
             case val of
                 Nothing -> pure $ redisValueToResp $ List []
                 Just (Simple _) -> throwError $ InvalidCommand "Invalid command for Simple value"
-                Just (List xs) -> pure $ redisValueToResp $ List $ take (stop - start + 1) $ drop start xs
+                Just (List xs) -> pure $ redisValueToResp $ List $ take (stop' - start' + 1) $ drop start' xs
+                  where
+                    start' = if start < 0 then max 0 (length xs + start) else start
+                    stop' = if stop < 0 then max 0 (length xs + stop) else stop
