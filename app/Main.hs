@@ -2,8 +2,22 @@
 
 module Main (main) where
 
-import Network.Simple.TCP (HostPreference (HostAny), closeSock, send, serve)
+import Control.Monad.IO.Class (MonadIO (liftIO))
+import Network.Simple.TCP (HostPreference (HostAny), Socket, closeSock, recv, send, serve)
 import System.IO (BufferMode (NoBuffering), hPutStrLn, hSetBuffering, stderr, stdout)
+
+bufferSize :: Int
+bufferSize = 1024
+
+clientLoop :: Socket -> IO ()
+clientLoop socket = do
+    redisCmdStr <- recv socket bufferSize
+    print redisCmdStr
+    case redisCmdStr of
+        Nothing -> pure ()
+        Just redisCmdStr' -> do
+            send socket "+PONG\r\n"
+            clientLoop socket
 
 main :: IO ()
 main = do
@@ -18,5 +32,6 @@ main = do
     putStrLn $ "Redis server listening on port " ++ port
     serve HostAny port $ \(socket, address) -> do
         putStrLn $ "successfully connected client: " ++ show address
-        send socket "+PONG\r\n"
+        clientLoop socket
+        print "Closing connection"
         closeSock socket
