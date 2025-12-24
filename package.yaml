@@ -16,6 +16,7 @@ executables:
       - network-simple # establish a simple TCP network
       - bytestring # useful to send bytes over the network
       - parsec
+      - mtl
       # - network # required when using bytestring
       # - text # use Text rather than String
       # - stm # may help with a concurrent database
