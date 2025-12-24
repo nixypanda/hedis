@@ -1,3 +1,4 @@
+---
 name: codecrafters-redis
 version: 0.1.0.0
 license: BSD3
@@ -7,14 +8,23 @@ executables:
     main: Main.hs
     source-dirs: app
     ghc-options:
+      - -Wall
+      - -Wcompat
+      - -Widentities
+      - -Wincomplete-record-updates
+      - -Wincomplete-uni-patterns
+      - -Wmissing-export-lists
+      - -Wmissing-home-modules
+      - -Wpartial-fields
+      - -Wredundant-constraints
       - -threaded
       - -rtsopts
       - -with-rtsopts=-N
     language: GHC2021
     dependencies:
       - base >= 4.18 && < 5
-      - network-simple # establish a simple TCP network
-      - bytestring # useful to send bytes over the network
+      - network-simple
+      - bytestring
       - parsec
       - mtl
       - containers
