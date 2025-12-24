@@ -14,7 +14,8 @@ executables:
     dependencies:
       - base >= 4.18 && < 5
       - network-simple # establish a simple TCP network
-      # - bytestring # useful to send bytes over the network
+      - bytestring # useful to send bytes over the network
+      - parsec
       # - network # required when using bytestring
       # - text # use Text rather than String
       # - stm # may help with a concurrent database
@@ -25,5 +26,4 @@ executables:
       # # Parsing libs
       # - megaparsec
       # - parser-combinators
-      # - parsec
       # - attoparsec
