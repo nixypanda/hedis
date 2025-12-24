@@ -9,17 +9,23 @@ import Control.Monad.IO.Class (MonadIO (liftIO))
 import Control.Monad.Reader (MonadReader, ReaderT, asks)
 import Data.ByteString (ByteString)
 import Data.ByteString.Char8 (readInt)
+import Data.Time (getCurrentTime)
 import ExpiringMap (ExpiringMap)
 import ExpiringMap qualified as EM
 import System.Log.FastLogger (TimedFastLogger)
 import Text.Parsec (ParseError)
 
-import Data.Time (getCurrentTime)
 import Resp (Resp (..))
 
 -- Types
 
-type MemDB = ExpiringMap ByteString ByteString
+data RedisValue
+    = Simple ByteString
+    | List [ByteString]
+    deriving (Show, Eq)
+
+type MemDB = ExpiringMap ByteString RedisValue
+
 data RedisError
     = ParsingError ParseError
     | EncodeError String
@@ -39,13 +45,12 @@ newtype Redis a = MkRedis {runRedis :: ReaderT Env (ExceptT RedisError IO) a}
 -- Conversion
 
 type Key = ByteString
-type Value = ByteString
 type Expiry = Int
 
 data Command
     = Ping
     | Echo ByteString
-    | Set Key Value (Maybe Expiry)
+    | Set Key RedisValue (Maybe Expiry)
     | Get Key
     deriving (Show, Eq)
 
@@ -55,10 +60,14 @@ respToCommand (Array 2 [BulkStr "ECHO", BulkStr xs]) = pure $ Echo xs
 respToCommand (Array 5 [BulkStr "SET", BulkStr key, BulkStr val, BulkStr "PX", BulkStr t]) =
     case readInt t of
         Nothing -> Left "Invalid integer"
-        Just t' -> pure $ Set key val (Just $ fst t')
-respToCommand (Array 3 [BulkStr "SET", BulkStr key, BulkStr val]) = pure $ Set key val Nothing
+        Just t' -> pure $ Set key (Simple val) (Just $ fst t')
+respToCommand (Array 3 [BulkStr "SET", BulkStr key, BulkStr val]) = pure $ Set key (Simple val) Nothing
 respToCommand (Array 2 [BulkStr "GET", BulkStr key]) = pure $ Get key
 respToCommand r = Left $ "Conversion Error" <> show r
+
+redisValueToResp :: RedisValue -> Resp
+redisValueToResp (Simple x) = BulkStr x
+redisValueToResp (List xs) = Array (length xs) $ map BulkStr xs
 
 -- Execution
 
@@ -76,5 +85,5 @@ runCmd (Get key) = do
     rMap <- liftIO $ readTVarIO tVarMap
     let val = EM.lookup key currTime rMap
     case val of
-        Just x -> pure $ BulkStr x
+        Just x -> pure $ redisValueToResp x
         Nothing -> pure NullBulk
