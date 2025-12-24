@@ -113,7 +113,19 @@ runCmd cmd = do
             case val of
                 Nothing -> pure $ redisValueToResp $ List []
                 Just (Simple _) -> throwError $ InvalidCommand "Invalid command for Simple value"
-                Just (List xs) -> pure $ redisValueToResp $ List $ take (stop' - start' + 1) $ drop start' xs
-                  where
-                    start' = if start < 0 then max 0 (length xs + start) else start
-                    stop' = if stop < 0 then max 0 (length xs + stop) else stop
+                Just (List xs) -> pure $ redisValueToResp $ List $ slice start stop xs
+
+normalize :: Int -> Int -> Int
+normalize len i
+    | i < 0 = max 0 (len + i)
+    | otherwise = i
+
+slice :: Int -> Int -> [a] -> [a]
+slice start stop xs =
+    let len = length xs
+        start' = normalize len start
+        stop' = normalize len stop
+        count = stop' - start' + 1
+     in if count <= 0
+            then []
+            else take count (drop start' xs)
