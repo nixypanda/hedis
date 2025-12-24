@@ -10,7 +10,7 @@ import Control.Concurrent.STM (
     writeTVar,
  )
 import Control.Concurrent.STM.TVar (readTVarIO)
-import Control.Monad.Except (ExceptT (..), MonadError)
+import Control.Monad.Except (ExceptT (..), MonadError (throwError))
 import Control.Monad.IO.Class (MonadIO (liftIO))
 import Control.Monad.Reader (MonadReader, ReaderT, asks)
 import Data.ByteString (ByteString)
@@ -37,6 +37,7 @@ data RedisError
     | EmptyBuffer
     | Unimplemented String
     | ConversionError String
+    | InvalidCommand String
     deriving (Show)
 
 data Env = MkEnv
@@ -58,6 +59,7 @@ data Command
     | Set Key RedisValue (Maybe Expiry)
     | Get Key
     | Rpush Key [ByteString]
+    | Lrange Key Int Int
     deriving (Show, Eq)
 
 respToCommand :: Resp -> Either String Command
@@ -70,6 +72,9 @@ respToCommand (Array 5 [BulkStr "SET", BulkStr key, BulkStr val, BulkStr "PX", B
 respToCommand (Array 3 [BulkStr "SET", BulkStr key, BulkStr val]) = pure $ Set key (Simple val) Nothing
 respToCommand (Array 2 [BulkStr "GET", BulkStr key]) = pure $ Get key
 respToCommand (Array _ ((BulkStr "RPUSH") : (BulkStr key) : vals)) = pure $ Rpush key (map (\(BulkStr x) -> x) vals)
+respToCommand (Array 4 [BulkStr "LRANGE", BulkStr key, BulkStr start, BulkStr stop]) = case (readInt start, readInt stop) of
+    (Just start', Just stop') -> pure $ Lrange key (fst start') (fst stop')
+    v -> Left $ "Invalid Integers" <> show v
 respToCommand r = Left $ "Conversion Error" <> show r
 
 redisValueToResp :: RedisValue -> Resp
@@ -102,3 +107,10 @@ runCmd cmd = do
                     Nothing -> (EM.insert key (List xs) currTime Nothing rMap, length xs)
             writeTVar eMap rMap'
             pure $ Int len
+        (Lrange key start stop) -> do
+            rMap <- liftIO $ readTVarIO eMap
+            let val = EM.lookup key currTime rMap
+            case val of
+                Nothing -> pure $ redisValueToResp $ List []
+                Just (Simple _) -> throwError $ InvalidCommand "Invalid command for Simple value"
+                Just (List xs) -> pure $ redisValueToResp $ List $ take (stop - start + 1) $ drop start xs

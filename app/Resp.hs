@@ -43,8 +43,8 @@ resp = do
     case t of
         '+' -> Str <$> bytes <* crlf
         '*' -> array
-        '$' -> bulkString
         ':' -> Int <$> signedIntParser <* crlf
+        '$' -> bulkString
         _ -> fail $ "invalid type tag: " ++ show t
 
 signedIntParser :: Parser Int
@@ -81,5 +81,6 @@ encode :: Resp -> Either String ByteString
 encode (Str x) = Right $ "+" <> x <> crlf'
 encode (BulkStr x) = Right $ "$" <> fromString (show $ BS.length x) <> crlf' <> x <> crlf'
 encode (Int x) = Right $ ":" <> fromString (show x) <> crlf'
+encode (Array n rs) = (\xs -> "*" <> fromString (show n) <> crlf' <> BS.concat xs) <$> mapM encode rs
 encode NullBulk = Right "$-1\r\n"
 encode r = Left $ "Don't know how to encode this" <> fromString (show r)
