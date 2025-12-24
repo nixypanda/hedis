@@ -2,7 +2,13 @@
 
 module Redis (Env (..), Redis, RedisError (..), respToCommand, runCmd, runRedis) where
 
-import Control.Concurrent.STM (TVar, atomically, modifyTVar')
+import Control.Concurrent.STM (
+    TVar,
+    atomically,
+    modifyTVar',
+    readTVar,
+    writeTVar,
+ )
 import Control.Concurrent.STM.TVar (readTVarIO)
 import Control.Monad.Except (ExceptT (..), MonadError)
 import Control.Monad.IO.Class (MonadIO (liftIO))
@@ -12,10 +18,9 @@ import Data.ByteString.Char8 (readInt)
 import Data.Time (getCurrentTime)
 import ExpiringMap (ExpiringMap)
 import ExpiringMap qualified as EM
+import Resp (Resp (..))
 import System.Log.FastLogger (TimedFastLogger)
 import Text.Parsec (ParseError)
-
-import Resp (Resp (..))
 
 -- Types
 
@@ -52,6 +57,7 @@ data Command
     | Echo ByteString
     | Set Key RedisValue (Maybe Expiry)
     | Get Key
+    | Rpush Key [ByteString]
     deriving (Show, Eq)
 
 respToCommand :: Resp -> Either String Command
@@ -63,6 +69,7 @@ respToCommand (Array 5 [BulkStr "SET", BulkStr key, BulkStr val, BulkStr "PX", B
         Just t' -> pure $ Set key (Simple val) (Just $ fst t')
 respToCommand (Array 3 [BulkStr "SET", BulkStr key, BulkStr val]) = pure $ Set key (Simple val) Nothing
 respToCommand (Array 2 [BulkStr "GET", BulkStr key]) = pure $ Get key
+respToCommand (Array 3 [BulkStr "RPUSH", BulkStr key, BulkStr val]) = pure $ Rpush key [val]
 respToCommand r = Left $ "Conversion Error" <> show r
 
 redisValueToResp :: RedisValue -> Resp
@@ -72,18 +79,26 @@ redisValueToResp (List xs) = Array (length xs) $ map BulkStr xs
 -- Execution
 
 runCmd :: Command -> Redis Resp
-runCmd Ping = pure $ Str "PONG"
-runCmd (Echo xs) = pure $ BulkStr xs
-runCmd (Set key val mexpiry) = do
+runCmd cmd = do
+    currTime <- liftIO getCurrentTime
     eMap <- asks db
-    currTime <- liftIO getCurrentTime
-    liftIO . atomically $ modifyTVar' eMap $ EM.insert key val currTime mexpiry
-    pure $ Str "OK"
-runCmd (Get key) = do
-    tVarMap <- asks db
-    currTime <- liftIO getCurrentTime
-    rMap <- liftIO $ readTVarIO tVarMap
-    let val = EM.lookup key currTime rMap
-    case val of
-        Just x -> pure $ redisValueToResp x
-        Nothing -> pure NullBulk
+    case cmd of
+        Ping -> pure $ Str "PONG"
+        (Echo xs) -> pure $ BulkStr xs
+        (Set key val mexpiry) -> do
+            liftIO . atomically $ modifyTVar' eMap $ EM.insert key val currTime mexpiry
+            pure $ Str "OK"
+        (Get key) -> do
+            rMap <- liftIO $ readTVarIO eMap
+            let val = EM.lookup key currTime rMap
+            case val of
+                Just x -> pure $ redisValueToResp x
+                Nothing -> pure NullBulk
+        (Rpush key xs) -> liftIO . atomically $ do
+            rMap <- readTVar eMap
+            let (rMap', len) = case EM.lookup key currTime rMap of
+                    Just (Simple _) -> (EM.insert key (List xs) currTime Nothing rMap, length xs)
+                    Just (List xs') -> (EM.insert key (List $ xs' ++ xs) currTime Nothing rMap, length $ xs' ++ xs)
+                    Nothing -> (EM.insert key (List xs) currTime Nothing rMap, length xs)
+            writeTVar eMap rMap'
+            pure $ Int len

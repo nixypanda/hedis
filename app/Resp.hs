@@ -28,6 +28,7 @@ data Resp
     = Str ByteString
     | Array Int [Resp]
     | BulkStr ByteString
+    | Int Int
     | NullBulk
     deriving (Show)
 
@@ -43,6 +44,7 @@ resp = do
         '+' -> Str <$> bytes <* crlf
         '*' -> array
         '$' -> bulkString
+        ':' -> Int <$> signedIntParser <* crlf
         _ -> fail $ "invalid type tag: " ++ show t
 
 signedIntParser :: Parser Int
@@ -78,5 +80,6 @@ crlf' = "\r\n"
 encode :: Resp -> Either String ByteString
 encode (Str x) = Right $ "+" <> x <> crlf'
 encode (BulkStr x) = Right $ "$" <> fromString (show $ BS.length x) <> crlf' <> x <> crlf'
+encode (Int x) = Right $ ":" <> fromString (show x) <> crlf'
 encode NullBulk = Right "$-1\r\n"
 encode r = Left $ "Don't know how to encode this" <> fromString (show r)
