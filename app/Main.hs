@@ -2,6 +2,7 @@
 
 module Main (main) where
 
+import Control.Concurrent.STM (TVar, atomically, modifyTVar', newTVarIO)
 import Control.Monad.Except (ExceptT (..), MonadError (throwError), liftEither, runExceptT)
 import Control.Monad.IO.Class (MonadIO (liftIO))
 import Control.Monad.Reader (MonadReader, ReaderT (runReaderT), asks)
@@ -36,6 +37,17 @@ newtype Redis a = MkRedis {runRedis :: ReaderT Env (ExceptT RedisError IO) a}
 runCmd :: Resp -> Redis Resp
 runCmd (Array 1 [BulkStr "PING"]) = pure $ Str "PONG"
 runCmd (Array 2 [BulkStr "ECHO", BulkStr xs]) = pure $ BulkStr xs
+runCmd (Array 3 [BulkStr "SET", BulkStr key, BulkStr val]) = do
+    rMap <- asks db
+    liftIO . atomically $ modifyTVar' rMap (M.insert key val)
+    pure $ Str "OK"
+runCmd (Array 2 [BulkStr "GET", BulkStr key]) = do
+    tVarMap <- asks db
+    rMap <- liftIO $ readTVarIO tVarMap
+    let val = M.lookup key rMap
+    case val of
+        Just x -> pure $ BulkStr x
+        Nothing -> pure NullBulk
 runCmd r = throwError $ Unimplemented $ "Unknown command: " <> show r
 
 handleRequest :: ByteString -> Redis ByteString
