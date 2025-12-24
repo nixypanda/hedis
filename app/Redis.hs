@@ -69,7 +69,7 @@ respToCommand (Array 5 [BulkStr "SET", BulkStr key, BulkStr val, BulkStr "PX", B
         Just t' -> pure $ Set key (Simple val) (Just $ fst t')
 respToCommand (Array 3 [BulkStr "SET", BulkStr key, BulkStr val]) = pure $ Set key (Simple val) Nothing
 respToCommand (Array 2 [BulkStr "GET", BulkStr key]) = pure $ Get key
-respToCommand (Array 3 [BulkStr "RPUSH", BulkStr key, BulkStr val]) = pure $ Rpush key [val]
+respToCommand (Array _ ((BulkStr "RPUSH") : (BulkStr key) : vals)) = pure $ Rpush key (map (\(BulkStr x) -> x) vals)
 respToCommand r = Left $ "Conversion Error" <> show r
 
 redisValueToResp :: RedisValue -> Resp
