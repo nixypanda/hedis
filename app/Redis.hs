@@ -15,12 +15,14 @@ import Control.Monad.IO.Class (MonadIO (liftIO))
 import Control.Monad.Reader (MonadReader, ReaderT, asks)
 import Data.ByteString (ByteString)
 import Data.ByteString.Char8 (readInt)
+import Data.Maybe (fromMaybe)
 import Data.Time (getCurrentTime)
 import ExpiringMap (ExpiringMap)
 import ExpiringMap qualified as EM
-import Resp (Resp (..))
 import System.Log.FastLogger (TimedFastLogger)
 import Text.Parsec (ParseError)
+
+import Resp (Resp (..))
 
 -- Types
 
@@ -62,7 +64,7 @@ data Command
     | Lpush Key [ByteString]
     | Lrange Key Int Int
     | Llen Key
-    | Lpop Key
+    | Lpop Key (Maybe Int)
     deriving (Show, Eq)
 
 respToCommand :: Resp -> Either String Command
@@ -77,7 +79,10 @@ respToCommand (Array 2 [BulkStr "GET", BulkStr key]) = pure $ Get key
 respToCommand (Array _ ((BulkStr "RPUSH") : (BulkStr key) : vals)) = pure $ Rpush key (map (\(BulkStr x) -> x) vals)
 respToCommand (Array _ ((BulkStr "LPUSH") : (BulkStr key) : vals)) = pure $ Lpush key (map (\(BulkStr x) -> x) vals)
 respToCommand (Array 2 [BulkStr "LLEN", BulkStr key]) = pure $ Llen key
-respToCommand (Array 2 [BulkStr "LPOP", BulkStr key]) = pure $ Lpop key
+respToCommand (Array 2 [BulkStr "LPOP", BulkStr key]) = pure $ Lpop key Nothing
+respToCommand (Array 3 [BulkStr "LPOP", BulkStr key, BulkStr len]) = case readInt len of
+    Nothing -> Left "Invalid integer"
+    Just len' -> pure $ Lpop key (Just $ fst len')
 respToCommand (Array 4 [BulkStr "LRANGE", BulkStr key, BulkStr start, BulkStr stop]) = case (readInt start, readInt stop) of
     (Just start', Just stop') -> pure $ Lrange key (fst start') (fst stop')
     v -> Left $ "Invalid Integers" <> show v
@@ -85,6 +90,7 @@ respToCommand r = Left $ "Conversion Error" <> show r
 
 redisValueToResp :: RedisValue -> Resp
 redisValueToResp (Simple x) = BulkStr x
+redisValueToResp (List [x]) = BulkStr x
 redisValueToResp (List xs) = Array (length xs) $ map BulkStr xs
 
 -- Execution
@@ -135,7 +141,7 @@ runCmd cmd = do
                 Nothing -> pure $ Int 0
                 Just (Simple _) -> throwError $ InvalidCommand "Invalid command for Simple value"
                 Just (List xs) -> pure $ Int $ length xs
-        (Lpop key) ->
+        (Lpop key mLen) ->
             liftIO . atomically $ do
                 rMap <- readTVar eMap
                 let val = EM.lookup key currTime rMap
@@ -143,9 +149,12 @@ runCmd cmd = do
                     Nothing -> pure NullBulk
                     Just (Simple _) -> pure NullBulk
                     Just (List []) -> pure NullBulk
-                    Just (List (x : xs)) -> do
-                        writeTVar eMap (EM.insert key (List xs) currTime Nothing rMap)
-                        pure $ redisValueToResp $ Simple x
+                    Just (List xs) -> do
+                        writeTVar eMap (EM.insert key (List ts) currTime Nothing rMap)
+                        pure $ redisValueToResp $ List hs
+                      where
+                        (hs, ts) = splitAt n xs
+                        n = fromMaybe 1 mLen
 
 normalize :: Int -> Int -> Int
 normalize len i
