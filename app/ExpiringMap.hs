@@ -1,6 +1,6 @@
 {-# LANGUAGE RecordWildCards #-}
 
-module ExpiringMap (empty, insert, insertWithExpiry, lookup, ExpiringMap) where
+module ExpiringMap (empty, insert, lookup, ExpiringMap) where
 
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as M
@@ -15,19 +15,13 @@ data StoredVal a = MkStoredVal
     deriving (Show)
 
 type ExpiringMap k v = Map k (StoredVal v)
-type Expiry = Integer
+type Expiry = Int
 
 empty :: ExpiringMap k v
 empty = M.empty
 
-insert :: (Ord k) => k -> v -> UTCTime -> ExpiringMap k v -> ExpiringMap k v
-insert k v t = _insert k v t Nothing
-
-insertWithExpiry :: (Ord k) => k -> v -> UTCTime -> Expiry -> ExpiringMap k v -> ExpiringMap k v
-insertWithExpiry k v t e = _insert k v t (Just e)
-
-_insert :: (Ord k) => k -> v -> UTCTime -> Maybe Expiry -> ExpiringMap k v -> ExpiringMap k v
-_insert k value storedWhen maybeExpiry db = do
+insert :: (Ord k) => k -> v -> UTCTime -> Maybe Expiry -> ExpiringMap k v -> ExpiringMap k v
+insert k value storedWhen maybeExpiry db = do
     let expiration = milliSecontsToNominalDiffTime <$> maybeExpiry
     M.insert k MkStoredVal{..} db
 
@@ -42,5 +36,5 @@ getIfNotExpired currentTime MkStoredVal{..} = case expiration of
             then Just value
             else Nothing
 
-milliSecontsToNominalDiffTime :: Integer -> NominalDiffTime
+milliSecontsToNominalDiffTime :: Int -> NominalDiffTime
 milliSecontsToNominalDiffTime = secondsToNominalDiffTime . (/ 1000) . fromIntegral
