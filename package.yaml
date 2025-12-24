@@ -17,14 +17,4 @@ executables:
       - bytestring # useful to send bytes over the network
       - parsec
       - mtl
-      # - network # required when using bytestring
-      # - text # use Text rather than String
-      # - stm # may help with a concurrent database
-      # - containers # may help with the database structure and debugging
-      # - time # may help with the expiry function
-      # - async # may help with concurrency
-      # - mtl # may help with structuring
-      # # Parsing libs
-      # - megaparsec
-      # - parser-combinators
-      # - attoparsec
+      - containers

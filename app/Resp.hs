@@ -24,7 +24,10 @@ import Text.Parsec.Char (crlf)
 
 -- RESP
 
-data Resp = Str ByteString | Array Int [Resp] | BulkStr ByteString
+data Resp
+    = Str ByteString
+    | Array Int [Resp]
+    | BulkStr ByteString
     deriving (Show)
 
 -- parsing

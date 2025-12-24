@@ -3,51 +3,63 @@
 module Main (main) where
 
 import Control.Monad (forever, replicateM)
-import Control.Monad.Except (ExceptT (..), runExceptT, withExceptT)
+import Control.Monad.Except (ExceptT (..), MonadError (throwError), liftEither, runExceptT, withExceptT)
 import Control.Monad.IO.Class (MonadIO (liftIO))
+import Control.Monad.State (StateT (runStateT), lift)
+import Data.Bifunctor (Bifunctor (first))
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
+import Data.Map (Map)
+import Data.Map qualified as M
 import Data.String (fromString)
 import Network.Simple.TCP (HostPreference (HostAny), Socket, closeSock, recv, send, serve)
 import System.IO (BufferMode (NoBuffering), hPutStrLn, hSetBuffering, stderr, stdout)
+import Text.Parsec (ParseError)
 
+import Data.Maybe (fromMaybe)
 import Resp
 
 -- Command execution
 
-runCmd :: Resp -> Resp
-runCmd (Array 1 [BulkStr "PING"]) = Str "PONG"
-runCmd (Array 2 [BulkStr "ECHO", BulkStr xs]) = BulkStr xs
-
-data RespError
-    = ParseError String
+type MemDB = Map ByteString ByteString
+data RedisError
+    = ParsingError ParseError
     | EncodeError String
+    | EmptyBuffer
+    | Unimplemented String
     deriving (Show)
 
-handleRequest :: Socket -> ByteString -> ExceptT RespError IO ()
-handleRequest socket bs = do
-    resp <- withExceptT (ParseError . show) $ ExceptT (pure (decode bs))
-    liftIO $ print ("RESP: Parsing Success " <> show resp)
-    let result = runCmd resp
-    encoded <- withExceptT EncodeError $ ExceptT (pure (encode result))
+newtype Redis a = MkRedis {runRedis :: StateT MemDB (ExceptT RedisError IO) a}
+    deriving (Functor, Applicative, Monad, MonadError RedisError, MonadIO)
 
-    liftIO $ do
-        print ("RESP: Encoding Success " <> encoded)
-        send socket encoded
+runCmd :: Resp -> Redis Resp
+runCmd (Array 1 [BulkStr "PING"]) = pure $ Str "PONG"
+runCmd (Array 2 [BulkStr "ECHO", BulkStr xs]) = pure $ BulkStr xs
+runCmd r = throwError $ Unimplemented $ "Unknown command: " <> show r
+
+handleRequest :: ByteString -> Redis ByteString
+handleRequest bs = do
+    liftIO $ print ("Received: " <> bs)
+    resp <- liftEither $ first ParsingError $ decode bs
+    liftIO $ print ("Decoded: " <> show resp)
+    result <- runCmd resp
+    liftIO $ print ("Execution: " <> show result)
+    encoded <- liftEither $ first EncodeError $ encode result
+    liftIO $ print ("Encoded: " <> encoded)
+    pure encoded
 
 -- network
 
 bufferSize :: Int
 bufferSize = 1024
 
-clientLoop :: Socket -> IO ()
+clientLoop :: Socket -> Redis ()
 clientLoop socket = do
     mbs <- recv socket bufferSize
-    case mbs of
-        Nothing -> print ("Empty buffer" :: String)
-        Just bs -> do
-            runExceptT (handleRequest socket bs) >>= either print pure
-            clientLoop socket
+    ebs <- maybe (throwError EmptyBuffer) pure mbs
+    encoded <- handleRequest ebs
+    send socket encoded
+    clientLoop socket
 
 main :: IO ()
 main = do
@@ -62,6 +74,9 @@ main = do
     putStrLn $ "Redis server listening on port " ++ port
     serve HostAny port $ \(socket, address) -> do
         putStrLn $ "successfully connected client: " ++ show address
-        clientLoop socket
+        errOrRes <- runExceptT $ runStateT (runRedis $ clientLoop socket) M.empty
+        case errOrRes of
+            Left err -> print err
+            Right _ -> pure ()
         print "Closing connection"
         closeSock socket
