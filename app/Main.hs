@@ -2,22 +2,19 @@
 
 module Main (main) where
 
-import Control.Monad (forever, replicateM)
-import Control.Monad.Except (ExceptT (..), MonadError (throwError), liftEither, runExceptT, withExceptT)
+import Control.Monad.Except (ExceptT (..), MonadError (throwError), liftEither, runExceptT)
 import Control.Monad.IO.Class (MonadIO (liftIO))
-import Control.Monad.State (StateT (runStateT), lift)
+import Control.Monad.Reader (MonadReader, ReaderT (runReaderT), asks)
 import Data.Bifunctor (Bifunctor (first))
 import Data.ByteString (ByteString)
-import Data.ByteString qualified as BS
 import Data.Map (Map)
 import Data.Map qualified as M
-import Data.String (fromString)
 import Network.Simple.TCP (HostPreference (HostAny), Socket, closeSock, recv, send, serve)
 import System.IO (BufferMode (NoBuffering), hPutStrLn, hSetBuffering, stderr, stdout)
 import Text.Parsec (ParseError)
 
-import Data.Maybe (fromMaybe)
-import Resp
+import Control.Concurrent.STM.TVar (readTVarIO)
+import Resp (Resp (..), decode, encode)
 
 -- Command execution
 
@@ -29,8 +26,12 @@ data RedisError
     | Unimplemented String
     deriving (Show)
 
-newtype Redis a = MkRedis {runRedis :: StateT MemDB (ExceptT RedisError IO) a}
-    deriving (Functor, Applicative, Monad, MonadError RedisError, MonadIO)
+newtype Env = MkEnv
+    { db :: TVar MemDB
+    }
+
+newtype Redis a = MkRedis {runRedis :: ReaderT Env (ExceptT RedisError IO) a}
+    deriving (Functor, Applicative, Monad, MonadError RedisError, MonadIO, MonadReader Env)
 
 runCmd :: Resp -> Redis Resp
 runCmd (Array 1 [BulkStr "PING"]) = pure $ Str "PONG"
@@ -72,11 +73,15 @@ main = do
 
     let port = "6379"
     putStrLn $ "Redis server listening on port " ++ port
+
+    tv <- newTVarIO M.empty
+    let env = MkEnv tv
+
     serve HostAny port $ \(socket, address) -> do
         putStrLn $ "successfully connected client: " ++ show address
-        errOrRes <- runExceptT $ runStateT (runRedis $ clientLoop socket) M.empty
+        errOrRes <- runExceptT $ runReaderT (runRedis $ clientLoop socket) env
         case errOrRes of
             Left err -> print err
             Right _ -> pure ()
-        print "Closing connection"
+        print @ByteString "Closing connection"
         closeSock socket

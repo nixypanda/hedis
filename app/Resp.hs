@@ -1,6 +1,7 @@
+{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-module Resp where
+module Resp (Resp (..), encode, decode) where
 
 import Control.Monad (replicateM)
 import Data.ByteString (ByteString)
@@ -20,7 +21,6 @@ import Text.Parsec (
     (<|>),
  )
 import Text.Parsec.ByteString (Parser)
-import Text.Parsec.Char (crlf)
 
 -- RESP
 
@@ -28,6 +28,7 @@ data Resp
     = Str ByteString
     | Array Int [Resp]
     | BulkStr ByteString
+    | NullBulk
     deriving (Show)
 
 -- parsing
@@ -55,15 +56,16 @@ array :: Parser Resp
 array = do
     n <- signedIntParser <* crlf
     if n >= 0
-        then Array (fromIntegral n) <$> replicateM n resp
+        then Array n <$> replicateM n resp
         else fail "negative array length"
 
 bulkString :: Parser Resp
 bulkString = do
     n <- signedIntParser <* crlf
-    if n >= 0
-        then BulkStr . fromString <$> count n anyChar <* crlf
-        else fail "negative bulk length"
+    if
+        | n >= 0 -> BulkStr . fromString <$> count n anyChar <* crlf
+        | n == -1 -> pure NullBulk
+        | otherwise -> fail "negative bulk length"
 
 decode :: ByteString -> Either ParseError Resp
 decode = parse resp ""
@@ -76,4 +78,5 @@ crlf' = "\r\n"
 encode :: Resp -> Either String ByteString
 encode (Str x) = Right $ "+" <> x <> crlf'
 encode (BulkStr x) = Right $ "$" <> fromString (show $ BS.length x) <> crlf' <> x <> crlf'
+encode NullBulk = Right "$-1\r\n"
 encode r = Left $ "Don't know how to encode this" <> fromString (show r)

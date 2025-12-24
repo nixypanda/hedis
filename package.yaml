@@ -28,3 +28,4 @@ executables:
       - parsec
       - mtl
       - containers
+      - stm
