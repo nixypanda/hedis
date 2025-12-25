@@ -7,6 +7,7 @@ import Control.Concurrent.STM (
     atomically,
     modifyTVar',
     readTVar,
+    retry,
     writeTVar,
  )
 import Control.Concurrent.STM.TVar (readTVarIO)
@@ -65,6 +66,7 @@ data Command
     | Lrange Key Int Int
     | Llen Key
     | Lpop Key (Maybe Int)
+    | Blpop Key Int
     deriving (Show, Eq)
 
 respToCommand :: Resp -> Either String Command
@@ -86,6 +88,9 @@ respToCommand (Array 3 [BulkStr "LPOP", BulkStr key, BulkStr len]) = case readIn
 respToCommand (Array 4 [BulkStr "LRANGE", BulkStr key, BulkStr start, BulkStr stop]) = case (readInt start, readInt stop) of
     (Just start', Just stop') -> pure $ Lrange key (fst start') (fst stop')
     v -> Left $ "Invalid Integers" <> show v
+respToCommand (Array 3 [BulkStr "BLPOP", BulkStr key, BulkStr timeout]) = case readInt timeout of
+    Nothing -> Left "Invalid timeout"
+    Just timeout' -> pure $ Blpop key (fst timeout')
 respToCommand r = Left $ "Conversion Error" <> show r
 
 redisValueToResp :: RedisValue -> Resp
@@ -155,6 +160,15 @@ runCmd cmd = do
                       where
                         (hs, ts) = splitAt n xs
                         n = fromMaybe 1 mLen
+        (Blpop key timeout) -> liftIO . atomically $ do
+            rMap <- readTVar eMap
+            case EM.lookup key currTime rMap of
+                Nothing -> retry
+                Just (Simple _) -> retry
+                Just (List []) -> retry
+                Just (List (x : xs)) -> do
+                    writeTVar eMap (EM.insert key (List xs) currTime Nothing rMap)
+                    pure $ redisValueToResp $ List [key, x]
 
 normalize :: Int -> Int -> Int
 normalize len i
