@@ -3,6 +3,7 @@
 module Redis (Env (..), Redis, RedisError (..), respToCommand, runCmd, runRedis) where
 
 import Control.Concurrent.STM (
+    STM,
     TVar,
     atomically,
     modifyTVar',
@@ -30,11 +31,6 @@ import ListMap qualified as LM
 import Resp (Resp (..))
 
 -- Types
-
-data RedisValue
-    = Simple ByteString
-    | List [ByteString]
-    deriving (Show, Eq)
 
 data RedisError
     = ParsingError ParseError
@@ -97,25 +93,26 @@ respToCommand r = Left $ "Conversion Error" <> show r
 secondsToMicros :: Float -> Int
 secondsToMicros = round . (* 1_000_000)
 
-redisValueToResp :: RedisValue -> Resp
-redisValueToResp (Simple x) = BulkStr x
-redisValueToResp (List [x]) = BulkStr x
-redisValueToResp (List xs) = Array (length xs) $ map BulkStr xs
+listToResp :: [ByteString] -> Resp
+listToResp [x] = BulkStr x
+listToResp xs = Array (length xs) $ map BulkStr xs
 
 -- Execution
 
 runCmd :: Command -> Redis Resp
 runCmd cmd = do
-    currTime <- liftIO getCurrentTime
-    tvStringMap <- asks stringStore
     tvListMap <- asks listStore
     case cmd of
         Ping -> pure $ Str "PONG"
         (Echo xs) -> pure $ BulkStr xs
         (Set key val mexpiry) -> do
+            currTime <- liftIO getCurrentTime
+            tvStringMap <- asks stringStore
             liftIO . atomically $ modifyTVar' tvStringMap $ EM.insert key val currTime mexpiry
             pure $ Str "OK"
         (Get key) -> do
+            currTime <- liftIO getCurrentTime
+            tvStringMap <- asks stringStore
             stringMap <- liftIO $ readTVarIO tvStringMap
             let val = EM.lookup key currTime stringMap
             case val of
@@ -136,7 +133,7 @@ runCmd cmd = do
         (Lrange key start end) -> do
             listMap <- liftIO $ readTVarIO tvListMap
             let vals = LM.list key MkRange{..} listMap
-            pure $ redisValueToResp $ List vals
+            pure $ listToResp vals
         (Llen key) -> do
             listMap <- liftIO $ readTVarIO tvListMap
             let count = LM.lookupCount key listMap
@@ -146,22 +143,18 @@ runCmd cmd = do
                 listMap <- readTVar tvListMap
                 let (xs, listMap') = LM.leftPops key (fromMaybe 1 mLen) listMap
                 writeTVar tvListMap listMap'
-                pure $ redisValueToResp $ List xs
-        (Blpop key 0) -> liftIO . atomically $ do
-            listMap <- readTVar tvListMap
-            case LM.leftPop key listMap of
-                Nothing -> retry
-                Just (x, listMap') -> do
-                    writeTVar tvListMap listMap'
-                    pure $ redisValueToResp $ List [key, x]
+                pure $ listToResp xs
+        (Blpop key 0) ->
+            liftIO $ atomically (blpopSTM key tvListMap)
         (Blpop key tout) -> do
-            val <- liftIO $ timeout tout $ atomically $ do
-                listMap <- readTVar tvListMap
-                case LM.leftPop key listMap of
-                    Nothing -> retry
-                    Just (x, listMap') -> do
-                        writeTVar tvListMap listMap'
-                        pure $ redisValueToResp $ List [key, x]
-            case val of
-                Nothing -> pure $ NullArray
-                Just xs -> pure xs
+            res <- liftIO $ timeout tout (atomically $ blpopSTM key tvListMap)
+            pure (fromMaybe NullArray res)
+
+blpopSTM :: Key -> TVar (ListMap Key ByteString) -> STM Resp
+blpopSTM key tv = do
+    m <- readTVar tv
+    case LM.leftPop key m of
+        Nothing -> retry
+        Just (x, m') -> do
+            writeTVar tv m'
+            pure $ listToResp [key, x]

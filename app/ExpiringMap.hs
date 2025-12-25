@@ -1,5 +1,3 @@
-{-# LANGUAGE RecordWildCards #-}
-
 module ExpiringMap (empty, insert, lookup, ExpiringMap) where
 
 import Data.Map.Strict (Map)

@@ -1,4 +1,3 @@
-{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Resp (Resp (..), encode, decode) where
