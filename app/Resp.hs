@@ -30,6 +30,7 @@ data Resp
     | BulkStr ByteString
     | Int Int
     | NullBulk
+    | NullArray
     deriving (Show)
 
 -- parsing
@@ -57,9 +58,10 @@ signedIntParser = do
 array :: Parser Resp
 array = do
     n <- signedIntParser <* crlf
-    if n >= 0
-        then Array n <$> replicateM n resp
-        else fail "negative array length"
+    if
+        | n >= 0 -> Array n <$> replicateM n resp
+        | n == -1 -> pure NullArray
+        | otherwise -> fail "negative array length"
 
 bulkString :: Parser Resp
 bulkString = do
@@ -83,4 +85,4 @@ encode (BulkStr x) = Right $ "$" <> fromString (show $ BS.length x) <> crlf' <> 
 encode (Int x) = Right $ ":" <> fromString (show x) <> crlf'
 encode (Array n rs) = (\xs -> "*" <> fromString (show n) <> crlf' <> BS.concat xs) <$> mapM encode rs
 encode NullBulk = Right "$-1\r\n"
-encode r = Left $ "Don't know how to encode this" <> fromString (show r)
+encode NullArray = Right "*-1\r\n"

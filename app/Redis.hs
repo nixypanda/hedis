@@ -16,11 +16,13 @@ import Control.Monad.IO.Class (MonadIO (liftIO))
 import Control.Monad.Reader (MonadReader, ReaderT, asks)
 import Data.ByteString (ByteString)
 import Data.ByteString.Char8 (readInt)
+import Data.ByteString.Char8 qualified as BSC
 import Data.Maybe (fromMaybe)
 import Data.Time (getCurrentTime)
 import ExpiringMap (ExpiringMap)
 import ExpiringMap qualified as EM
 import System.Log.FastLogger (TimedFastLogger)
+import System.Timeout (timeout)
 import Text.Parsec (ParseError)
 
 import Resp (Resp (..))
@@ -88,10 +90,11 @@ respToCommand (Array 3 [BulkStr "LPOP", BulkStr key, BulkStr len]) = case readIn
 respToCommand (Array 4 [BulkStr "LRANGE", BulkStr key, BulkStr start, BulkStr stop]) = case (readInt start, readInt stop) of
     (Just start', Just stop') -> pure $ Lrange key (fst start') (fst stop')
     v -> Left $ "Invalid Integers" <> show v
-respToCommand (Array 3 [BulkStr "BLPOP", BulkStr key, BulkStr timeout]) = case readInt timeout of
-    Nothing -> Left "Invalid timeout"
-    Just timeout' -> pure $ Blpop key (fst timeout')
+respToCommand (Array 3 [BulkStr "BLPOP", BulkStr key, BulkStr tout]) = pure $ Blpop key (secondsToMicros $ read @Float (BSC.unpack tout))
 respToCommand r = Left $ "Conversion Error" <> show r
+
+secondsToMicros :: Float -> Int
+secondsToMicros = round . (* 1_000_000)
 
 redisValueToResp :: RedisValue -> Resp
 redisValueToResp (Simple x) = BulkStr x
@@ -160,7 +163,7 @@ runCmd cmd = do
                       where
                         (hs, ts) = splitAt n xs
                         n = fromMaybe 1 mLen
-        (Blpop key timeout) -> liftIO . atomically $ do
+        (Blpop key 0) -> liftIO . atomically $ do
             rMap <- readTVar eMap
             case EM.lookup key currTime rMap of
                 Nothing -> retry
@@ -169,6 +172,17 @@ runCmd cmd = do
                 Just (List (x : xs)) -> do
                     writeTVar eMap (EM.insert key (List xs) currTime Nothing rMap)
                     pure $ redisValueToResp $ List [key, x]
+        (Blpop key tout) -> do
+            val <- liftIO $ timeout tout $ atomically $ do
+                rMap <- readTVar eMap
+                case EM.lookup key currTime rMap of
+                    Just (List (x : xs)) -> do
+                        writeTVar eMap (EM.insert key (List xs) currTime Nothing rMap)
+                        pure $ redisValueToResp $ List [key, x]
+                    _ -> retry
+            case val of
+                Nothing -> pure $ NullArray
+                Just xs -> pure xs
 
 normalize :: Int -> Int -> Int
 normalize len i
