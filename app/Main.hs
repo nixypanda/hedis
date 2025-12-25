@@ -14,6 +14,7 @@ import System.IO (BufferMode (NoBuffering), hSetBuffering, stderr, stdout)
 import System.Log.FastLogger (LogType' (..), defaultBufSize, newTimeCache, newTimedFastLogger, toLogStr)
 import System.Log.FastLogger.Date (simpleTimeFormat)
 
+import ListMap qualified as LM
 import Redis (Env (..), Redis, RedisError (..), respToCommand, runCmd, runRedis)
 import Resp (decode, encode)
 
@@ -53,8 +54,9 @@ main = do
 
     timeCache <- newTimeCache simpleTimeFormat
     (logger, _cleanup) <- newTimedFastLogger timeCache (LogStderr defaultBufSize)
-    tvDB <- newTVarIO EM.empty
-    let env = MkEnv{db = tvDB, envLogger = logger}
+    tvStringDB <- newTVarIO EM.empty
+    tvListDB <- newTVarIO LM.empty
+    let env = MkEnv{stringStore = tvStringDB, listStore = tvListDB, envLogger = logger}
         logInfo' msg = logger (\t -> toLogStr (show t <> "[INFO] " <> msg <> "\n"))
         logError' msg = logger (\t -> toLogStr (show t <> "[ERROR] " <> msg <> "\n"))
 

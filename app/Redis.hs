@@ -11,7 +11,7 @@ import Control.Concurrent.STM (
     writeTVar,
  )
 import Control.Concurrent.STM.TVar (readTVarIO)
-import Control.Monad.Except (ExceptT (..), MonadError (throwError))
+import Control.Monad.Except (ExceptT (..), MonadError)
 import Control.Monad.IO.Class (MonadIO (liftIO))
 import Control.Monad.Reader (MonadReader, ReaderT, asks)
 import Data.ByteString (ByteString)
@@ -19,12 +19,14 @@ import Data.ByteString.Char8 (readInt)
 import Data.ByteString.Char8 qualified as BSC
 import Data.Maybe (fromMaybe)
 import Data.Time (getCurrentTime)
-import ExpiringMap (ExpiringMap)
-import ExpiringMap qualified as EM
 import System.Log.FastLogger (TimedFastLogger)
 import System.Timeout (timeout)
 import Text.Parsec (ParseError)
 
+import ExpiringMap (ExpiringMap)
+import ExpiringMap qualified as EM
+import ListMap (ListMap, Range (..))
+import ListMap qualified as LM
 import Resp (Resp (..))
 
 -- Types
@@ -33,8 +35,6 @@ data RedisValue
     = Simple ByteString
     | List [ByteString]
     deriving (Show, Eq)
-
-type MemDB = ExpiringMap ByteString RedisValue
 
 data RedisError
     = ParsingError ParseError
@@ -46,7 +46,8 @@ data RedisError
     deriving (Show)
 
 data Env = MkEnv
-    { db :: TVar MemDB
+    { stringStore :: TVar (ExpiringMap ByteString ByteString)
+    , listStore :: TVar (ListMap ByteString ByteString)
     , envLogger :: TimedFastLogger
     }
 
@@ -61,7 +62,7 @@ type Expiry = Int
 data Command
     = Ping
     | Echo ByteString
-    | Set Key RedisValue (Maybe Expiry)
+    | Set Key ByteString (Maybe Expiry)
     | Get Key
     | Rpush Key [ByteString]
     | Lpush Key [ByteString]
@@ -77,8 +78,8 @@ respToCommand (Array 2 [BulkStr "ECHO", BulkStr xs]) = pure $ Echo xs
 respToCommand (Array 5 [BulkStr "SET", BulkStr key, BulkStr val, BulkStr "PX", BulkStr t]) =
     case readInt t of
         Nothing -> Left "Invalid integer"
-        Just t' -> pure $ Set key (Simple val) (Just $ fst t')
-respToCommand (Array 3 [BulkStr "SET", BulkStr key, BulkStr val]) = pure $ Set key (Simple val) Nothing
+        Just t' -> pure $ Set key val (Just $ fst t')
+respToCommand (Array 3 [BulkStr "SET", BulkStr key, BulkStr val]) = pure $ Set key val Nothing
 respToCommand (Array 2 [BulkStr "GET", BulkStr key]) = pure $ Get key
 respToCommand (Array _ ((BulkStr "RPUSH") : (BulkStr key) : vals)) = pure $ Rpush key (map (\(BulkStr x) -> x) vals)
 respToCommand (Array _ ((BulkStr "LPUSH") : (BulkStr key) : vals)) = pure $ Lpush key (map (\(BulkStr x) -> x) vals)
@@ -106,95 +107,61 @@ redisValueToResp (List xs) = Array (length xs) $ map BulkStr xs
 runCmd :: Command -> Redis Resp
 runCmd cmd = do
     currTime <- liftIO getCurrentTime
-    eMap <- asks db
+    tvStringMap <- asks stringStore
+    tvListMap <- asks listStore
     case cmd of
         Ping -> pure $ Str "PONG"
         (Echo xs) -> pure $ BulkStr xs
         (Set key val mexpiry) -> do
-            liftIO . atomically $ modifyTVar' eMap $ EM.insert key val currTime mexpiry
+            liftIO . atomically $ modifyTVar' tvStringMap $ EM.insert key val currTime mexpiry
             pure $ Str "OK"
         (Get key) -> do
-            rMap <- liftIO $ readTVarIO eMap
-            let val = EM.lookup key currTime rMap
+            stringMap <- liftIO $ readTVarIO tvStringMap
+            let val = EM.lookup key currTime stringMap
             case val of
-                Just x -> pure $ redisValueToResp x
+                Just x -> pure $ BulkStr x
                 Nothing -> pure NullBulk
         (Rpush key xs) -> liftIO . atomically $ do
-            rMap <- readTVar eMap
-            let (rMap', len) = case EM.lookup key currTime rMap of
-                    Just (Simple _) -> (EM.insert key (List xs) currTime Nothing rMap, length xs)
-                    Just (List xs') -> (EM.insert key (List $ xs' ++ xs) currTime Nothing rMap, length $ xs' ++ xs)
-                    Nothing -> (EM.insert key (List xs) currTime Nothing rMap, length xs)
-            writeTVar eMap rMap'
+            listMap <- readTVar tvListMap
+            let listMap' = LM.append key xs listMap
+                len = LM.lookupCount key listMap'
+            writeTVar tvListMap listMap'
             pure $ Int len
         (Lpush key xs) -> liftIO . atomically $ do
-            rMap <- readTVar eMap
-            let (rMap', len) = case EM.lookup key currTime rMap of
-                    Just (Simple _) -> (EM.insert key (List xs) currTime Nothing rMap, length xs)
-                    Just (List xs') -> (EM.insert key (List $ reverse xs ++ xs') currTime Nothing rMap, length $ xs' ++ xs)
-                    Nothing -> (EM.insert key (List xs) currTime Nothing rMap, length xs)
-            writeTVar eMap rMap'
+            listMap <- readTVar tvListMap
+            let listMap' = LM.revPrepend key xs listMap
+                len = LM.lookupCount key listMap'
+            writeTVar tvListMap listMap'
             pure $ Int len
-        (Lrange key start stop) -> do
-            rMap <- liftIO $ readTVarIO eMap
-            let val = EM.lookup key currTime rMap
-            case val of
-                Nothing -> pure $ redisValueToResp $ List []
-                Just (Simple _) -> throwError $ InvalidCommand "Invalid command for Simple value"
-                Just (List xs) -> pure $ redisValueToResp $ List $ slice start stop xs
+        (Lrange key start end) -> do
+            listMap <- liftIO $ readTVarIO tvListMap
+            let vals = LM.list key MkRange{..} listMap
+            pure $ redisValueToResp $ List vals
         (Llen key) -> do
-            rMap <- liftIO $ readTVarIO eMap
-            let val = EM.lookup key currTime rMap
-            case val of
-                Nothing -> pure $ Int 0
-                Just (Simple _) -> throwError $ InvalidCommand "Invalid command for Simple value"
-                Just (List xs) -> pure $ Int $ length xs
+            listMap <- liftIO $ readTVarIO tvListMap
+            let count = LM.lookupCount key listMap
+            pure $ Int count
         (Lpop key mLen) ->
             liftIO . atomically $ do
-                rMap <- readTVar eMap
-                let val = EM.lookup key currTime rMap
-                case val of
-                    Nothing -> pure NullBulk
-                    Just (Simple _) -> pure NullBulk
-                    Just (List []) -> pure NullBulk
-                    Just (List xs) -> do
-                        writeTVar eMap (EM.insert key (List ts) currTime Nothing rMap)
-                        pure $ redisValueToResp $ List hs
-                      where
-                        (hs, ts) = splitAt n xs
-                        n = fromMaybe 1 mLen
+                listMap <- readTVar tvListMap
+                let (xs, listMap') = LM.leftPops key (fromMaybe 1 mLen) listMap
+                writeTVar tvListMap listMap'
+                pure $ redisValueToResp $ List xs
         (Blpop key 0) -> liftIO . atomically $ do
-            rMap <- readTVar eMap
-            case EM.lookup key currTime rMap of
+            listMap <- readTVar tvListMap
+            case LM.leftPop key listMap of
                 Nothing -> retry
-                Just (Simple _) -> retry
-                Just (List []) -> retry
-                Just (List (x : xs)) -> do
-                    writeTVar eMap (EM.insert key (List xs) currTime Nothing rMap)
+                Just (x, listMap') -> do
+                    writeTVar tvListMap listMap'
                     pure $ redisValueToResp $ List [key, x]
         (Blpop key tout) -> do
             val <- liftIO $ timeout tout $ atomically $ do
-                rMap <- readTVar eMap
-                case EM.lookup key currTime rMap of
-                    Just (List (x : xs)) -> do
-                        writeTVar eMap (EM.insert key (List xs) currTime Nothing rMap)
+                listMap <- readTVar tvListMap
+                case LM.leftPop key listMap of
+                    Nothing -> retry
+                    Just (x, listMap') -> do
+                        writeTVar tvListMap listMap'
                         pure $ redisValueToResp $ List [key, x]
-                    _ -> retry
             case val of
                 Nothing -> pure $ NullArray
                 Just xs -> pure xs
-
-normalize :: Int -> Int -> Int
-normalize len i
-    | i < 0 = max 0 (len + i)
-    | otherwise = i
-
-slice :: Int -> Int -> [a] -> [a]
-slice start stop xs =
-    let len = length xs
-        start' = normalize len start
-        stop' = normalize len stop
-        count = stop' - start' + 1
-     in if count <= 0
-            then []
-            else take count (drop start' xs)

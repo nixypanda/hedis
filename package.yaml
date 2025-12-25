@@ -31,3 +31,6 @@ executables:
       - stm
       - fast-logger
       - time
+    default-extensions:
+      - MultiWayIf
+      - RecordWildCards
