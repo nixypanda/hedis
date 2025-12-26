@@ -24,6 +24,7 @@ import Data.ByteString (ByteString)
 import Data.Map (Map)
 import Data.Map qualified as M
 import Data.Maybe (fromMaybe)
+import Data.String (IsString (fromString))
 import Data.Time (UTCTime, getCurrentTime)
 import ExpiringMap qualified as EM
 import System.Log.FastLogger (
@@ -41,8 +42,10 @@ import Text.Parsec (ParseError)
 import ExpiringMap (ExpiringMap)
 import ListMap (ListMap, Range (..))
 import ListMap qualified as LM
-import Parsers (readFloatBS, readIntBS)
+import Parsers (readFloatBS, readIntBS, readStreamId)
 import Resp (Resp (..), decode, encode)
+import StreamMap (ConcreteStreamId, StreamId, StreamMap)
+import StreamMap qualified as SM
 
 -- Types
 
@@ -61,11 +64,13 @@ type Expiry = Int
 type ListStore = ListMap Key ByteString
 type StringStore = ExpiringMap Key ByteString
 type TypeIndex = Map Key ValueType
+type StreamStore = StreamMap Key ByteString ByteString
 
 data Env = MkEnv
-    { stringStore :: TVar (ExpiringMap ByteString ByteString)
+    { stringStore :: TVar StringStore
     , listStore :: TVar ListStore
     , typeIndex :: TVar TypeIndex
+    , streamStore :: TVar StreamStore
     , envLogger :: TimedFastLogger
     }
 
@@ -77,6 +82,7 @@ mkNewEnv = do
     stringStore <- newTVarIO EM.empty
     listStore <- newTVarIO LM.empty
     typeIndex <- newTVarIO M.empty
+    streamStore <- newTVarIO SM.empty
     timeCache <- newTimeCache simpleTimeFormat
     (envLogger, _cleanup) <- newTimedFastLogger timeCache (LogStderr defaultBufSize)
     pure MkEnv{..}
@@ -95,11 +101,17 @@ data Command
     | Llen Key
     | Lpop Key (Maybe Int)
     | Blpop Key Int
+    | Xadd Key StreamId [(ByteString, ByteString)]
     deriving (Show, Eq)
 
 extractBulk :: Resp -> Either String ByteString
 extractBulk (BulkStr x) = Right x
 extractBulk r = Left $ "Invalit Type" <> show r
+
+chunksOf2 :: [a] -> Either String [(a, a)]
+chunksOf2 [] = Right []
+chunksOf2 (x : y : xs) = ((x, y) :) <$> chunksOf2 xs
+chunksOf2 _ = Left "Invalid chunk of 2"
 
 respToCommand :: Resp -> Either String Command
 respToCommand (Array 1 [BulkStr "PING"]) = pure Ping
@@ -108,13 +120,18 @@ respToCommand (Array 2 [BulkStr "TYPE", BulkStr key]) = pure $ Type key
 respToCommand (Array 5 [BulkStr "SET", BulkStr key, BulkStr val, BulkStr "PX", BulkStr t]) = Set key val . Just <$> readIntBS t
 respToCommand (Array 3 [BulkStr "SET", BulkStr key, BulkStr val]) = pure $ Set key val Nothing
 respToCommand (Array 2 [BulkStr "GET", BulkStr key]) = pure $ Get key
-respToCommand (Array _ ((BulkStr "RPUSH") : (BulkStr key) : vals)) = Rpush key <$> mapM extractBulk vals
-respToCommand (Array _ ((BulkStr "LPUSH") : (BulkStr key) : vals)) = Lpush key <$> mapM extractBulk vals
 respToCommand (Array 2 [BulkStr "LLEN", BulkStr key]) = pure $ Llen key
 respToCommand (Array 2 [BulkStr "LPOP", BulkStr key]) = pure $ Lpop key Nothing
 respToCommand (Array 3 [BulkStr "LPOP", BulkStr key, BulkStr len]) = Lpop key . Just <$> readIntBS len
 respToCommand (Array 4 [BulkStr "LRANGE", BulkStr key, BulkStr start, BulkStr stop]) = Lrange key <$> readIntBS start <*> readIntBS stop
 respToCommand (Array 3 [BulkStr "BLPOP", BulkStr key, BulkStr tout]) = Blpop key . secondsToMicros <$> readFloatBS tout
+respToCommand (Array _ ((BulkStr "RPUSH") : (BulkStr key) : vals)) = Rpush key <$> mapM extractBulk vals
+respToCommand (Array _ ((BulkStr "LPUSH") : (BulkStr key) : vals)) = Lpush key <$> mapM extractBulk vals
+respToCommand (Array _ ((BulkStr "XADD") : (BulkStr key) : (BulkStr sId) : vals)) = do
+    vals' <- mapM extractBulk vals
+    chunked <- chunksOf2 vals'
+    sId' <- readStreamId sId
+    pure $ Xadd key sId' chunked
 respToCommand r = Left $ "Conversion Error" <> show r
 
 secondsToMicros :: Float -> Int
@@ -124,6 +141,9 @@ listToResp :: [ByteString] -> Resp
 listToResp [x] = BulkStr x
 listToResp xs = Array (length xs) $ map BulkStr xs
 
+streamIdToResp :: ConcreteStreamId -> Resp
+streamIdToResp (ms, i) = BulkStr . fromString $ show ms <> "-" <> show i
+
 -- Execution
 
 runCmd :: Command -> Redis Resp
@@ -131,6 +151,7 @@ runCmd cmd = do
     tvListMap <- asks listStore
     tvStringMap <- asks stringStore
     tvTypeIndex <- asks typeIndex
+    tvStreamMap <- asks streamStore
     case cmd of
         Ping -> pure $ Str "PONG"
         Echo xs -> pure $ BulkStr xs
@@ -154,6 +175,10 @@ runCmd cmd = do
             vals <- liftIO (atomically (lrangeSTM tvListMap key MkRange{..}))
             pure $ listToResp vals
         Llen key -> Int <$> liftIO (atomically (llenSTM tvListMap key))
+        Xadd key sId chunked -> do
+            now <- liftIO getCurrentTime
+            val <- liftIO $ atomically (xAddSTM tvStreamMap key sId chunked now)
+            pure $ streamIdToResp val
 
 -- TYPE index
 
@@ -237,6 +262,15 @@ llenSTM :: TVar ListStore -> Key -> STM Int
 llenSTM tv key = do
     m <- readTVar tv
     pure (LM.lookupCount key m)
+
+-- stream operations
+
+xAddSTM :: TVar StreamStore -> Key -> StreamId -> [(ByteString, ByteString)] -> UTCTime -> STM ConcreteStreamId
+xAddSTM tv key sid vals time = do
+    m <- readTVar tv
+    let (csid, m') = SM.insert key sid vals time m
+    writeTVar tv m'
+    pure csid
 
 -- Command execution
 

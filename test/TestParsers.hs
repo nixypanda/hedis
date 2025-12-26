@@ -9,7 +9,10 @@ import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.Hedgehog (testProperty)
 
 import Data.String (fromString)
-import Parsers (readFloatBS, readIntBS)
+import Test.Tasty.HUnit (testCase, (@?=))
+
+import Parsers (readFloatBS, readIntBS, readStreamId)
+import StreamMap
 
 tests :: TestTree
 tests =
@@ -17,6 +20,7 @@ tests =
         "Parser"
         [ testProperty "signedIntParser parses generated integers" prop_signedInt
         , testProperty "signedFloatParser parses generated floats" prop_signedFloat
+        , streamIdTests
         ]
 
 prop_signedInt :: Property
@@ -34,3 +38,14 @@ prop_signedFloat =
         let s = show f
         let result = readFloatBS (fromString s)
         result === Right f
+
+streamIdTests :: TestTree
+streamIdTests =
+    testGroup
+        "StreamId parser"
+        [ testCase "*" $ readStreamId "*" @?= Right AutoId
+        , testCase "0-1" $ readStreamId "0-1" @?= Right (ExplicitId 0 (Seq 1))
+        , testCase "1526919030474-0" $ readStreamId "1526919030474-0" @?= Right (ExplicitId 1526919030474 (Seq 0))
+        , testCase "1-*" $ readStreamId "1-*" @?= Right (ExplicitId 1 SeqAuto)
+        , testCase "1526919030474-*" $ readStreamId "1526919030474-*" @?= Right (ExplicitId 1526919030474 SeqAuto)
+        ]

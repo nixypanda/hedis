@@ -1,10 +1,13 @@
-module Parsers (bytes, signedIntParser, signedFloatParser, readIntBS, readFloatBS) where
+module Parsers (bytes, signedIntParser, signedFloatParser, readIntBS, readFloatBS, readStreamId) where
 
 import Control.Applicative ((<|>))
 import Data.ByteString (ByteString)
+import Data.Functor (($>))
 import Data.String (fromString)
 import Text.Parsec (anyChar, char, digit, eof, many1, manyTill, option, optionMaybe, parse)
 import Text.Parsec.ByteString (Parser)
+
+import StreamMap (IdSeq (..), StreamId (..))
 
 bytes :: Parser ByteString
 bytes = fromString <$> manyTill anyChar (char '\r')
@@ -35,3 +38,26 @@ readIntBS = parseBS signedIntParser
 
 readFloatBS :: ByteString -> Either String Float
 readFloatBS = parseBS signedFloatParser
+
+-- Redis stream id
+
+streamIdParser :: Parser StreamId
+streamIdParser = autoId <|> explicitId
+
+autoId :: Parser StreamId
+autoId = char '*' $> AutoId
+
+explicitId :: Parser StreamId
+explicitId = do
+    ts <- integer
+    _ <- char '-'
+    ExplicitId (fromIntegral ts) <$> seqParser
+
+seqParser :: Parser IdSeq
+seqParser = (char '*' $> SeqAuto) <|> (Seq . fromIntegral <$> integer)
+
+integer :: Parser Integer
+integer = read <$> many1 digit
+
+readStreamId :: ByteString -> Either String StreamId
+readStreamId = parseBS streamIdParser
