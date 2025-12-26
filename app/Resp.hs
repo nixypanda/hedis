@@ -6,20 +6,10 @@ import Control.Monad (replicateM)
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.String (fromString)
-import Text.Parsec (
-    ParseError,
-    anyChar,
-    char,
-    count,
-    crlf,
-    digit,
-    many1,
-    manyTill,
-    option,
-    parse,
-    (<|>),
- )
+import Text.Parsec (ParseError, anyChar, count, crlf, parse)
 import Text.Parsec.ByteString (Parser)
+
+import Parsers (bytes, signedIntParser)
 
 -- RESP
 
@@ -32,10 +22,7 @@ data Resp
     | NullArray
     deriving (Show)
 
--- parsing
-
-bytes :: Parser ByteString
-bytes = fromString <$> manyTill anyChar (char '\r')
+-- parsing/decoding
 
 resp :: Parser Resp
 resp = do
@@ -46,13 +33,6 @@ resp = do
         ':' -> Int <$> signedIntParser <* crlf
         '$' -> bulkString
         _ -> fail $ "invalid type tag: " ++ show t
-
-signedIntParser :: Parser Int
-signedIntParser = do
-    sign <- option '+' (char '+' <|> char '-')
-    digits <- many1 digit
-    let intValue = read digits :: Int
-    return $ if sign == '-' then -intValue else intValue
 
 array :: Parser Resp
 array = do
@@ -73,10 +53,10 @@ bulkString = do
 decode :: ByteString -> Either ParseError Resp
 decode = parse resp ""
 
+-- encoding
+
 crlf' :: ByteString
 crlf' = "\r\n"
-
--- encoding
 
 encode :: Resp -> Either String ByteString
 encode (Str x) = Right $ "+" <> x <> crlf'

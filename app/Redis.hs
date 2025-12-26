@@ -16,18 +16,18 @@ import Control.Monad.Except (ExceptT (..), MonadError)
 import Control.Monad.IO.Class (MonadIO (liftIO))
 import Control.Monad.Reader (MonadReader, ReaderT, asks)
 import Data.ByteString (ByteString)
-import Data.ByteString.Char8 (readInt)
-import Data.ByteString.Char8 qualified as BSC
 import Data.Maybe (fromMaybe)
 import Data.Time (getCurrentTime)
 import System.Log.FastLogger (TimedFastLogger)
 import System.Timeout (timeout)
-import Text.Parsec (ParseError)
+import Text.Parsec (ParseError, eof, parse)
+import Text.Parsec.ByteString (Parser)
 
 import ExpiringMap (ExpiringMap)
 import ExpiringMap qualified as EM
 import ListMap (ListMap, Range (..))
 import ListMap qualified as LM
+import Parsers (signedFloatParser, signedIntParser)
 import Resp (Resp (..))
 
 -- Types
@@ -68,26 +68,35 @@ data Command
     | Blpop Key Int
     deriving (Show, Eq)
 
+parseBS :: Parser a -> ByteString -> Either String a
+parseBS p bs =
+    case parse (p <* eof) "<resp-arg>" bs of
+        Left err -> Left (show err)
+        Right x -> Right x
+
+readIntBS :: ByteString -> Either String Int
+readIntBS = parseBS signedIntParser
+
+readFloatBS :: ByteString -> Either String Float
+readFloatBS = parseBS signedFloatParser
+
+extractBulk :: Resp -> Either String ByteString
+extractBulk (BulkStr x) = Right x
+extractBulk r = Left $ "Invalit Type" <> show r
+
 respToCommand :: Resp -> Either String Command
 respToCommand (Array 1 [BulkStr "PING"]) = pure Ping
 respToCommand (Array 2 [BulkStr "ECHO", BulkStr xs]) = pure $ Echo xs
-respToCommand (Array 5 [BulkStr "SET", BulkStr key, BulkStr val, BulkStr "PX", BulkStr t]) =
-    case readInt t of
-        Nothing -> Left "Invalid integer"
-        Just t' -> pure $ Set key val (Just $ fst t')
+respToCommand (Array 5 [BulkStr "SET", BulkStr key, BulkStr val, BulkStr "PX", BulkStr t]) = Set key val . Just <$> readIntBS t
 respToCommand (Array 3 [BulkStr "SET", BulkStr key, BulkStr val]) = pure $ Set key val Nothing
 respToCommand (Array 2 [BulkStr "GET", BulkStr key]) = pure $ Get key
-respToCommand (Array _ ((BulkStr "RPUSH") : (BulkStr key) : vals)) = pure $ Rpush key (map (\(BulkStr x) -> x) vals)
-respToCommand (Array _ ((BulkStr "LPUSH") : (BulkStr key) : vals)) = pure $ Lpush key (map (\(BulkStr x) -> x) vals)
+respToCommand (Array _ ((BulkStr "RPUSH") : (BulkStr key) : vals)) = Rpush key <$> mapM extractBulk vals
+respToCommand (Array _ ((BulkStr "LPUSH") : (BulkStr key) : vals)) = Lpush key <$> mapM extractBulk vals
 respToCommand (Array 2 [BulkStr "LLEN", BulkStr key]) = pure $ Llen key
 respToCommand (Array 2 [BulkStr "LPOP", BulkStr key]) = pure $ Lpop key Nothing
-respToCommand (Array 3 [BulkStr "LPOP", BulkStr key, BulkStr len]) = case readInt len of
-    Nothing -> Left "Invalid integer"
-    Just len' -> pure $ Lpop key (Just $ fst len')
-respToCommand (Array 4 [BulkStr "LRANGE", BulkStr key, BulkStr start, BulkStr stop]) = case (readInt start, readInt stop) of
-    (Just start', Just stop') -> pure $ Lrange key (fst start') (fst stop')
-    v -> Left $ "Invalid Integers" <> show v
-respToCommand (Array 3 [BulkStr "BLPOP", BulkStr key, BulkStr tout]) = pure $ Blpop key (secondsToMicros $ read @Float (BSC.unpack tout))
+respToCommand (Array 3 [BulkStr "LPOP", BulkStr key, BulkStr len]) = Lpop key . Just <$> readIntBS len
+respToCommand (Array 4 [BulkStr "LRANGE", BulkStr key, BulkStr start, BulkStr stop]) = Lrange key <$> readIntBS start <*> readIntBS stop
+respToCommand (Array 3 [BulkStr "BLPOP", BulkStr key, BulkStr tout]) = Blpop key . secondsToMicros <$> readFloatBS tout
 respToCommand r = Left $ "Conversion Error" <> show r
 
 secondsToMicros :: Float -> Int
