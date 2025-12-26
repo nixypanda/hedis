@@ -21,8 +21,9 @@ import Data.List (unsnoc)
 import Data.Map (Map)
 import Data.Map qualified as M
 import Data.Maybe (fromJust, fromMaybe)
-import Data.Time (UTCTime, nominalDiffTimeToSeconds)
-import Data.Time.Clock.POSIX (utcTimeToPOSIXSeconds)
+import Data.Time (UTCTime)
+
+import Time (utcToMillis)
 
 -- Stream Id
 
@@ -129,6 +130,3 @@ query key range sMap = takeWhile (\elm -> elm.streamId <= e) $ dropWhile (\elm -
 
 queryEx :: (Ord k) => k -> ConcreteStreamId -> StreamMap k ik v -> [Value ik v]
 queryEx key streamId sMap = dropWhile (\elm -> elm.streamId <= streamId) $ fromMaybe [] $ M.lookup key sMap
-
-utcToMillis :: UTCTime -> Int
-utcToMillis = floor . (* 1000) . nominalDiffTimeToSeconds . utcTimeToPOSIXSeconds

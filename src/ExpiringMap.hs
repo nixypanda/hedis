@@ -2,8 +2,10 @@ module ExpiringMap (empty, insert, lookup, ExpiringMap) where
 
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as M
-import Data.Time (NominalDiffTime, UTCTime (..), diffUTCTime, secondsToNominalDiffTime)
+import Data.Time (NominalDiffTime, UTCTime (..), diffUTCTime)
 import Prelude hiding (lookup)
+
+import Time (millisToNominalDiffTime)
 
 data StoredVal a = MkStoredVal
     { value :: !a
@@ -20,7 +22,7 @@ empty = M.empty
 
 insert :: (Ord k) => k -> v -> UTCTime -> Maybe Expiry -> ExpiringMap k v -> ExpiringMap k v
 insert k value storedWhen maybeExpiry db = do
-    let expiration = milliSecontsToNominalDiffTime <$> maybeExpiry
+    let expiration = millisToNominalDiffTime <$> maybeExpiry
     M.insert k MkStoredVal{..} db
 
 lookup :: (Ord k) => k -> UTCTime -> ExpiringMap k v -> Maybe v
@@ -33,6 +35,3 @@ getIfNotExpired currentTime MkStoredVal{..} = case expiration of
         if currentTime `diffUTCTime` storedWhen < expiry
             then Just value
             else Nothing
-
-milliSecontsToNominalDiffTime :: Int -> NominalDiffTime
-milliSecontsToNominalDiffTime = secondsToNominalDiffTime . (/ 1000) . fromIntegral
