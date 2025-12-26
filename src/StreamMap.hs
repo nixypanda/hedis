@@ -1,5 +1,6 @@
 module StreamMap where
 
+import Data.List (unsnoc)
 import Data.Map (Map)
 import Data.Map qualified as M
 import Data.Time (UTCTime)
@@ -18,17 +19,32 @@ data Value k v = MkValue
     }
     deriving (Eq, Ord)
 
+data StreamMapError = BaseStreamId | NotLargerId
+
+baseId :: (Int, Int)
+baseId = (0, 0)
+
 empty :: Map k a
 empty = M.empty
 
 type StreamMap k ik v = Map k [Value ik v]
 
-insert :: (Ord k) => k -> StreamId -> [(ik, v)] -> UTCTime -> StreamMap k ik v -> (ConcreteStreamId, StreamMap k ik v)
-insert key sid values time sMap = (cid, M.insert key [MkValue cid values] sMap)
+insert :: (Ord k) => k -> StreamId -> [(ik, v)] -> UTCTime -> StreamMap k ik v -> Either StreamMapError (ConcreteStreamId, StreamMap k ik v)
+insert key sid values time sMap
+    | streamId == baseId = Left BaseStreamId
+    | Nothing <- M.lookup key sMap = okInsert []
+    | Just [] <- M.lookup key sMap = okInsert []
+    | Just xs <- M.lookup key sMap, Just (_, lastVal) <- unsnoc xs, lastVal.streamId >= streamId = Left NotLargerId
+    | Just xs <- M.lookup key sMap = okInsert xs
   where
-    cid = convertToConcreteStreamId sid
+    streamId = convertToConcreteStreamId sid time
+    okInsert xs =
+        Right
+            ( streamId
+            , M.insert key (xs ++ [MkValue streamId values]) sMap
+            )
 
-convertToConcreteStreamId :: StreamId -> ConcreteStreamId
-convertToConcreteStreamId AutoId = undefined
-convertToConcreteStreamId (ExplicitId _ SeqAuto) = undefined
-convertToConcreteStreamId (ExplicitId ts (Seq i)) = (ts, i)
+convertToConcreteStreamId :: StreamId -> UTCTime -> ConcreteStreamId
+convertToConcreteStreamId AutoId _ = undefined
+convertToConcreteStreamId (ExplicitId _ SeqAuto) _ = undefined
+convertToConcreteStreamId (ExplicitId ts (Seq i)) _ = (ts, i)

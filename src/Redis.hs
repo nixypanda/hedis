@@ -44,7 +44,7 @@ import ListMap (ListMap, Range (..))
 import ListMap qualified as LM
 import Parsers (readFloatBS, readIntBS, readStreamId)
 import Resp (Resp (..), decode, encode)
-import StreamMap (ConcreteStreamId, StreamId, StreamMap)
+import StreamMap (ConcreteStreamId, StreamId, StreamMap, StreamMapError (..))
 import StreamMap qualified as SM
 
 -- Types
@@ -87,7 +87,7 @@ mkNewEnv = do
     (envLogger, _cleanup) <- newTimedFastLogger timeCache (LogStderr defaultBufSize)
     pure MkEnv{..}
 
--- Conversion
+-- Conversion (from Resp)
 
 data Command
     = Ping
@@ -137,12 +137,18 @@ respToCommand r = Left $ "Conversion Error" <> show r
 secondsToMicros :: Float -> Int
 secondsToMicros = round . (* 1_000_000)
 
+-- Conversion (to Resp)
+
 listToResp :: [ByteString] -> Resp
 listToResp [x] = BulkStr x
 listToResp xs = Array (length xs) $ map BulkStr xs
 
 streamIdToResp :: ConcreteStreamId -> Resp
 streamIdToResp (ms, i) = BulkStr . fromString $ show ms <> "-" <> show i
+
+stremMapErrorToResp :: StreamMapError -> Resp
+stremMapErrorToResp BaseStreamId = Str "ERR The ID specified in XADD must be greater than 0-0"
+stremMapErrorToResp NotLargerId = Str "ERR The ID specified in XADD is equal or smaller than the target stream top item"
 
 -- Execution
 
@@ -178,7 +184,7 @@ runCmd cmd = do
         Xadd key sId chunked -> do
             now <- liftIO getCurrentTime
             val <- liftIO $ atomically (setIfAvailable tvTypeIndex key VStream *> xAddSTM tvStreamMap key sId chunked now)
-            pure $ streamIdToResp val
+            pure $ either stremMapErrorToResp streamIdToResp val
 
 -- TYPE index
 
@@ -266,12 +272,14 @@ llenSTM tv key = do
 
 -- stream operations
 
-xAddSTM :: TVar StreamStore -> Key -> StreamId -> [(ByteString, ByteString)] -> UTCTime -> STM ConcreteStreamId
+xAddSTM :: TVar StreamStore -> Key -> StreamId -> [(ByteString, ByteString)] -> UTCTime -> STM (Either StreamMapError ConcreteStreamId)
 xAddSTM tv key sid vals time = do
     m <- readTVar tv
-    let (csid, m') = SM.insert key sid vals time m
-    writeTVar tv m'
-    pure csid
+    case SM.insert key sid vals time m of
+        Left err -> pure $ Left err
+        Right (csid, m') -> do
+            writeTVar tv m'
+            pure $ Right csid
 
 -- Command execution
 
