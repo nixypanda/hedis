@@ -31,13 +31,12 @@ import System.Log.FastLogger (
     simpleTimeFormat,
  )
 import System.Timeout (timeout)
-import Text.Parsec (ParseError, eof, parse)
-import Text.Parsec.ByteString (Parser)
+import Text.Parsec (ParseError)
 
 import ExpiringMap (ExpiringMap)
 import ListMap (ListMap, Range (..))
 import ListMap qualified as LM
-import Parsers (signedFloatParser, signedIntParser)
+import Parsers (readFloatBS, readIntBS)
 import Resp (Resp (..), decode, encode)
 
 -- Types
@@ -85,18 +84,6 @@ data Command
     | Lpop Key (Maybe Int)
     | Blpop Key Int
     deriving (Show, Eq)
-
-parseBS :: Parser a -> ByteString -> Either String a
-parseBS p bs =
-    case parse (p <* eof) "<resp-arg>" bs of
-        Left err -> Left (show err)
-        Right x -> Right x
-
-readIntBS :: ByteString -> Either String Int
-readIntBS = parseBS signedIntParser
-
-readFloatBS :: ByteString -> Either String Float
-readFloatBS = parseBS signedFloatParser
 
 extractBulk :: Resp -> Either String ByteString
 extractBulk (BulkStr x) = Right x

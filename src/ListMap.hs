@@ -1,4 +1,15 @@
-module ListMap where
+module ListMap (
+    ListMap,
+    Range (..),
+    empty,
+    append,
+    revPrepend,
+    ListMap.lookup,
+    lookupCount,
+    list,
+    leftPops,
+    leftPop,
+) where
 
 import Data.Map (Map)
 import Data.Map qualified as M

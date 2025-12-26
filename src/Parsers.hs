@@ -1,9 +1,9 @@
-module Parsers (bytes, signedIntParser, signedFloatParser) where
+module Parsers (bytes, signedIntParser, signedFloatParser, readIntBS, readFloatBS) where
 
 import Control.Applicative ((<|>))
 import Data.ByteString (ByteString)
 import Data.String (fromString)
-import Text.Parsec (anyChar, char, digit, many1, manyTill, option, optionMaybe)
+import Text.Parsec (anyChar, char, digit, eof, many1, manyTill, option, optionMaybe, parse)
 import Text.Parsec.ByteString (Parser)
 
 bytes :: Parser ByteString
@@ -23,3 +23,15 @@ signedFloatParser = do
     f <- option "" (char '.' *> many1 digit)
     let s = maybe "" pure sign <> i <> if null f then "" else '.' : f
     pure (read s)
+
+parseBS :: Parser a -> ByteString -> Either String a
+parseBS p bs =
+    case parse (p <* eof) "<resp-arg>" bs of
+        Left err -> Left (show err)
+        Right x -> Right x
+
+readIntBS :: ByteString -> Either String Int
+readIntBS = parseBS signedIntParser
+
+readFloatBS :: ByteString -> Either String Float
+readFloatBS = parseBS signedFloatParser
