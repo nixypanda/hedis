@@ -9,12 +9,14 @@ module StreamMap (
     XStart (..),
     XEnd (..),
     XStreamId,
+    XRStreamId (..),
     (!),
     empty,
     fromList,
     insert,
     query,
     queryEx,
+    lookupLatest,
 ) where
 
 import Data.List (unsnoc)
@@ -39,6 +41,9 @@ data Value k v = MkValue
     { streamId :: !ConcreteStreamId
     , vals :: ![(k, v)]
     }
+    deriving (Eq, Ord, Show)
+
+data XRStreamId = Dollar | Concrete ConcreteStreamId
     deriving (Eq, Ord, Show)
 
 -- Stream Error
@@ -130,3 +135,10 @@ query key range sMap = takeWhile (\elm -> elm.streamId <= e) $ dropWhile (\elm -
 
 queryEx :: (Ord k) => k -> ConcreteStreamId -> StreamMap k ik v -> [Value ik v]
 queryEx key streamId sMap = dropWhile (\elm -> elm.streamId <= streamId) $ fromMaybe [] $ M.lookup key sMap
+
+lookupLatest :: (Ord k) => k -> StreamMap k ik v -> ConcreteStreamId
+lookupLatest k sMap = case M.lookup k sMap of
+    Nothing -> baseId
+    Just xs -> case unsnoc xs of
+        Nothing -> baseId
+        Just (_, x) -> x.streamId

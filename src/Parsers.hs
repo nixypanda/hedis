@@ -8,6 +8,7 @@ module Parsers (
     readFloatBS,
     readStreamId,
     readXRange,
+    readDollarStreamId,
     readConcreteStreamId,
 ) where
 
@@ -21,6 +22,7 @@ import StreamMap (
     IdSeq (..),
     StreamId (..),
     XEnd (..),
+    XRStreamId (..),
     XRange (..),
     XStart (..),
     XStreamId,
@@ -128,5 +130,11 @@ concreteStreamIdParser = do
     _ <- char '-'
     (,) ts <$> intParser
 
+dollarStreamIdParser :: Parser XRStreamId
+dollarStreamIdParser = char '$' $> Dollar <|> (Concrete <$> concreteStreamIdParser)
+
 readConcreteStreamId :: ByteString -> Either String ConcreteStreamId
 readConcreteStreamId = parseBS concreteStreamIdParser
+
+readDollarStreamId :: ByteString -> Either String XRStreamId
+readDollarStreamId = parseBS dollarStreamIdParser

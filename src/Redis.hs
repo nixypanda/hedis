@@ -43,9 +43,9 @@ import Text.Parsec (ParseError)
 import ExpiringMap (ExpiringMap)
 import ListMap (ListMap, Range (..))
 import ListMap qualified as LM
-import Parsers (readConcreteStreamId, readFloatBS, readIntBS, readStreamId, readXRange)
+import Parsers (readConcreteStreamId, readDollarStreamId, readFloatBS, readIntBS, readStreamId, readXRange)
 import Resp (Resp (..), decode, encode)
-import StreamMap (ConcreteStreamId, StreamId, StreamMap, StreamMapError (..))
+import StreamMap (ConcreteStreamId, StreamId, StreamMap, StreamMapError (..), XRStreamId (..))
 import StreamMap qualified as SM
 import Time (millisToNominalDiffTime, nominalDiffTimeToMicros)
 
@@ -106,7 +106,7 @@ data Command
     | Xadd Key StreamId [(ByteString, ByteString)]
     | XRange Key SM.XRange
     | XRead [(Key, ConcreteStreamId)]
-    | XReadBlock NominalDiffTime Key ConcreteStreamId
+    | XReadBlock NominalDiffTime Key XRStreamId
     deriving (Show, Eq)
 
 extractBulk :: Resp -> Either String ByteString
@@ -145,7 +145,7 @@ respToCommand (Array _ (BulkStr "XREAD" : BulkStr "streams" : vals)) = do
     pure $ XRead $ zip keys ids'
 respToCommand (Array 6 [BulkStr "XREAD", BulkStr "block", BulkStr t, BulkStr "streams", BulkStr key, BulkStr sid]) = do
     t' <- millisToNominalDiffTime <$> readIntBS t
-    sid' <- readConcreteStreamId sid
+    sid' <- readDollarStreamId sid
     pure $ XReadBlock t' key sid'
 respToCommand r = Left $ "Conversion Error" <> show r
 
@@ -183,6 +183,7 @@ runCmd cmd = do
     tvStringMap <- asks stringStore
     tvTypeIndex <- asks typeIndex
     tvStreamMap <- asks streamStore
+    now <- liftIO getCurrentTime
     case cmd of
         Ping -> pure $ Str "PONG"
         Echo xs -> pure $ BulkStr xs
@@ -190,11 +191,9 @@ runCmd cmd = do
             ty <- liftIO $ atomically $ getTypeSTM tvTypeIndex x
             pure $ maybe (Str "none") (Str . toString) ty
         Set key val mexpiry -> do
-            now <- liftIO getCurrentTime
             liftIO $ atomically (setIfAvailable tvTypeIndex key VString *> setSTM tvStringMap key val now mexpiry)
             pure (Str "OK")
         Get key -> do
-            now <- liftIO getCurrentTime
             m <- liftIO $ atomically (getSTM tvStringMap key now)
             pure $ maybe NullBulk BulkStr m
         Rpush key xs -> Int <$> liftIO (atomically (setIfAvailable tvTypeIndex key VList *> rpushSTM tvListMap key xs))
@@ -208,7 +207,6 @@ runCmd cmd = do
             pure $ listToResp vals
         Llen key -> Int <$> liftIO (atomically (llenSTM tvListMap key))
         Xadd key sId chunked -> do
-            now <- liftIO getCurrentTime
             val <- liftIO $ atomically (setIfAvailable tvTypeIndex key VStream *> xAddSTM tvStreamMap key sId chunked now)
             pure $ either stremMapErrorToResp streamIdToResp val
         XRange key range -> do
@@ -218,10 +216,12 @@ runCmd cmd = do
             vals <- liftIO (atomically (xReadSTM tvStreamMap keys))
             pure $ arrayOfArrayToResp vals
         XReadBlock 0 key sid -> do
-            vals <- liftIO (atomically (xReadBlockSTM tvStreamMap key sid))
+            sid' <- liftIO $ atomically (xResolveStreamIdSTM tvStreamMap key sid)
+            vals <- liftIO (atomically (xReadBlockSTM tvStreamMap key sid'))
             pure $ (arrayOfArrayToResp . singleton) vals
         XReadBlock tout key sid -> do
-            vals <- liftIO (timeout (nominalDiffTimeToMicros tout) (atomically (xReadBlockSTM tvStreamMap key sid)))
+            sid' <- liftIO $ atomically (xResolveStreamIdSTM tvStreamMap key sid)
+            vals <- liftIO (timeout (nominalDiffTimeToMicros tout) (atomically (xReadBlockSTM tvStreamMap key sid')))
             pure $ maybe NullArray (arrayOfArrayToResp . singleton) vals
 
 -- TYPE index
@@ -338,10 +338,17 @@ xReadSTM tv keys = do
     m <- readTVar tv
     pure $ map (\(k, sid) -> (k, SM.queryEx k sid m)) keys
 
+xResolveStreamIdSTM :: TVar StreamStore -> Key -> XRStreamId -> STM ConcreteStreamId
+xResolveStreamIdSTM tv key sid = do
+    m <- readTVar tv
+    case sid of
+        Dollar -> pure $ SM.lookupLatest key m
+        Concrete s -> pure s
+
 xReadBlockSTM :: TVar StreamStore -> Key -> ConcreteStreamId -> STM (Key, [SM.Value ByteString ByteString])
 xReadBlockSTM tv key sid = do
-    m <- readTVar tv
-    case SM.queryEx key sid m of
+    mInner <- readTVar tv
+    case SM.queryEx key sid mInner of
         [] -> retry
         xs -> pure (key, xs)
 
