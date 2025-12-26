@@ -1,34 +1,44 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Redis (Env (..), Redis, RedisError (..), respToCommand, runCmd, runRedis) where
+module Redis (Env (..), Redis (..), RedisError (..), handleRequest, mkNewEnv) where
 
 import Control.Concurrent.STM (
     STM,
     TVar,
     atomically,
     modifyTVar',
+    newTVarIO,
     readTVar,
     retry,
     writeTVar,
  )
 import Control.Concurrent.STM.TVar (readTVarIO)
-import Control.Monad.Except (ExceptT (..), MonadError)
+import Control.Monad.Except (ExceptT (..), MonadError, liftEither)
 import Control.Monad.IO.Class (MonadIO (liftIO))
 import Control.Monad.Reader (MonadReader, ReaderT, asks)
+import Data.Bifunctor (Bifunctor (first))
 import Data.ByteString (ByteString)
 import Data.Maybe (fromMaybe)
 import Data.Time (getCurrentTime)
-import System.Log.FastLogger (TimedFastLogger)
+import ExpiringMap qualified as EM
+import System.Log.FastLogger (
+    LogType' (..),
+    TimedFastLogger,
+    ToLogStr (toLogStr),
+    defaultBufSize,
+    newTimeCache,
+    newTimedFastLogger,
+    simpleTimeFormat,
+ )
 import System.Timeout (timeout)
 import Text.Parsec (ParseError, eof, parse)
 import Text.Parsec.ByteString (Parser)
 
 import ExpiringMap (ExpiringMap)
-import ExpiringMap qualified as EM
 import ListMap (ListMap, Range (..))
 import ListMap qualified as LM
 import Parsers (signedFloatParser, signedIntParser)
-import Resp (Resp (..))
+import Resp (Resp (..), decode, encode)
 
 -- Types
 
@@ -49,6 +59,14 @@ data Env = MkEnv
 
 newtype Redis a = MkRedis {runRedis :: ReaderT Env (ExceptT RedisError IO) a}
     deriving (Functor, Applicative, Monad, MonadError RedisError, MonadIO, MonadReader Env)
+
+mkNewEnv :: IO Env
+mkNewEnv = do
+    stringStore <- newTVarIO EM.empty
+    listStore <- newTVarIO LM.empty
+    timeCache <- newTimeCache simpleTimeFormat
+    (envLogger, _cleanup) <- newTimedFastLogger timeCache (LogStderr defaultBufSize)
+    pure MkEnv{..}
 
 -- Conversion
 
@@ -167,3 +185,28 @@ blpopSTM key tv = do
         Just (x, m') -> do
             writeTVar tv m'
             pure $ listToResp [key, x]
+
+-- Command execution
+
+handleRequest :: ByteString -> Redis ByteString
+handleRequest bs = do
+    logDebug ("Received: " <> show bs)
+    resp <- liftEither $ first ParsingError $ decode bs
+    logDebug ("Decoded: " <> show resp)
+    cmd <- liftEither $ first ConversionError $ respToCommand resp
+    logDebug ("Command: " <> show cmd)
+    result <- runCmd cmd
+    logDebug ("Execution result: " <> show result)
+    encoded <- liftEither $ first EncodeError $ encode result
+    logDebug ("Encoded: " <> show encoded)
+    pure encoded
+
+logInfo :: (MonadReader Env m, MonadIO m) => String -> m ()
+logInfo msg = do
+    logger <- asks envLogger
+    liftIO $ logger (\t -> toLogStr (show t <> "[INFO] " <> msg <> "\n"))
+
+logDebug :: (MonadReader Env m, MonadIO m) => String -> m ()
+logDebug msg = do
+    logger <- asks envLogger
+    liftIO $ logger (\t -> toLogStr (show t <> "[DEBUG] " <> msg <> "\n"))

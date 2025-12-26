@@ -1,36 +1,59 @@
----
 name: codecrafters-redis
 version: 0.1.0.0
 license: BSD3
+language: GHC2021
+default-extensions:
+  - MultiWayIf
+  - RecordWildCards
+  - OverloadedRecordDot
+
+library:
+  source-dirs: src
+  ghc-options:
+    - -Wall
+    - -Wcompat
+    - -Widentities
+    - -Wincomplete-record-updates
+    - -Wincomplete-uni-patterns
+    - -Wmissing-export-lists
+    - -Wmissing-home-modules
+    - -Wpartial-fields
+    - -Wredundant-constraints
+  dependencies:
+    - base >= 4.18 && < 5
+    - bytestring
+    - containers
+    - fast-logger
+    - mtl
+    - network-simple
+    - parsec
+    - stm
+    - time
 
 executables:
   codecrafters-redis-exe:
     main: Main.hs
     source-dirs: app
     ghc-options:
-      - -Wall
-      - -Wcompat
-      - -Widentities
-      - -Wincomplete-record-updates
-      - -Wincomplete-uni-patterns
-      - -Wmissing-export-lists
-      - -Wmissing-home-modules
-      - -Wpartial-fields
-      - -Wredundant-constraints
       - -threaded
       - -rtsopts
       - -with-rtsopts=-N
     language: GHC2021
     dependencies:
       - base >= 4.18 && < 5
-      - network-simple
-      - bytestring
-      - parsec
+      - codecrafters-redis
       - mtl
-      - containers
-      - stm
+      - network-simple
       - fast-logger
-      - time
-    default-extensions:
-      - MultiWayIf
-      - RecordWildCards
+
+tests:
+  codecrafters-redis-test:
+    main: Spec.hs
+    source-dirs: test
+    ghc-options:
+      - -Wall
+      - -threaded
+    language: GHC2021
+    dependencies:
+      - codecrafters-redis
+      - hspec

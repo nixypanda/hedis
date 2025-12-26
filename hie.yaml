@@ -1,4 +1,10 @@
 cradle:
   cabal:
-    - path: "./app"
+    - path: "src"
+      component: "codecrafters-redis:lib:codecrafters-redis"
+
+    - path: "app"
       component: "codecrafters-redis:exe:codecrafters-redis-exe"
+
+    - path: "test"
+      component: "codecrafters-redis:test:codecrafters-redis-test"
