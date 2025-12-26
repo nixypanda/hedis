@@ -1,16 +1,41 @@
-module Parsers (bytes, signedIntParser, signedFloatParser, readIntBS, readFloatBS, readStreamId) where
+{-# LANGUAGE OverloadedStrings #-}
+
+module Parsers (
+    bytes,
+    signedIntParser,
+    signedFloatParser,
+    readIntBS,
+    readFloatBS,
+    readStreamId,
+    readXRange,
+) where
 
 import Control.Applicative ((<|>))
 import Data.ByteString (ByteString)
 import Data.Functor (($>))
 import Data.String (fromString)
-import Text.Parsec (anyChar, char, digit, eof, many1, manyTill, option, optionMaybe, parse)
+import Text.Parsec (
+    anyChar,
+    char,
+    digit,
+    eof,
+    many1,
+    manyTill,
+    option,
+    optionMaybe,
+    parse,
+    spaces,
+ )
 import Text.Parsec.ByteString (Parser)
 
-import StreamMap (IdSeq (..), StreamId (..))
+import Control.Monad (join)
+import StreamMap (IdSeq (..), StreamId (..), XEnd (..), XRange (..), XStart (..), XStreamId)
 
 bytes :: Parser ByteString
 bytes = fromString <$> manyTill anyChar (char '\r')
+
+intParser :: Parser Int
+intParser = fromIntegral <$> integer
 
 signedIntParser :: Parser Int
 signedIntParser = do
@@ -49,15 +74,40 @@ autoId = char '*' $> AutoId
 
 explicitId :: Parser StreamId
 explicitId = do
-    ts <- integer
+    ts <- intParser
     _ <- char '-'
-    ExplicitId (fromIntegral ts) <$> seqParser
+    ExplicitId ts <$> seqParser
 
 seqParser :: Parser IdSeq
-seqParser = (char '*' $> SeqAuto) <|> (Seq . fromIntegral <$> integer)
+seqParser = (char '*' $> SeqAuto) <|> (Seq <$> intParser)
 
 integer :: Parser Integer
 integer = read <$> many1 digit
 
 readStreamId :: ByteString -> Either String StreamId
 readStreamId = parseBS streamIdParser
+
+-- Xrange
+
+xStreamId :: Parser XStreamId
+xStreamId = do
+    ts <- intParser
+    mSeq <- optionMaybe (char '-' *> optionMaybe intParser)
+    pure (ts, join mSeq)
+
+xStartParser :: Parser XStart
+xStartParser = (char '-' $> XMinus) <|> (XS <$> xStreamId)
+
+xEndParser :: Parser XEnd
+xEndParser = (char '+' $> XPlus) <|> (XE <$> xStreamId)
+
+xRangeParser :: Parser XRange
+xRangeParser = do
+    s <- xStartParser
+    spaces
+    e <- xEndParser
+    eof
+    pure (MkXrange s e)
+
+readXRange :: ByteString -> ByteString -> Either String XRange
+readXRange s e = parseBS xRangeParser (s <> " " <> e)
