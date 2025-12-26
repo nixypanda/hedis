@@ -8,12 +8,23 @@ module Parsers (
     readFloatBS,
     readStreamId,
     readXRange,
+    readConcreteStreamId,
 ) where
 
 import Control.Applicative ((<|>))
+import Control.Monad (join)
 import Data.ByteString (ByteString)
 import Data.Functor (($>))
 import Data.String (fromString)
+import StreamMap (
+    ConcreteStreamId,
+    IdSeq (..),
+    StreamId (..),
+    XEnd (..),
+    XRange (..),
+    XStart (..),
+    XStreamId,
+ )
 import Text.Parsec (
     anyChar,
     char,
@@ -27,9 +38,6 @@ import Text.Parsec (
     spaces,
  )
 import Text.Parsec.ByteString (Parser)
-
-import Control.Monad (join)
-import StreamMap (IdSeq (..), StreamId (..), XEnd (..), XRange (..), XStart (..), XStreamId)
 
 bytes :: Parser ByteString
 bytes = fromString <$> manyTill anyChar (char '\r')
@@ -111,3 +119,14 @@ xRangeParser = do
 
 readXRange :: ByteString -> ByteString -> Either String XRange
 readXRange s e = parseBS xRangeParser (s <> " " <> e)
+
+-- Concreate StreamId
+
+concreteStreamIdParser :: Parser ConcreteStreamId
+concreteStreamIdParser = do
+    ts <- intParser
+    _ <- char '-'
+    (,) ts <$> intParser
+
+readConcreteStreamId :: ByteString -> Either String ConcreteStreamId
+readConcreteStreamId = parseBS concreteStreamIdParser

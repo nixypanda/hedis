@@ -14,6 +14,7 @@ module StreamMap (
     fromList,
     insert,
     query,
+    queryEx,
 ) where
 
 import Data.List (unsnoc)
@@ -125,6 +126,9 @@ query key range sMap = takeWhile (\elm -> elm.streamId <= e) $ dropWhile (\elm -
   where
     (s, e) = xrangeToConcrete range
     vals = fromMaybe [] $ M.lookup key sMap
+
+queryEx :: (Ord k) => k -> ConcreteStreamId -> StreamMap k ik v -> [Value ik v]
+queryEx key streamId sMap = dropWhile (\elm -> elm.streamId <= streamId) $ fromMaybe [] $ M.lookup key sMap
 
 utcToMillis :: UTCTime -> Int
 utcToMillis = floor . (* 1000) . nominalDiffTimeToSeconds . utcTimeToPOSIXSeconds
