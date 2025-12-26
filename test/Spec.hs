@@ -5,6 +5,7 @@ import Test.Tasty (TestTree, defaultMain, testGroup)
 import TestExpiringMap qualified
 import TestListMap qualified
 import TestParsers qualified
+import TestStreamMap qualified
 
 tests :: TestTree
 tests =
@@ -13,6 +14,7 @@ tests =
         [ TestExpiringMap.tests
         , TestListMap.tests
         , TestParsers.tests
+        , TestStreamMap.tests
         ]
 
 main :: IO ()
