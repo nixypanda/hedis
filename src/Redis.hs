@@ -104,6 +104,7 @@ data Command
     | Xadd Key StreamId [(ByteString, ByteString)]
     | XRange Key SM.XRange
     | XRead [(Key, ConcreteStreamId)]
+    | XReadBlock Int Key ConcreteStreamId
     deriving (Show, Eq)
 
 extractBulk :: Resp -> Either String ByteString
@@ -140,6 +141,10 @@ respToCommand (Array _ (BulkStr "XREAD" : BulkStr "streams" : vals)) = do
     let (keys, ids) = splitAt (length vals' `div` 2) vals'
     ids' <- mapM readConcreteStreamId ids
     pure $ XRead $ zip keys ids'
+respToCommand (Array 6 [BulkStr "XREAD", BulkStr "block", BulkStr t, BulkStr "streams", BulkStr key, BulkStr sid]) = do
+    t' <- readIntBS t
+    sid' <- readConcreteStreamId sid
+    pure $ XReadBlock t' key sid'
 respToCommand r = Left $ "Conversion Error" <> show r
 
 secondsToMicros :: Float -> Int
@@ -163,8 +168,9 @@ arrayToResp ar = Array (length ar) $ map valueToResp ar
 
 arrayOfArrayToResp :: [(Key, [SM.Value ByteString ByteString])] -> Resp
 arrayOfArrayToResp ar = Array (length ar) $ map keyValsToResp ar
-  where
-    keyValsToResp (k, vs) = Array 2 [BulkStr k, arrayToResp vs]
+
+keyValsToResp :: (ByteString, [SM.Value ByteString ByteString]) -> Resp
+keyValsToResp (k, vs) = Array 2 [BulkStr k, arrayToResp vs]
 
 stremMapErrorToResp :: StreamMapError -> Resp
 stremMapErrorToResp BaseStreamId = StrErr "ERR The ID specified in XADD must be greater than 0-0"
@@ -212,6 +218,12 @@ runCmd cmd = do
         XRead keys -> do
             vals <- liftIO (atomically (xReadSTM tvStreamMap keys))
             pure $ arrayOfArrayToResp vals
+        XReadBlock 0 key sid -> do
+            vals <- liftIO (atomically (xReadBlockSTM tvStreamMap key sid))
+            pure $ keyValsToResp vals
+        XReadBlock tout key sid -> do
+            vals <- liftIO (timeout tout (atomically (xReadBlockSTM tvStreamMap key sid)))
+            pure $ maybe NullArray keyValsToResp vals
 
 -- TYPE index
 
@@ -326,6 +338,13 @@ xReadSTM :: TVar StreamStore -> [(Key, ConcreteStreamId)] -> STM [(Key, [SM.Valu
 xReadSTM tv keys = do
     m <- readTVar tv
     pure $ map (\(k, sid) -> (k, SM.queryEx k sid m)) keys
+
+xReadBlockSTM :: TVar StreamStore -> Key -> ConcreteStreamId -> STM (Key, [SM.Value ByteString ByteString])
+xReadBlockSTM tv key sid = do
+    m <- readTVar tv
+    case SM.queryEx key sid m of
+        [] -> retry
+        xs -> pure (key, xs)
 
 -- Command execution
 
