@@ -42,7 +42,7 @@ import Text.Parsec (ParseError)
 import ExpiringMap (ExpiringMap)
 import ListMap (ListMap, Range (..))
 import ListMap qualified as LM
-import Parsers (readFloatBS, readIntBS, readStreamId)
+import Parsers (readFloatBS, readIntBS, readStreamId, readXRange)
 import Resp (Resp (..), decode, encode)
 import StreamMap (ConcreteStreamId, StreamId, StreamMap, StreamMapError (..))
 import StreamMap qualified as SM
@@ -102,6 +102,7 @@ data Command
     | Lpop Key (Maybe Int)
     | Blpop Key Int
     | Xadd Key StreamId [(ByteString, ByteString)]
+    | XRange Key SM.XRange
     deriving (Show, Eq)
 
 extractBulk :: Resp -> Either String ByteString
@@ -132,6 +133,7 @@ respToCommand (Array _ ((BulkStr "XADD") : (BulkStr key) : (BulkStr sId) : vals)
     chunked <- chunksOf2 vals'
     sId' <- readStreamId sId
     pure $ Xadd key sId' chunked
+respToCommand (Array 4 [BulkStr "XRANGE", BulkStr key, BulkStr s, BulkStr e]) = XRange key <$> readXRange s e
 respToCommand r = Left $ "Conversion Error" <> show r
 
 secondsToMicros :: Float -> Int
@@ -145,6 +147,14 @@ listToResp xs = Array (length xs) $ map BulkStr xs
 
 streamIdToResp :: ConcreteStreamId -> Resp
 streamIdToResp (ms, i) = BulkStr . fromString $ show ms <> "-" <> show i
+
+arrayToResp :: [SM.Value ByteString ByteString] -> Resp
+arrayToResp ar = Array (length ar) $ map valueToResp ar
+  where
+    valueToResp :: SM.Value ByteString ByteString -> Resp
+    valueToResp v = Array 2 [streamIdToResp v.streamId, listToResp $ vals v.vals]
+    vals :: [(ByteString, ByteString)] -> [ByteString]
+    vals = concatMap (\(k, v) -> [k, v])
 
 stremMapErrorToResp :: StreamMapError -> Resp
 stremMapErrorToResp BaseStreamId = StrErr "ERR The ID specified in XADD must be greater than 0-0"
@@ -185,6 +195,9 @@ runCmd cmd = do
             now <- liftIO getCurrentTime
             val <- liftIO $ atomically (setIfAvailable tvTypeIndex key VStream *> xAddSTM tvStreamMap key sId chunked now)
             pure $ either stremMapErrorToResp streamIdToResp val
+        XRange key range -> do
+            vals <- liftIO (atomically (xRangeSTM tvStreamMap key range))
+            pure $ arrayToResp vals
 
 -- TYPE index
 
@@ -280,6 +293,11 @@ xAddSTM tv key sid vals time = do
         Right (csid, m') -> do
             writeTVar tv m'
             pure $ Right csid
+
+xRangeSTM :: TVar StreamStore -> Key -> SM.XRange -> STM [SM.Value ByteString ByteString]
+xRangeSTM tv key range = do
+    m <- readTVar tv
+    pure (SM.query key range m)
 
 -- Command execution
 
