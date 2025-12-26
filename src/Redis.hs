@@ -177,16 +177,17 @@ runCmd cmd = do
         Llen key -> Int <$> liftIO (atomically (llenSTM tvListMap key))
         Xadd key sId chunked -> do
             now <- liftIO getCurrentTime
-            val <- liftIO $ atomically (xAddSTM tvStreamMap key sId chunked now)
+            val <- liftIO $ atomically (setIfAvailable tvTypeIndex key VStream *> xAddSTM tvStreamMap key sId chunked now)
             pure $ streamIdToResp val
 
 -- TYPE index
 
-data ValueType = VString | VList deriving (Eq)
+data ValueType = VString | VList | VStream deriving (Eq)
 
 toString :: ValueType -> ByteString
 toString VString = "string"
 toString VList = "list"
+toString VStream = "stream"
 
 data RequiredType = AbsentOr ValueType | MustBe ValueType
 
