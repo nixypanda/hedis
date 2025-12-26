@@ -219,10 +219,10 @@ runCmd cmd = do
             pure $ arrayOfArrayToResp vals
         XReadBlock 0 key sid -> do
             vals <- liftIO (atomically (xReadBlockSTM tvStreamMap key sid))
-            pure $ keyValsToResp vals
+            pure $ (arrayOfArrayToResp . singleton) vals
         XReadBlock tout key sid -> do
             vals <- liftIO (timeout (nominalDiffTimeToMicros tout) (atomically (xReadBlockSTM tvStreamMap key sid)))
-            pure $ maybe NullArray (keyValsToResp) vals
+            pure $ maybe NullArray (arrayOfArrayToResp . singleton) vals
 
 -- TYPE index
 
