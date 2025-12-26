@@ -2,12 +2,17 @@
 
 module TestStreamMap (tests) where
 
-import Data.Time (UTCTime (..))
+import Data.List (sort)
+import Data.Time (UTCTime)
 import Data.Time.Clock.POSIX (posixSecondsToUTCTime)
+import Hedgehog (Gen, Property, forAll, property, (===))
+import Hedgehog.Gen qualified as Gen
+import Hedgehog.Range qualified as Range
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (Assertion, assertFailure, testCase, (@?=))
 
 import StreamMap
+import Test.Tasty.Hedgehog (testProperty)
 
 val :: ConcreteStreamId -> [(Int, Int)] -> Value Int Int
 val = MkValue
@@ -128,7 +133,35 @@ testsInsert =
              in do
                     length (m2 ! "a") @?= 1
                     length (m2 ! "b") @?= 1
+        , testProperty "ids are strictly increasing" prop_idsStrictlyIncreasing
         ]
 
 fullRange :: XRange
 fullRange = MkXrange XMinus XPlus
+
+-- Generator
+
+genInsertSeq :: Gen [StreamId]
+genInsertSeq = Gen.list (Range.linear 100 200) genStreamId
+
+genStreamId :: Gen StreamId
+genStreamId = ExplicitId <$> Gen.int (Range.linear 1 1_000_000) <*> genIdSeq
+
+genIdSeq :: Gen IdSeq
+genIdSeq = Seq <$> Gen.int (Range.linear 0 10)
+
+-- Property
+
+prop_idsStrictlyIncreasing :: Property
+prop_idsStrictlyIncreasing =
+    property $ do
+        ops <- forAll genInsertSeq
+        let
+            go _ [] acc = reverse acc
+            go m (sid : xs) acc =
+                case insert "k" sid [] t1 m of
+                    Left _ -> go m xs acc
+                    Right (cid, m') -> go m' xs (cid : acc)
+
+        let ids = go empty ops []
+        ids === sort ids

@@ -34,8 +34,8 @@ data IdSeq = Seq Int | SeqAuto
 type ConcreteStreamId = (Int, Int)
 
 data Value k v = MkValue
-    { streamId :: ConcreteStreamId
-    , vals :: [(k, v)]
+    { streamId :: !ConcreteStreamId
+    , vals :: ![(k, v)]
     }
     deriving (Eq, Ord, Show)
 
@@ -51,7 +51,7 @@ type XStreamId = (Int, Maybe Int)
 data XStart = XS XStreamId | XMinus deriving (Show, Eq)
 data XEnd = XE XStreamId | XPlus deriving (Show, Eq)
 
-data XRange = MkXrange {start :: XStart, end :: XEnd}
+data XRange = MkXrange {start :: !XStart, end :: !XEnd}
     deriving (Show, Eq)
 
 xrangeToConcrete :: XRange -> (ConcreteStreamId, ConcreteStreamId)
