@@ -12,14 +12,13 @@ import Control.Concurrent.STM (
     retry,
     writeTVar,
  )
-import Control.Concurrent.STM.TVar (readTVarIO)
 import Control.Monad.Except (ExceptT (..), MonadError, liftEither)
 import Control.Monad.IO.Class (MonadIO (liftIO))
 import Control.Monad.Reader (MonadReader, ReaderT, asks)
 import Data.Bifunctor (Bifunctor (first))
 import Data.ByteString (ByteString)
 import Data.Maybe (fromMaybe)
-import Data.Time (getCurrentTime)
+import Data.Time (UTCTime, getCurrentTime)
 import ExpiringMap qualified as EM
 import System.Log.FastLogger (
     LogType' (..),
@@ -50,9 +49,14 @@ data RedisError
     | InvalidCommand String
     deriving (Show)
 
+type Key = ByteString
+type Expiry = Int
+type ListStore = ListMap Key ByteString
+type StringStore = ExpiringMap Key ByteString
+
 data Env = MkEnv
     { stringStore :: TVar (ExpiringMap ByteString ByteString)
-    , listStore :: TVar (ListMap ByteString ByteString)
+    , listStore :: TVar ListStore
     , envLogger :: TimedFastLogger
     }
 
@@ -68,9 +72,6 @@ mkNewEnv = do
     pure MkEnv{..}
 
 -- Conversion
-
-type Key = ByteString
-type Expiry = Int
 
 data Command
     = Ping
@@ -116,56 +117,65 @@ listToResp xs = Array (length xs) $ map BulkStr xs
 runCmd :: Command -> Redis Resp
 runCmd cmd = do
     tvListMap <- asks listStore
+    tvStringMap <- asks stringStore
     case cmd of
         Ping -> pure $ Str "PONG"
-        (Echo xs) -> pure $ BulkStr xs
-        (Set key val mexpiry) -> do
-            currTime <- liftIO getCurrentTime
-            tvStringMap <- asks stringStore
-            liftIO . atomically $ modifyTVar' tvStringMap $ EM.insert key val currTime mexpiry
-            pure $ Str "OK"
-        (Get key) -> do
-            currTime <- liftIO getCurrentTime
-            tvStringMap <- asks stringStore
-            stringMap <- liftIO $ readTVarIO tvStringMap
-            let val = EM.lookup key currTime stringMap
-            case val of
-                Just x -> pure $ BulkStr x
-                Nothing -> pure NullBulk
-        (Rpush key xs) -> liftIO . atomically $ do
-            listMap <- readTVar tvListMap
-            let listMap' = LM.append key xs listMap
-                len = LM.lookupCount key listMap'
-            writeTVar tvListMap listMap'
-            pure $ Int len
-        (Lpush key xs) -> liftIO . atomically $ do
-            listMap <- readTVar tvListMap
-            let listMap' = LM.revPrepend key xs listMap
-                len = LM.lookupCount key listMap'
-            writeTVar tvListMap listMap'
-            pure $ Int len
-        (Lrange key start end) -> do
-            listMap <- liftIO $ readTVarIO tvListMap
-            let vals = LM.list key MkRange{..} listMap
+        Echo xs -> pure $ BulkStr xs
+        Set key val mexpiry -> do
+            now <- liftIO getCurrentTime
+            liftIO . atomically $ setSTM tvStringMap key val now mexpiry
+            pure (Str "OK")
+        Get key -> do
+            now <- liftIO getCurrentTime
+            m <- liftIO . atomically $ getSTM tvStringMap key now
+            pure $ maybe NullBulk BulkStr m
+        Rpush key xs -> Int <$> liftIO (atomically $ rpushSTM tvListMap key xs)
+        Lpush key xs -> Int <$> liftIO (atomically $ lpushSTM tvListMap key xs)
+        Lpop key mLen -> listToResp <$> liftIO (atomically $ lpopSTM tvListMap key (fromMaybe 1 mLen))
+        Blpop key 0 -> liftIO $ atomically (blpopSTM tvListMap key)
+        Blpop key tout -> fromMaybe NullArray <$> liftIO (timeout tout (atomically $ blpopSTM tvListMap key))
+        Lrange key start end -> do
+            vals <- liftIO (atomically $ lrangeSTM tvListMap key MkRange{..})
             pure $ listToResp vals
-        (Llen key) -> do
-            listMap <- liftIO $ readTVarIO tvListMap
-            let count = LM.lookupCount key listMap
-            pure $ Int count
-        (Lpop key mLen) ->
-            liftIO . atomically $ do
-                listMap <- readTVar tvListMap
-                let (xs, listMap') = LM.leftPops key (fromMaybe 1 mLen) listMap
-                writeTVar tvListMap listMap'
-                pure $ listToResp xs
-        (Blpop key 0) ->
-            liftIO $ atomically (blpopSTM key tvListMap)
-        (Blpop key tout) -> do
-            res <- liftIO $ timeout tout (atomically $ blpopSTM key tvListMap)
-            pure (fromMaybe NullArray res)
+        Llen key -> Int <$> liftIO (atomically $ llenSTM tvListMap key)
 
-blpopSTM :: Key -> TVar (ListMap Key ByteString) -> STM Resp
-blpopSTM key tv = do
+-- StringStore Operations
+
+setSTM :: TVar StringStore -> Key -> ByteString -> UTCTime -> Maybe Expiry -> STM ()
+setSTM tv key val now mexpiry = modifyTVar' tv (EM.insert key val now mexpiry)
+
+getSTM :: TVar StringStore -> Key -> UTCTime -> STM (Maybe ByteString)
+getSTM tv key now = do
+    m <- readTVar tv
+    pure (EM.lookup key now m)
+
+-- ListStore Operations
+
+rpushSTM :: TVar ListStore -> Key -> [ByteString] -> STM Int
+rpushSTM tv key xs = do
+    m <- readTVar tv
+    let m' = LM.append key xs m
+        len = LM.lookupCount key m'
+    writeTVar tv m'
+    pure len
+
+lpushSTM :: TVar ListStore -> Key -> [ByteString] -> STM Int
+lpushSTM tv key xs = do
+    m <- readTVar tv
+    let m' = LM.revPrepend key xs m
+        len = LM.lookupCount key m'
+    writeTVar tv m'
+    pure len
+
+lpopSTM :: TVar ListStore -> Key -> Int -> STM [ByteString]
+lpopSTM tv key n = do
+    m <- readTVar tv
+    let (xs, m') = LM.leftPops key n m
+    writeTVar tv m'
+    pure xs
+
+blpopSTM :: TVar ListStore -> Key -> STM Resp
+blpopSTM tv key = do
     m <- readTVar tv
     case LM.leftPop key m of
         Nothing -> retry
@@ -173,11 +183,21 @@ blpopSTM key tv = do
             writeTVar tv m'
             pure $ listToResp [key, x]
 
+lrangeSTM :: TVar ListStore -> Key -> Range -> STM [ByteString]
+lrangeSTM tv key range = do
+    m <- readTVar tv
+    pure (LM.list key range m)
+
+llenSTM :: TVar ListStore -> Key -> STM Int
+llenSTM tv key = do
+    m <- readTVar tv
+    pure (LM.lookupCount key m)
+
 -- Command execution
 
 handleRequest :: ByteString -> Redis ByteString
 handleRequest bs = do
-    logDebug ("Received: " <> show bs)
+    logInfo ("Received: " <> show bs)
     resp <- liftEither $ first ParsingError $ decode bs
     logDebug ("Decoded: " <> show resp)
     cmd <- liftEither $ first ConversionError $ respToCommand resp
@@ -185,7 +205,7 @@ handleRequest bs = do
     result <- runCmd cmd
     logDebug ("Execution result: " <> show result)
     encoded <- liftEither $ first EncodeError $ encode result
-    logDebug ("Encoded: " <> show encoded)
+    logInfo ("Encoded: " <> show encoded)
     pure encoded
 
 logInfo :: (MonadReader Env m, MonadIO m) => String -> m ()
