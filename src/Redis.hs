@@ -142,7 +142,6 @@ secondsToMicros = round . (* 1_000_000)
 -- Conversion (to Resp)
 
 listToResp :: [ByteString] -> Resp
-listToResp [x] = BulkStr x
 listToResp xs = Array (length xs) $ map BulkStr xs
 
 streamIdToResp :: ConcreteStreamId -> Resp
@@ -184,7 +183,8 @@ runCmd cmd = do
             pure $ maybe NullBulk BulkStr m
         Rpush key xs -> Int <$> liftIO (atomically (setIfAvailable tvTypeIndex key VList *> rpushSTM tvListMap key xs))
         Lpush key xs -> Int <$> liftIO (atomically (setIfAvailable tvTypeIndex key VList *> lpushSTM tvListMap key xs))
-        Lpop key mLen -> listToResp <$> liftIO (atomically (lpopSTM tvListMap key (fromMaybe 1 mLen)))
+        Lpop key Nothing -> maybe NullBulk BulkStr <$> liftIO (atomically (lpopSTM tvListMap key))
+        Lpop key (Just mLen) -> listToResp <$> liftIO (atomically (lpopsSTM tvListMap key mLen))
         Blpop key 0 -> liftIO $ atomically (blpopSTM tvListMap key)
         Blpop key tout -> fromMaybe NullArray <$> liftIO (timeout tout (atomically (blpopSTM tvListMap key)))
         Lrange key start end -> do
@@ -257,8 +257,17 @@ lpushSTM tv key xs = do
     writeTVar tv m'
     pure len
 
-lpopSTM :: TVar ListStore -> Key -> Int -> STM [ByteString]
-lpopSTM tv key n = do
+lpopSTM :: TVar ListStore -> Key -> STM (Maybe ByteString)
+lpopSTM tv key = do
+    m <- readTVar tv
+    case LM.leftPop key m of
+        Nothing -> undefined
+        Just (x, m') -> do
+            writeTVar tv m'
+            pure $ Just x
+
+lpopsSTM :: TVar ListStore -> Key -> Int -> STM [ByteString]
+lpopsSTM tv key n = do
     m <- readTVar tv
     let (xs, m') = LM.leftPops key n m
     writeTVar tv m'
