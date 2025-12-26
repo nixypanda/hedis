@@ -21,11 +21,12 @@ import Control.Monad.IO.Class (MonadIO (liftIO))
 import Control.Monad.Reader (MonadReader, ReaderT, asks)
 import Data.Bifunctor (Bifunctor (first))
 import Data.ByteString (ByteString)
+import Data.List (singleton)
 import Data.Map (Map)
 import Data.Map qualified as M
 import Data.Maybe (fromMaybe)
 import Data.String (IsString (fromString))
-import Data.Time (UTCTime, getCurrentTime)
+import Data.Time (NominalDiffTime, UTCTime, getCurrentTime, secondsToNominalDiffTime)
 import ExpiringMap qualified as EM
 import System.Log.FastLogger (
     LogType' (..),
@@ -46,6 +47,7 @@ import Parsers (readConcreteStreamId, readFloatBS, readIntBS, readStreamId, read
 import Resp (Resp (..), decode, encode)
 import StreamMap (ConcreteStreamId, StreamId, StreamMap, StreamMapError (..))
 import StreamMap qualified as SM
+import Time (millisToNominalDiffTime, nominalDiffTimeToMicros)
 
 -- Types
 
@@ -100,11 +102,11 @@ data Command
     | Lrange Key Int Int
     | Llen Key
     | Lpop Key (Maybe Int)
-    | Blpop Key Int
+    | Blpop Key NominalDiffTime
     | Xadd Key StreamId [(ByteString, ByteString)]
     | XRange Key SM.XRange
     | XRead [(Key, ConcreteStreamId)]
-    | XReadBlock Int Key ConcreteStreamId
+    | XReadBlock NominalDiffTime Key ConcreteStreamId
     deriving (Show, Eq)
 
 extractBulk :: Resp -> Either String ByteString
@@ -127,7 +129,7 @@ respToCommand (Array 2 [BulkStr "LLEN", BulkStr key]) = pure $ Llen key
 respToCommand (Array 2 [BulkStr "LPOP", BulkStr key]) = pure $ Lpop key Nothing
 respToCommand (Array 3 [BulkStr "LPOP", BulkStr key, BulkStr len]) = Lpop key . Just <$> readIntBS len
 respToCommand (Array 4 [BulkStr "LRANGE", BulkStr key, BulkStr start, BulkStr stop]) = Lrange key <$> readIntBS start <*> readIntBS stop
-respToCommand (Array 3 [BulkStr "BLPOP", BulkStr key, BulkStr tout]) = Blpop key . secondsToMicros <$> readFloatBS tout
+respToCommand (Array 3 [BulkStr "BLPOP", BulkStr key, BulkStr tout]) = Blpop key . secondsToNominalDiffTime . realToFrac <$> readFloatBS tout
 respToCommand (Array _ ((BulkStr "RPUSH") : (BulkStr key) : vals)) = Rpush key <$> mapM extractBulk vals
 respToCommand (Array _ ((BulkStr "LPUSH") : (BulkStr key) : vals)) = Lpush key <$> mapM extractBulk vals
 respToCommand (Array _ ((BulkStr "XADD") : (BulkStr key) : (BulkStr sId) : vals)) = do
@@ -142,13 +144,10 @@ respToCommand (Array _ (BulkStr "XREAD" : BulkStr "streams" : vals)) = do
     ids' <- mapM readConcreteStreamId ids
     pure $ XRead $ zip keys ids'
 respToCommand (Array 6 [BulkStr "XREAD", BulkStr "block", BulkStr t, BulkStr "streams", BulkStr key, BulkStr sid]) = do
-    t' <- readIntBS t
+    t' <- millisToNominalDiffTime <$> readIntBS t
     sid' <- readConcreteStreamId sid
     pure $ XReadBlock t' key sid'
 respToCommand r = Left $ "Conversion Error" <> show r
-
-secondsToMicros :: Float -> Int
-secondsToMicros = round . (* 1_000_000)
 
 -- Conversion (to Resp)
 
@@ -203,7 +202,7 @@ runCmd cmd = do
         Lpop key Nothing -> maybe NullBulk BulkStr <$> liftIO (atomically (lpopSTM tvListMap key))
         Lpop key (Just mLen) -> listToResp <$> liftIO (atomically (lpopsSTM tvListMap key mLen))
         Blpop key 0 -> liftIO $ atomically (blpopSTM tvListMap key)
-        Blpop key tout -> fromMaybe NullArray <$> liftIO (timeout tout (atomically (blpopSTM tvListMap key)))
+        Blpop key tout -> fromMaybe NullArray <$> liftIO (timeout (nominalDiffTimeToMicros tout) (atomically (blpopSTM tvListMap key)))
         Lrange key start end -> do
             vals <- liftIO (atomically (lrangeSTM tvListMap key MkRange{..}))
             pure $ listToResp vals
@@ -222,8 +221,8 @@ runCmd cmd = do
             vals <- liftIO (atomically (xReadBlockSTM tvStreamMap key sid))
             pure $ keyValsToResp vals
         XReadBlock tout key sid -> do
-            vals <- liftIO (timeout tout (atomically (xReadBlockSTM tvStreamMap key sid)))
-            pure $ maybe NullArray keyValsToResp vals
+            vals <- liftIO (timeout (nominalDiffTimeToMicros tout) (atomically (xReadBlockSTM tvStreamMap key sid)))
+            pure $ maybe NullArray (keyValsToResp) vals
 
 -- TYPE index
 
