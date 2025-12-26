@@ -15,6 +15,7 @@ import Control.Concurrent.STM (
     throwSTM,
     writeTVar,
  )
+import Control.Exception (Exception)
 import Control.Monad.Except (ExceptT (..), MonadError, liftEither)
 import Control.Monad.IO.Class (MonadIO (liftIO))
 import Control.Monad.Reader (MonadReader, ReaderT, asks)
@@ -37,7 +38,6 @@ import System.Log.FastLogger (
 import System.Timeout (timeout)
 import Text.Parsec (ParseError)
 
-import Control.Exception (Exception)
 import ExpiringMap (ExpiringMap)
 import ListMap (ListMap, Range (..))
 import ListMap qualified as LM
@@ -86,6 +86,7 @@ mkNewEnv = do
 data Command
     = Ping
     | Echo ByteString
+    | Type Key
     | Set Key ByteString (Maybe Expiry)
     | Get Key
     | Rpush Key [ByteString]
@@ -103,6 +104,7 @@ extractBulk r = Left $ "Invalit Type" <> show r
 respToCommand :: Resp -> Either String Command
 respToCommand (Array 1 [BulkStr "PING"]) = pure Ping
 respToCommand (Array 2 [BulkStr "ECHO", BulkStr xs]) = pure $ Echo xs
+respToCommand (Array 2 [BulkStr "TYPE", BulkStr key]) = pure $ Type key
 respToCommand (Array 5 [BulkStr "SET", BulkStr key, BulkStr val, BulkStr "PX", BulkStr t]) = Set key val . Just <$> readIntBS t
 respToCommand (Array 3 [BulkStr "SET", BulkStr key, BulkStr val]) = pure $ Set key val Nothing
 respToCommand (Array 2 [BulkStr "GET", BulkStr key]) = pure $ Get key
@@ -132,6 +134,9 @@ runCmd cmd = do
     case cmd of
         Ping -> pure $ Str "PONG"
         Echo xs -> pure $ BulkStr xs
+        Type x -> do
+            ty <- liftIO $ atomically $ getTypeSTM tvTypeIndex x
+            pure $ maybe (Str "none") (Str . toString) ty
         Set key val mexpiry -> do
             now <- liftIO getCurrentTime
             liftIO $ atomically (setIfAvailable tvTypeIndex key VString *> setSTM tvStringMap key val now mexpiry)
@@ -153,7 +158,15 @@ runCmd cmd = do
 -- TYPE index
 
 data ValueType = VString | VList deriving (Eq)
+
+toString :: ValueType -> ByteString
+toString VString = "string"
+toString VList = "list"
+
 data RequiredType = AbsentOr ValueType | MustBe ValueType
+
+getTypeSTM :: TVar TypeIndex -> Key -> STM (Maybe ValueType)
+getTypeSTM tvIdx key = M.lookup key <$> readTVar tvIdx
 
 availableSTM :: TVar TypeIndex -> Key -> RequiredType -> STM ()
 availableSTM tvIdx key req = do
