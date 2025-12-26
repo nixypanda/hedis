@@ -15,6 +15,7 @@ import Parsers (bytes, signedIntParser)
 
 data Resp
     = Str ByteString
+    | StrErr ByteString
     | Array Int [Resp]
     | BulkStr ByteString
     | Int Int
@@ -29,6 +30,7 @@ resp = do
     t <- anyChar
     case t of
         '+' -> Str <$> bytes <* crlf
+        '-' -> StrErr <$> bytes <* crlf
         '*' -> array
         ':' -> Int <$> signedIntParser <* crlf
         '$' -> bulkString
@@ -60,6 +62,7 @@ crlf' = "\r\n"
 
 encode :: Resp -> Either String ByteString
 encode (Str x) = Right $ "+" <> x <> crlf'
+encode (StrErr x) = Right $ "-" <> x <> crlf'
 encode (BulkStr x) = Right $ "$" <> fromString (show $ BS.length x) <> crlf' <> x <> crlf'
 encode (Int x) = Right $ ":" <> fromString (show x) <> crlf'
 encode (Array n rs) = (\xs -> "*" <> fromString (show n) <> crlf' <> BS.concat xs) <$> mapM encode rs

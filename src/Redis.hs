@@ -147,8 +147,8 @@ streamIdToResp :: ConcreteStreamId -> Resp
 streamIdToResp (ms, i) = BulkStr . fromString $ show ms <> "-" <> show i
 
 stremMapErrorToResp :: StreamMapError -> Resp
-stremMapErrorToResp BaseStreamId = Str "ERR The ID specified in XADD must be greater than 0-0"
-stremMapErrorToResp NotLargerId = Str "ERR The ID specified in XADD is equal or smaller than the target stream top item"
+stremMapErrorToResp BaseStreamId = StrErr "ERR The ID specified in XADD must be greater than 0-0"
+stremMapErrorToResp NotLargerId = StrErr "ERR The ID specified in XADD is equal or smaller than the target stream top item"
 
 -- Execution
 
