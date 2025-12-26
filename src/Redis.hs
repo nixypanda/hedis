@@ -1,3 +1,5 @@
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Redis (Env (..), Redis (..), RedisError (..), handleRequest, mkNewEnv) where
@@ -10,6 +12,7 @@ import Control.Concurrent.STM (
     newTVarIO,
     readTVar,
     retry,
+    throwSTM,
     writeTVar,
  )
 import Control.Monad.Except (ExceptT (..), MonadError, liftEither)
@@ -17,6 +20,8 @@ import Control.Monad.IO.Class (MonadIO (liftIO))
 import Control.Monad.Reader (MonadReader, ReaderT, asks)
 import Data.Bifunctor (Bifunctor (first))
 import Data.ByteString (ByteString)
+import Data.Map (Map)
+import Data.Map qualified as M
 import Data.Maybe (fromMaybe)
 import Data.Time (UTCTime, getCurrentTime)
 import ExpiringMap qualified as EM
@@ -32,6 +37,7 @@ import System.Log.FastLogger (
 import System.Timeout (timeout)
 import Text.Parsec (ParseError)
 
+import Control.Exception (Exception)
 import ExpiringMap (ExpiringMap)
 import ListMap (ListMap, Range (..))
 import ListMap qualified as LM
@@ -47,26 +53,30 @@ data RedisError
     | Unimplemented String
     | ConversionError String
     | InvalidCommand String
-    deriving (Show)
+    | WrongType
+    deriving (Show, Exception)
 
 type Key = ByteString
 type Expiry = Int
 type ListStore = ListMap Key ByteString
 type StringStore = ExpiringMap Key ByteString
+type TypeIndex = Map Key ValueType
 
 data Env = MkEnv
     { stringStore :: TVar (ExpiringMap ByteString ByteString)
     , listStore :: TVar ListStore
+    , typeIndex :: TVar TypeIndex
     , envLogger :: TimedFastLogger
     }
 
 newtype Redis a = MkRedis {runRedis :: ReaderT Env (ExceptT RedisError IO) a}
-    deriving (Functor, Applicative, Monad, MonadError RedisError, MonadIO, MonadReader Env)
+    deriving newtype (Functor, Applicative, Monad, MonadError RedisError, MonadIO, MonadReader Env)
 
 mkNewEnv :: IO Env
 mkNewEnv = do
     stringStore <- newTVarIO EM.empty
     listStore <- newTVarIO LM.empty
+    typeIndex <- newTVarIO M.empty
     timeCache <- newTimeCache simpleTimeFormat
     (envLogger, _cleanup) <- newTimedFastLogger timeCache (LogStderr defaultBufSize)
     pure MkEnv{..}
@@ -118,26 +128,48 @@ runCmd :: Command -> Redis Resp
 runCmd cmd = do
     tvListMap <- asks listStore
     tvStringMap <- asks stringStore
+    tvTypeIndex <- asks typeIndex
     case cmd of
         Ping -> pure $ Str "PONG"
         Echo xs -> pure $ BulkStr xs
         Set key val mexpiry -> do
             now <- liftIO getCurrentTime
-            liftIO . atomically $ setSTM tvStringMap key val now mexpiry
+            liftIO $ atomically (setIfAvailable tvTypeIndex key VString *> setSTM tvStringMap key val now mexpiry)
             pure (Str "OK")
         Get key -> do
             now <- liftIO getCurrentTime
-            m <- liftIO . atomically $ getSTM tvStringMap key now
+            m <- liftIO $ atomically (getSTM tvStringMap key now)
             pure $ maybe NullBulk BulkStr m
-        Rpush key xs -> Int <$> liftIO (atomically $ rpushSTM tvListMap key xs)
-        Lpush key xs -> Int <$> liftIO (atomically $ lpushSTM tvListMap key xs)
-        Lpop key mLen -> listToResp <$> liftIO (atomically $ lpopSTM tvListMap key (fromMaybe 1 mLen))
+        Rpush key xs -> Int <$> liftIO (atomically (setIfAvailable tvTypeIndex key VList *> rpushSTM tvListMap key xs))
+        Lpush key xs -> Int <$> liftIO (atomically (setIfAvailable tvTypeIndex key VList *> lpushSTM tvListMap key xs))
+        Lpop key mLen -> listToResp <$> liftIO (atomically (lpopSTM tvListMap key (fromMaybe 1 mLen)))
         Blpop key 0 -> liftIO $ atomically (blpopSTM tvListMap key)
-        Blpop key tout -> fromMaybe NullArray <$> liftIO (timeout tout (atomically $ blpopSTM tvListMap key))
+        Blpop key tout -> fromMaybe NullArray <$> liftIO (timeout tout (atomically (blpopSTM tvListMap key)))
         Lrange key start end -> do
-            vals <- liftIO (atomically $ lrangeSTM tvListMap key MkRange{..})
+            vals <- liftIO (atomically (lrangeSTM tvListMap key MkRange{..}))
             pure $ listToResp vals
-        Llen key -> Int <$> liftIO (atomically $ llenSTM tvListMap key)
+        Llen key -> Int <$> liftIO (atomically (llenSTM tvListMap key))
+
+-- TYPE index
+
+data ValueType = VString | VList deriving (Eq)
+data RequiredType = AbsentOr ValueType | MustBe ValueType
+
+availableSTM :: TVar TypeIndex -> Key -> RequiredType -> STM ()
+availableSTM tvIdx key req = do
+    idx <- readTVar tvIdx
+    case (M.lookup key idx, req) of
+        (Nothing, AbsentOr _) -> pure ()
+        (Just t, AbsentOr t') | t == t' -> pure ()
+        (Just t, MustBe t') | t == t' -> pure ()
+        _ -> throwSTM WrongType
+
+setTypeSTM :: TVar TypeIndex -> Key -> ValueType -> STM ()
+setTypeSTM tvIdx key ty =
+    modifyTVar' tvIdx (M.insert key ty)
+
+setIfAvailable :: TVar TypeIndex -> Key -> ValueType -> STM ()
+setIfAvailable tvIdx key ty = availableSTM tvIdx key (AbsentOr ty) *> setTypeSTM tvIdx key ty
 
 -- StringStore Operations
 
