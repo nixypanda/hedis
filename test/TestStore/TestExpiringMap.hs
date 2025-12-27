@@ -1,11 +1,11 @@
-module TestExpiringMap (tests) where
+module TestStore.TestExpiringMap (tests) where
 
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (testCase, (@?=))
 
 import Data.Time (DiffTime, UTCTime (UTCTime), fromGregorian)
 
-import ExpiringMap qualified as EM
+import Store.ExpiringMap qualified as EM
 
 tests :: TestTree
 tests =

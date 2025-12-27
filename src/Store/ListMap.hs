@@ -1,10 +1,10 @@
-module ListMap (
+module Store.ListMap (
     ListMap,
     Range (..),
     empty,
     append,
     revPrepend,
-    ListMap.lookup,
+    Store.ListMap.lookup,
     lookupCount,
     list,
     leftPops,

@@ -12,7 +12,7 @@ import Data.String (fromString)
 import Test.Tasty.HUnit (testCase, (@?=))
 
 import Parsers (readFloatBS, readIntBS, readStreamId)
-import StreamMap
+import Store.StreamMap
 
 tests :: TestTree
 tests =

@@ -1,4 +1,4 @@
-module StreamMap (
+module Store.StreamMap (
     ConcreteStreamId,
     StreamId (..),
     IdSeq (..),

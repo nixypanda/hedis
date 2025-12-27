@@ -27,7 +27,6 @@ import Data.Map qualified as M
 import Data.Maybe (fromMaybe)
 import Data.String (IsString (fromString))
 import Data.Time (NominalDiffTime, UTCTime, getCurrentTime, secondsToNominalDiffTime)
-import ExpiringMap qualified as EM
 import System.Log.FastLogger (
     LogType' (..),
     TimedFastLogger,
@@ -40,13 +39,14 @@ import System.Log.FastLogger (
 import System.Timeout (timeout)
 import Text.Parsec (ParseError)
 
-import ExpiringMap (ExpiringMap)
-import ListMap (ListMap, Range (..))
-import ListMap qualified as LM
 import Parsers (readConcreteStreamId, readDollarStreamId, readFloatBS, readIntBS, readStreamId, readXRange)
 import Resp (Resp (..), decode, encode)
-import StreamMap (ConcreteStreamId, StreamId, StreamMap, StreamMapError (..), XRStreamId (..))
-import StreamMap qualified as SM
+import Store.ExpiringMap (ExpiringMap)
+import Store.ExpiringMap qualified as EM
+import Store.ListMap (ListMap, Range (..))
+import Store.ListMap qualified as LM
+import Store.StreamMap (ConcreteStreamId, StreamId, StreamMap, StreamMapError (..), XRStreamId (..))
+import Store.StreamMap qualified as SM
 import Time (millisToNominalDiffTime, nominalDiffTimeToMicros)
 
 -- Types

@@ -1,6 +1,6 @@
 {-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
 
-module TestStreamMap (tests) where
+module TestStore.TestStreamMap (tests) where
 
 import Data.List (sort)
 import Data.Time (UTCTime)
@@ -10,9 +10,9 @@ import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (Assertion, assertFailure, testCase, (@?=))
-
-import StreamMap
 import Test.Tasty.Hedgehog (testProperty)
+
+import Store.StreamMap
 
 val :: ConcreteStreamId -> [(Int, Int)] -> Value Int Int
 val = MkValue

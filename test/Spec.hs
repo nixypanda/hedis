@@ -2,19 +2,19 @@ module Main (main) where
 
 import Test.Tasty (TestTree, defaultMain, testGroup)
 
-import TestExpiringMap qualified
-import TestListMap qualified
 import TestParsers qualified
-import TestStreamMap qualified
+import TestStore.TestExpiringMap qualified
+import TestStore.TestListMap qualified
+import TestStore.TestStreamMap qualified
 
 tests :: TestTree
 tests =
     testGroup
         "redis tests"
-        [ TestExpiringMap.tests
-        , TestListMap.tests
+        [ TestStore.TestExpiringMap.tests
+        , TestStore.TestListMap.tests
+        , TestStore.TestStreamMap.tests
         , TestParsers.tests
-        , TestStreamMap.tests
         ]
 
 main :: IO ()
