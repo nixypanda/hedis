@@ -14,8 +14,8 @@ import Data.Time (NominalDiffTime, secondsToNominalDiffTime)
 
 import Parsers (readConcreteStreamId, readFloatBS, readIntBS, readXAddStreamId, readXRange, readXReadStreamId)
 import Resp (Resp (..))
-import Store.StreamMap (ConcreteStreamId, StreamMapError (..), XAddStreamId, XReadStreamId (..))
-import Store.StreamMap qualified as SM
+import StoreBackend.StreamMap (ConcreteStreamId, StreamMapError (..), XAddStreamId, XReadStreamId (..))
+import StoreBackend.StreamMap qualified as SM
 import Time (millisToNominalDiffTime)
 
 type Key = ByteString

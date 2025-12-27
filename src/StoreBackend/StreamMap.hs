@@ -1,4 +1,4 @@
-module Store.StreamMap (
+module StoreBackend.StreamMap (
     ConcreteStreamId,
     XAddStreamId (..),
     IdSeq (..),

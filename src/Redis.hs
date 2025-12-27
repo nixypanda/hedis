@@ -4,29 +4,16 @@
 
 module Redis (Env (..), Redis (..), RedisError (..), handleRequest, mkNewEnv) where
 
-import Control.Concurrent.STM (
-    STM,
-    TVar,
-    atomically,
-    modifyTVar',
-    newTVarIO,
-    readTVar,
-    retry,
-    throwSTM,
-    writeTVar,
- )
+import Control.Concurrent.STM (TVar, atomically)
 import Control.Exception (Exception)
-import Control.Monad (unless)
 import Control.Monad.Except (ExceptT (..), MonadError, liftEither)
 import Control.Monad.IO.Class (MonadIO (liftIO))
 import Control.Monad.Reader (MonadReader, ReaderT, asks)
 import Data.Bifunctor (Bifunctor (first))
 import Data.ByteString (ByteString)
 import Data.List (singleton)
-import Data.Map (Map)
-import Data.Map qualified as M
 import Data.String (fromString)
-import Data.Time (NominalDiffTime, UTCTime, getCurrentTime)
+import Data.Time (getCurrentTime)
 import System.Log.FastLogger (
     LogType' (..),
     TimedFastLogger,
@@ -39,15 +26,18 @@ import System.Log.FastLogger (
 import System.Timeout (timeout)
 import Text.Parsec (ParseError)
 
-import Command (Command (..), CommandResult (..), Key, respToCmd, resultToResp)
+import Command (Command (..), CommandResult (..), respToCmd, resultToResp)
 import Resp (decode, encode)
-import Store.ExpiringMap (ExpiringMap)
-import Store.ExpiringMap qualified as EM
-import Store.ListMap (ListMap, Range (..))
-import Store.ListMap qualified as LM
-import Store.StreamMap (ConcreteStreamId, StreamMap, StreamMapError (..), XAddStreamId, XReadStreamId (..))
-import Store.StreamMap qualified as SM
-import Store.TypeIndex (RequiredType (..), ValueType (..), checkAvailable)
+import Store.ListStore (ListStore)
+import Store.ListStore qualified as LS
+import Store.StreamStore (StreamStore)
+import Store.StreamStore qualified as StS
+import Store.StringStore (StringStore)
+import Store.StringStore qualified as SS
+import Store.TypeStore (IncorrectType, TypeIndex)
+import Store.TypeStore qualified as TS
+import StoreBackend.ListMap (Range (..))
+import StoreBackend.TypeIndex (ValueType (..))
 import Time (nominalDiffTimeToMicros)
 
 -- Types
@@ -59,13 +49,8 @@ data RedisError
     | Unimplemented String
     | ConversionError String
     | InvalidCommand String
-    | WrongType
+    | WrongType IncorrectType
     deriving (Show, Exception)
-
-type ListStore = ListMap Key ByteString
-type StringStore = ExpiringMap Key ByteString
-type TypeIndex = Map Key ValueType
-type StreamStore = StreamMap Key ByteString ByteString
 
 data Env = MkEnv
     { stringStore :: TVar StringStore
@@ -80,10 +65,10 @@ newtype Redis a = MkRedis {runRedis :: ReaderT Env (ExceptT RedisError IO) a}
 
 mkNewEnv :: IO Env
 mkNewEnv = do
-    stringStore <- newTVarIO EM.empty
-    listStore <- newTVarIO LM.empty
-    typeIndex <- newTVarIO M.empty
-    streamStore <- newTVarIO SM.empty
+    stringStore <- atomically SS.emptySTM
+    listStore <- atomically LS.emptySTM
+    typeIndex <- atomically TS.emptySTM
+    streamStore <- atomically StS.emptySTM
     timeCache <- newTimeCache simpleTimeFormat
     (envLogger, _cleanup) <- newTimedFastLogger timeCache (LogStderr defaultBufSize)
     pure MkEnv{..}
@@ -102,174 +87,58 @@ runCmd cmd = do
         Echo xs -> pure $ RBulk (Just xs)
         -- type index
         Type x -> do
-            ty <- liftIO $ atomically $ getTypeSTM tvTypeIndex x
+            ty <- liftIO $ atomically $ TS.getTypeSTM tvTypeIndex x
             pure $ maybe (RSimple "none") (RSimple . fromString . show) ty
         -- String Store
         Set key val mexpiry -> do
-            liftIO $ atomically (setIfAvailable tvTypeIndex key VString *> setSTM tvStringMap key val now mexpiry)
+            liftIO $ atomically (TS.setIfAvailable tvTypeIndex key VString *> SS.setSTM tvStringMap key val now mexpiry)
             pure $ RSimple "OK"
         Get key -> do
-            val <- liftIO $ atomically (getSTM tvStringMap key now)
+            val <- liftIO $ atomically (SS.getSTM tvStringMap key now)
             pure $ RBulk val
         -- List Store
         Rpush key xs -> do
-            count <- liftIO (atomically (setIfAvailable tvTypeIndex key VList *> rpushSTM tvListMap key xs))
+            count <- liftIO (atomically (TS.setIfAvailable tvTypeIndex key VList *> LS.rpushSTM tvListMap key xs))
             pure $ RInt count
         Lpush key xs -> do
-            count <- liftIO (atomically (setIfAvailable tvTypeIndex key VList *> lpushSTM tvListMap key xs))
+            count <- liftIO (atomically (TS.setIfAvailable tvTypeIndex key VList *> LS.lpushSTM tvListMap key xs))
             pure $ RInt count
         Lpop key Nothing -> do
-            val <- liftIO (atomically (lpopSTM tvListMap key))
+            val <- liftIO (atomically (LS.lpopSTM tvListMap key))
             pure $ RBulk val
         Lpop key (Just mLen) -> do
-            vals <- liftIO (atomically (lpopsSTM tvListMap key mLen))
+            vals <- liftIO (atomically (LS.lpopsSTM tvListMap key mLen))
             pure $ RArray vals
         Blpop key 0 -> do
-            vals <- liftIO $ atomically (blpopSTM tvListMap key)
+            vals <- liftIO $ atomically (LS.blpopSTM tvListMap key)
             pure $ RArray vals
         Blpop key tout -> do
-            val <- liftIO (timeout (nominalDiffTimeToMicros tout) (atomically (blpopSTM tvListMap key)))
+            val <- liftIO (timeout (nominalDiffTimeToMicros tout) (atomically (LS.blpopSTM tvListMap key)))
             pure $ maybe RNullArray RArray val
         Lrange key start end -> do
-            vals <- liftIO (atomically (lrangeSTM tvListMap key MkRange{..}))
+            vals <- liftIO (atomically (LS.lrangeSTM tvListMap key MkRange{..}))
             pure $ RArray vals
         Llen key -> do
-            len <- liftIO (atomically (llenSTM tvListMap key))
+            len <- liftIO (atomically (LS.llenSTM tvListMap key))
             pure $ RInt len
         -- Stream Store
         Xadd key sId chunked -> do
-            val <- liftIO $ atomically (setIfAvailable tvTypeIndex key VStream *> xAddSTM tvStreamMap key sId chunked now)
+            val <- liftIO $ atomically (TS.setIfAvailable tvTypeIndex key VStream *> StS.xAddSTM tvStreamMap key sId chunked now)
             pure $ either RStreamError RStreamId val
         XRange key range -> do
-            vals <- liftIO (atomically (xRangeSTM tvStreamMap key range))
+            vals <- liftIO (atomically (StS.xRangeSTM tvStreamMap key range))
             pure $ RStreamValues vals
         XRead keys -> do
-            vals <- liftIO (atomically (xReadSTM tvStreamMap keys))
+            vals <- liftIO (atomically (StS.xReadSTM tvStreamMap keys))
             pure $ RKeyValues vals
         XReadBlock 0 key sid -> do
-            sid' <- liftIO $ atomically (xResolveStreamIdSTM tvStreamMap key sid)
-            vals <- liftIO (atomically (xReadBlockSTM tvStreamMap key sid'))
+            sid' <- liftIO $ atomically (StS.xResolveStreamIdSTM tvStreamMap key sid)
+            vals <- liftIO (atomically (StS.xReadBlockSTM tvStreamMap key sid'))
             pure $ (RKeyValues . singleton) vals
         XReadBlock tout key sid -> do
-            sid' <- liftIO $ atomically (xResolveStreamIdSTM tvStreamMap key sid)
-            vals <- liftIO (timeout (nominalDiffTimeToMicros tout) (atomically (xReadBlockSTM tvStreamMap key sid')))
+            sid' <- liftIO $ atomically (StS.xResolveStreamIdSTM tvStreamMap key sid)
+            vals <- liftIO (timeout (nominalDiffTimeToMicros tout) (atomically (StS.xReadBlockSTM tvStreamMap key sid')))
             pure $ maybe RNullArray (RKeyValues . singleton) vals
-
--- TYPE index
-
-getTypeSTM :: TVar TypeIndex -> Key -> STM (Maybe ValueType)
-getTypeSTM tvIdx key = M.lookup key <$> readTVar tvIdx
-
-availableSTM :: TVar TypeIndex -> Key -> RequiredType -> STM ()
-availableSTM tvIdx key req = do
-    idx <- readTVar tvIdx
-    unless (checkAvailable (M.lookup key idx) req) $
-        throwSTM WrongType
-
-setTypeSTM :: TVar TypeIndex -> Key -> ValueType -> STM ()
-setTypeSTM tvIdx key ty =
-    modifyTVar' tvIdx (M.insert key ty)
-
-setIfAvailable :: TVar TypeIndex -> Key -> ValueType -> STM ()
-setIfAvailable tvIdx key ty = availableSTM tvIdx key (AbsentOr ty) *> setTypeSTM tvIdx key ty
-
--- StringStore Operations
-
-setSTM :: TVar StringStore -> Key -> ByteString -> UTCTime -> Maybe NominalDiffTime -> STM ()
-setSTM tv key val now mexpiry = modifyTVar' tv (EM.insert key val now mexpiry)
-
-getSTM :: TVar StringStore -> Key -> UTCTime -> STM (Maybe ByteString)
-getSTM tv key now = do
-    m <- readTVar tv
-    pure (EM.lookup key now m)
-
--- ListStore Operations
-
-rpushSTM :: TVar ListStore -> Key -> [ByteString] -> STM Int
-rpushSTM tv key xs = do
-    m <- readTVar tv
-    let m' = LM.append key xs m
-        len = LM.lookupCount key m'
-    writeTVar tv m'
-    pure len
-
-lpushSTM :: TVar ListStore -> Key -> [ByteString] -> STM Int
-lpushSTM tv key xs = do
-    m <- readTVar tv
-    let m' = LM.revPrepend key xs m
-        len = LM.lookupCount key m'
-    writeTVar tv m'
-    pure len
-
-lpopSTM :: TVar ListStore -> Key -> STM (Maybe ByteString)
-lpopSTM tv key = do
-    m <- readTVar tv
-    case LM.leftPop key m of
-        Nothing -> undefined
-        Just (x, m') -> do
-            writeTVar tv m'
-            pure $ Just x
-
-lpopsSTM :: TVar ListStore -> Key -> Int -> STM [ByteString]
-lpopsSTM tv key n = do
-    m <- readTVar tv
-    let (xs, m') = LM.leftPops key n m
-    writeTVar tv m'
-    pure xs
-
-blpopSTM :: TVar ListStore -> Key -> STM [ByteString]
-blpopSTM tv key = do
-    m <- readTVar tv
-    case LM.leftPop key m of
-        Nothing -> retry
-        Just (x, m') -> do
-            writeTVar tv m'
-            pure [key, x]
-
-lrangeSTM :: TVar ListStore -> Key -> Range -> STM [ByteString]
-lrangeSTM tv key range = do
-    m <- readTVar tv
-    pure (LM.list key range m)
-
-llenSTM :: TVar ListStore -> Key -> STM Int
-llenSTM tv key = do
-    m <- readTVar tv
-    pure (LM.lookupCount key m)
-
--- stream operations
-
-xAddSTM :: TVar StreamStore -> Key -> XAddStreamId -> [(ByteString, ByteString)] -> UTCTime -> STM (Either StreamMapError ConcreteStreamId)
-xAddSTM tv key sid vals time = do
-    m <- readTVar tv
-    case SM.insert key sid vals time m of
-        Left err -> pure $ Left err
-        Right (csid, m') -> do
-            writeTVar tv m'
-            pure $ Right csid
-
-xRangeSTM :: TVar StreamStore -> Key -> SM.XRange -> STM [SM.Value ByteString ByteString]
-xRangeSTM tv key range = do
-    m <- readTVar tv
-    pure (SM.query key range m)
-
-xReadSTM :: TVar StreamStore -> [(Key, ConcreteStreamId)] -> STM [(Key, [SM.Value ByteString ByteString])]
-xReadSTM tv keys = do
-    m <- readTVar tv
-    pure $ map (\(k, sid) -> (k, SM.queryEx k sid m)) keys
-
-xResolveStreamIdSTM :: TVar StreamStore -> Key -> XReadStreamId -> STM ConcreteStreamId
-xResolveStreamIdSTM tv key sid = do
-    m <- readTVar tv
-    case sid of
-        Dollar -> pure $ SM.lookupLatest key m
-        Concrete s -> pure s
-
-xReadBlockSTM :: TVar StreamStore -> Key -> ConcreteStreamId -> STM (Key, [SM.Value ByteString ByteString])
-xReadBlockSTM tv key sid = do
-    mInner <- readTVar tv
-    case SM.queryEx key sid mInner of
-        [] -> retry
-        xs -> pure (key, xs)
 
 -- Command execution
 

@@ -17,7 +17,7 @@ import Control.Monad (join)
 import Data.ByteString (ByteString)
 import Data.Functor (($>))
 import Data.String (fromString)
-import Store.StreamMap (
+import StoreBackend.StreamMap (
     ConcreteStreamId,
     IdSeq (..),
     XAddStreamId (..),

@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Store.TypeIndex (ValueType (..), RequiredType (..), checkAvailable) where
+module StoreBackend.TypeIndex (ValueType (..), RequiredType (..), checkAvailable) where
 
 data ValueType = VString | VList | VStream deriving (Eq)
 

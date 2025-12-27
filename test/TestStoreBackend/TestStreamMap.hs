@@ -1,6 +1,6 @@
 {-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
 
-module TestStore.TestStreamMap (tests) where
+module TestStoreBackend.TestStreamMap (tests) where
 
 import Data.List (sort)
 import Data.Time (UTCTime)
@@ -12,7 +12,7 @@ import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (Assertion, assertFailure, testCase, (@?=))
 import Test.Tasty.Hedgehog (testProperty)
 
-import Store.StreamMap
+import StoreBackend.StreamMap
 
 val :: ConcreteStreamId -> [(Int, Int)] -> Value Int Int
 val = MkValue

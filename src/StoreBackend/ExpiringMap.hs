@@ -1,4 +1,9 @@
-module Store.ExpiringMap (empty, insert, lookup, ExpiringMap) where
+module StoreBackend.ExpiringMap (
+    ExpiringMap,
+    empty,
+    insert,
+    lookup,
+) where
 
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as M

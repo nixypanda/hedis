@@ -3,17 +3,17 @@ module Main (main) where
 import Test.Tasty (TestTree, defaultMain, testGroup)
 
 import TestParsers qualified
-import TestStore.TestExpiringMap qualified
-import TestStore.TestListMap qualified
-import TestStore.TestStreamMap qualified
+import TestStoreBackend.TestExpiringMap qualified
+import TestStoreBackend.TestListMap qualified
+import TestStoreBackend.TestStreamMap qualified
 
 tests :: TestTree
 tests =
     testGroup
         "redis tests"
-        [ TestStore.TestExpiringMap.tests
-        , TestStore.TestListMap.tests
-        , TestStore.TestStreamMap.tests
+        [ TestStoreBackend.TestExpiringMap.tests
+        , TestStoreBackend.TestListMap.tests
+        , TestStoreBackend.TestStreamMap.tests
         , TestParsers.tests
         ]
 

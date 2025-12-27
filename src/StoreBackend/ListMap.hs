@@ -1,10 +1,10 @@
-module Store.ListMap (
+module StoreBackend.ListMap (
     ListMap,
     Range (..),
     empty,
     append,
     revPrepend,
-    Store.ListMap.lookup,
+    lookup,
     lookupCount,
     list,
     leftPops,
@@ -14,6 +14,8 @@ module Store.ListMap (
 import Data.Map (Map)
 import Data.Map qualified as M
 import Data.Maybe (fromMaybe)
+
+import Prelude hiding (lookup)
 
 type ListMap k v = Map k [v]
 
@@ -68,3 +70,5 @@ slice start stop xs =
      in if count <= 0
             then []
             else take count (drop start' xs)
+
+-------------------------------------------------------------------------------
