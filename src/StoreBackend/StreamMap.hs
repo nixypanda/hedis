@@ -103,7 +103,14 @@ fromList = M.fromList
 (!) :: (Ord k) => Map k a -> k -> a
 m ! i = fromJust $ M.lookup i m
 
-insert :: (Ord k) => k -> XAddStreamId -> [(ik, v)] -> UTCTime -> StreamMap k ik v -> Either StreamMapError (ConcreteStreamId, StreamMap k ik v)
+insert ::
+    (Ord k) =>
+    k ->
+    XAddStreamId ->
+    [(ik, v)] ->
+    UTCTime ->
+    StreamMap k ik v ->
+    Either StreamMapError (ConcreteStreamId, StreamMap k ik v)
 insert key sid values time sMap
     | streamId == baseStreamId = Left BaseStreamId
     | Nothing <- mxs = okInsert [] streamId
@@ -121,7 +128,9 @@ insert key sid values time sMap
     streamId :: ConcreteStreamId
     streamId =
         case sid of
-            AutoId -> let ts = utcToMillis time in if ts == fst oldSeq then (ts, snd oldSeq + 1) else (ts, 0)
+            AutoId ->
+                let ts = utcToMillis time
+                 in if ts == fst oldSeq then (ts, snd oldSeq + 1) else (ts, 0)
             ExplicitId ts (Seq i) -> (ts, i)
             ExplicitId ts SeqAuto -> if ts == fst oldSeq then (ts, snd oldSeq + 1) else (ts, 0)
 
@@ -132,13 +141,17 @@ insert key sid values time sMap
             )
 
 query :: (Ord k) => k -> XRange -> StreamMap k ik v -> [Value ik v]
-query key range sMap = takeWhile (\elm -> elm.streamId <= e) $ dropWhile (\elm -> elm.streamId < s) vals
+query key range sMap =
+    takeWhile (\elm -> elm.streamId <= e) $
+        dropWhile (\elm -> elm.streamId < s) vals
   where
     (s, e) = xRangeToConcrete range
     vals = fromMaybe [] $ M.lookup key sMap
 
 queryEx :: (Ord k) => k -> ConcreteStreamId -> StreamMap k ik v -> [Value ik v]
-queryEx key streamId sMap = dropWhile (\elm -> elm.streamId <= streamId) $ fromMaybe [] $ M.lookup key sMap
+queryEx key streamId sMap =
+    dropWhile (\elm -> elm.streamId <= streamId) $
+        fromMaybe [] (M.lookup key sMap)
 
 lookupLatest :: (Ord k) => k -> StreamMap k ik v -> ConcreteStreamId
 lookupLatest k sMap = case M.lookup k sMap of

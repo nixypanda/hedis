@@ -13,7 +13,7 @@ import Data.Bifunctor (Bifunctor (first))
 import Data.ByteString (ByteString)
 import Data.List (singleton)
 import Data.String (fromString)
-import Data.Time (UTCTime, getCurrentTime)
+import Data.Time (NominalDiffTime, UTCTime, getCurrentTime)
 import System.Log.FastLogger (
     LogType' (..),
     TimedFastLogger,
@@ -27,7 +27,17 @@ import System.Timeout (timeout)
 import Text.Parsec (ParseError)
 import Time (nominalDiffTimeToMicros)
 
-import Command (CmdIO (..), CmdSTM (..), CmdTransaction (..), Command (..), CommandResult (..), TransactionError (..), respToCmd, resultToResp)
+import Command (
+    CmdIO (..),
+    CmdSTM (..),
+    CmdTransaction (..),
+    Command (..),
+    CommandError (..),
+    CommandResult (..),
+    TransactionError (..),
+    respToCmd,
+    resultToResp,
+ )
 import Resp (decode, encode)
 import Store.ListStore (ListStore)
 import Store.ListStore qualified as LS
@@ -90,17 +100,17 @@ runCmd tvTxState cmd = do
             writeTVar tvTxState (InTx $ c : cs)
             pure $ RSimple "QUEUED"
         (NoTx, RedIO cmd') -> runCmdIO cmd'
-        (InTx _, RedIO _) -> pure $ RTxErr RNotSupportedInTx
+        (InTx _, RedIO _) -> pure $ RErr $ RTxErr RNotSupportedInTx
         (NoTx, RedTrans Multi) -> liftIO $ atomically $ do
             modifyTVar tvTxState (const $ InTx [])
             pure $ RSimple "OK"
-        (InTx _, RedTrans Multi) -> pure $ RTxErr RMultiInMulti
-        (NoTx, RedTrans Exec) -> pure $ RTxErr RExecWithoutMulti
+        (InTx _, RedTrans Multi) -> pure $ RErr $ RTxErr RMultiInMulti
+        (NoTx, RedTrans Exec) -> pure $ RErr $ RTxErr RExecWithoutMulti
         (InTx cs, RedTrans Exec) -> liftIO $ atomically $ do
             vals <- mapM (runCmdSTM env now) (reverse cs)
             modifyTVar tvTxState (const NoTx)
             pure $ RArray vals
-        (NoTx, RedTrans Discard) -> pure $ RTxErr RDiscardWithoutMulti
+        (NoTx, RedTrans Discard) -> pure $ RErr $ RTxErr RDiscardWithoutMulti
         (InTx _, RedTrans Discard) -> liftIO $ atomically $ do
             writeTVar tvTxState NoTx
             pure $ RSimple "OK"
@@ -127,7 +137,7 @@ runCmdSTM env now cmd = do
             pure $ RBulk val
         Incr key -> do
             val <- SS.incrSTM tvStringMap key now
-            pure $ either (const IncrError) RInt val
+            pure $ either (const $ RErr RIncrError) RInt val
         -- List Store
         RPush key xs -> do
             count <- TS.setIfAvailable tvTypeIndex key VList *> LS.rpushSTM tvListMap key xs
@@ -148,9 +158,9 @@ runCmdSTM env now cmd = do
             len <- LS.llenSTM tvListMap key
             pure $ RInt len
         -- Stream Store
-        XAdd key sId chunked -> do
-            val <- TS.setIfAvailable tvTypeIndex key VStream *> StS.xAddSTM tvStreamMap key sId chunked now
-            pure $ either RStreamError RStreamId val
+        XAdd key sId ks -> do
+            val <- TS.setIfAvailable tvTypeIndex key VStream *> StS.xAddSTM tvStreamMap key sId ks now
+            pure $ either (RErr . RStreamError) RStreamId val
         XRange key range -> do
             vals <- StS.xRangeSTM tvStreamMap key range
             pure $ RArrayStreamValues vals
@@ -167,8 +177,8 @@ runCmdIO cmd = do
         BLPop key 0 -> do
             vals <- liftIO $ atomically (LS.blpopSTM tvListMap key)
             pure $ RArraySimple vals
-        BLPop key tout -> do
-            val <- liftIO (timeout (nominalDiffTimeToMicros tout) (atomically (LS.blpopSTM tvListMap key)))
+        BLPop key t -> do
+            val <- liftIO (timeout' t (atomically (LS.blpopSTM tvListMap key)))
             pure $ maybe RArrayNull RArraySimple val
         -- Stream Store
         XReadBlock key sid 0 -> do
@@ -177,7 +187,7 @@ runCmdIO cmd = do
             pure $ (RArrayKeyValues . singleton) vals
         XReadBlock key sid tout -> do
             sid' <- liftIO $ atomically (StS.xResolveStreamIdSTM tvStreamMap key sid)
-            vals <- liftIO (timeout (nominalDiffTimeToMicros tout) (atomically (StS.xReadBlockSTM tvStreamMap key sid')))
+            vals <- liftIO (timeout' tout (atomically (StS.xReadBlockSTM tvStreamMap key sid')))
             pure $ maybe RArrayNull (RArrayKeyValues . singleton) vals
 
 -- Command execution
@@ -197,6 +207,11 @@ handleRequest tvTxState bs = do
     encoded <- liftEither $ first EncodeError $ encode resultResp
     logInfo ("Encoded: " <> show encoded)
     pure encoded
+
+-- helpers
+
+timeout' :: NominalDiffTime -> IO a -> IO (Maybe a)
+timeout' t = timeout (nominalDiffTimeToMicros t)
 
 logInfo :: (MonadReader Env m, MonadIO m) => String -> m ()
 logInfo msg = do

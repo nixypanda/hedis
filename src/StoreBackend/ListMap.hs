@@ -70,5 +70,3 @@ slice start stop xs =
      in if count <= 0
             then []
             else take count (drop start' xs)
-
--------------------------------------------------------------------------------
