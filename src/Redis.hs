@@ -25,6 +25,7 @@ import System.Log.FastLogger (
  )
 import System.Timeout (timeout)
 import Text.Parsec (ParseError)
+import Time (nominalDiffTimeToMicros)
 
 import Command (Command (..), CommandResult (..), respToCmd, resultToResp)
 import Resp (decode, encode)
@@ -36,9 +37,7 @@ import Store.StringStore (StringStore)
 import Store.StringStore qualified as SS
 import Store.TypeStore (IncorrectType, TypeIndex)
 import Store.TypeStore qualified as TS
-import StoreBackend.ListMap (Range (..))
 import StoreBackend.TypeIndex (ValueType (..))
-import Time (nominalDiffTimeToMicros)
 
 -- Types
 
@@ -115,8 +114,8 @@ runCmd cmd = do
         Blpop key tout -> do
             val <- liftIO (timeout (nominalDiffTimeToMicros tout) (atomically (LS.blpopSTM tvListMap key)))
             pure $ maybe RNullArray RArray val
-        Lrange key start end -> do
-            vals <- liftIO (atomically (LS.lrangeSTM tvListMap key MkRange{..}))
+        Lrange key range -> do
+            vals <- liftIO (atomically (LS.lrangeSTM tvListMap key range))
             pure $ RArray vals
         Llen key -> do
             len <- liftIO (atomically (LS.llenSTM tvListMap key))

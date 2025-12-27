@@ -14,7 +14,8 @@ import Data.Time (NominalDiffTime, secondsToNominalDiffTime)
 
 import Parsers (readConcreteStreamId, readFloatBS, readIntBS, readXAddStreamId, readXRange, readXReadStreamId)
 import Resp (Resp (..))
-import StoreBackend.StreamMap (ConcreteStreamId, StreamMapError (..), XAddStreamId, XReadStreamId (..))
+import StoreBackend.ListMap (Range (..))
+import StoreBackend.StreamMap (ConcreteStreamId, StreamMapError (..), XAddStreamId, XRange, XReadStreamId (..))
 import StoreBackend.StreamMap qualified as SM
 import Time (millisToNominalDiffTime)
 
@@ -28,12 +29,12 @@ data Command
     | Get Key
     | Rpush Key [ByteString]
     | Lpush Key [ByteString]
-    | Lrange Key Int Int
+    | Lrange Key Range
     | Llen Key
     | Lpop Key (Maybe Int)
     | Blpop Key NominalDiffTime
     | Xadd Key XAddStreamId [(ByteString, ByteString)]
-    | XRange Key SM.XRange
+    | XRange Key XRange
     | XRead [(Key, ConcreteStreamId)]
     | XReadBlock NominalDiffTime Key XReadStreamId
     deriving (Show, Eq)
@@ -62,7 +63,10 @@ respToCmd (Array 2 [BulkStr "GET", BulkStr key]) = pure $ Get key
 respToCmd (Array 2 [BulkStr "LLEN", BulkStr key]) = pure $ Llen key
 respToCmd (Array 2 [BulkStr "LPOP", BulkStr key]) = pure $ Lpop key Nothing
 respToCmd (Array 3 [BulkStr "LPOP", BulkStr key, BulkStr len]) = Lpop key . Just <$> readIntBS len
-respToCmd (Array 4 [BulkStr "LRANGE", BulkStr key, BulkStr start, BulkStr stop]) = Lrange key <$> readIntBS start <*> readIntBS stop
+respToCmd (Array 4 [BulkStr "LRANGE", BulkStr key, BulkStr st, BulkStr stop]) = do
+    start <- readIntBS st
+    end <- readIntBS stop
+    pure $ Lrange key (MkRange{..})
 respToCmd (Array 3 [BulkStr "BLPOP", BulkStr key, BulkStr tout]) = Blpop key . secondsToNominalDiffTime . realToFrac <$> readFloatBS tout
 respToCmd (Array _ ((BulkStr "RPUSH") : (BulkStr key) : vals)) = Rpush key <$> mapM extractBulk vals
 respToCmd (Array _ ((BulkStr "LPUSH") : (BulkStr key) : vals)) = Lpush key <$> mapM extractBulk vals
