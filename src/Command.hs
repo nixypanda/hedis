@@ -47,7 +47,7 @@ data CmdIO
     | XReadBlock Key XReadStreamId NominalDiffTime
     deriving (Show)
 
-data CmdTransaction = Multi | Exec
+data CmdTransaction = Multi | Exec | Discard
     deriving (Show)
 
 data Command
@@ -110,6 +110,7 @@ respToCmd (Array 6 [BulkStr "XREAD", BulkStr "block", BulkStr t, BulkStr "stream
 -- Transaactions
 respToCmd (Array 1 [BulkStr "MULTI"]) = pure $ RedTrans Multi
 respToCmd (Array 1 [BulkStr "EXEC"]) = pure $ RedTrans Exec
+respToCmd (Array 1 [BulkStr "DISCARD"]) = pure $ RedTrans Discard
 -- Unhandled
 respToCmd r = Left $ "Conversion Error" <> show r
 
@@ -134,6 +135,7 @@ data TransactionError
     = RExecWithoutMulti
     | RNotSupportedInTx
     | RMultiInMulti
+    | RDiscardWithoutMulti
     deriving (Show, Eq)
 
 resultToResp :: CommandResult -> Resp
@@ -155,6 +157,7 @@ txErrorToResp :: TransactionError -> Resp
 txErrorToResp RExecWithoutMulti = StrErr "ERR EXEC without MULTI"
 txErrorToResp RNotSupportedInTx = StrErr "ERR command not supported in transaction"
 txErrorToResp RMultiInMulti = StrErr "ERR MULTI inside MULTI"
+txErrorToResp RDiscardWithoutMulti = StrErr "ERR DISCARD without MULTI"
 
 arraySimpleToResp :: [ByteString] -> Resp
 arraySimpleToResp xs = Array (length xs) $ map BulkStr xs
