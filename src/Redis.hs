@@ -2,9 +2,9 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-module Redis (Env (..), Redis (..), RedisError (..), handleRequest, mkNewEnv) where
+module Redis (Env (..), Redis (..), RedisError (..), handleRequest, mkNewEnv, TxState (..)) where
 
-import Control.Concurrent.STM (STM, TVar, atomically)
+import Control.Concurrent.STM (STM, TVar, atomically, modifyTVar, readTVarIO)
 import Control.Exception (Exception)
 import Control.Monad.Except (ExceptT (..), MonadError, liftEither)
 import Control.Monad.IO.Class (MonadIO (liftIO))
@@ -62,6 +62,11 @@ data Env = MkEnv
 newtype Redis a = MkRedis {runRedis :: ReaderT Env (ExceptT RedisError IO) a}
     deriving newtype (Functor, Applicative, Monad, MonadError RedisError, MonadIO, MonadReader Env)
 
+-- Transactions
+
+data TxState = NoTx | InTx [CmdSTM] -- queue only STM-capable commands
+    deriving (Show)
+
 mkNewEnv :: IO Env
 mkNewEnv = do
     stringStore <- atomically SS.emptySTM
@@ -74,14 +79,16 @@ mkNewEnv = do
 
 -- Execution
 
-runCmd :: Command -> Redis CommandResult
-runCmd cmd = do
+runCmd :: TVar TxState -> Command -> Redis CommandResult
+runCmd tvTxState cmd = do
     env <- ask
     now <- liftIO getCurrentTime
     case cmd of
         RedSTM cmd' -> liftIO $ atomically $ runCmdSTM env now cmd'
         RedIO cmd' -> runCmdIO cmd'
-        RedTrans Multi -> pure $ RSimple "OK"
+        RedTrans Multi -> liftIO $ atomically $ do
+            modifyTVar tvTxState (const $ InTx [])
+            pure $ RSimple "OK"
 
 runCmdSTM :: Env -> UTCTime -> CmdSTM -> STM CommandResult
 runCmdSTM env now cmd = do
@@ -160,14 +167,16 @@ runCmdIO cmd = do
 
 -- Command execution
 
-handleRequest :: ByteString -> Redis ByteString
-handleRequest bs = do
+handleRequest :: TVar TxState -> ByteString -> Redis ByteString
+handleRequest tvTxState bs = do
+    txState <- liftIO $ readTVarIO tvTxState
+    logInfo ("Client State: " <> show txState)
     logInfo ("Received: " <> show bs)
     resp <- liftEither $ first ParsingError $ decode bs
     logDebug ("Decoded: " <> show resp)
     cmd <- liftEither $ first ConversionError $ respToCmd resp
     logDebug ("Command: " <> show cmd)
-    result <- runCmd cmd
+    result <- runCmd tvTxState cmd
     logDebug ("Execution result: " <> show result)
     let resultResp = resultToResp result
     encoded <- liftEither $ first EncodeError $ encode resultResp
