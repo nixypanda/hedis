@@ -119,11 +119,11 @@ data CommandResult
     = RSimple ByteString
     | RBulk (Maybe ByteString)
     | RInt Int
-    | RArray [ByteString]
-    | RNullArray
-    | RKeyValues [(Key, [SM.Value ByteString ByteString])]
+    | RArrayNull
+    | RArraySimple [ByteString]
+    | RArrayKeyValues [(Key, [SM.Value ByteString ByteString])]
     | RStreamId ConcreteStreamId
-    | RStreamValues [SM.Value ByteString ByteString]
+    | RArrayStreamValues [SM.Value ByteString ByteString]
     | RStreamError StreamMapError
     | IncrError
     | RTxErr TransactionError
@@ -140,11 +140,11 @@ resultToResp (RSimple s) = Str s
 resultToResp (RBulk Nothing) = NullBulk
 resultToResp (RBulk (Just b)) = BulkStr b
 resultToResp (RInt n) = Int n
-resultToResp (RArray xs) = listToResp xs
+resultToResp RArrayNull = NullArray
+resultToResp (RArraySimple xs) = arraySimpleToResp xs
+resultToResp (RArrayStreamValues vals) = arrayStreamValuesToResp vals
+resultToResp (RArrayKeyValues kvs) = Array (length kvs) $ map arrayKeyValsToResp kvs
 resultToResp (RStreamId sid) = streamIdToResp sid
-resultToResp (RStreamValues vals) = arrayToResp vals
-resultToResp (RKeyValues kvs) = Array (length kvs) $ map keyValsToResp kvs
-resultToResp RNullArray = NullArray
 resultToResp (RStreamError e) = streamMapErrorToResp e
 resultToResp IncrError = StrErr "ERR value is not an integer or out of range"
 resultToResp (RTxErr txErr) = txErrorToResp txErr
@@ -154,22 +154,22 @@ txErrorToResp RExecWithoutMulti = StrErr "ERR EXEC without MULTI"
 txErrorToResp RNotSupportedInTx = StrErr "ERR command not supported in transaction"
 txErrorToResp RMultiInMulti = StrErr "ERR MULTI inside MULTI"
 
-listToResp :: [ByteString] -> Resp
-listToResp xs = Array (length xs) $ map BulkStr xs
+arraySimpleToResp :: [ByteString] -> Resp
+arraySimpleToResp xs = Array (length xs) $ map BulkStr xs
 
 streamIdToResp :: ConcreteStreamId -> Resp
 streamIdToResp (ms, i) = BulkStr . fromString $ show ms <> "-" <> show i
 
-arrayToResp :: [SM.Value ByteString ByteString] -> Resp
-arrayToResp ar = Array (length ar) $ map valueToResp ar
+arrayStreamValuesToResp :: [SM.Value ByteString ByteString] -> Resp
+arrayStreamValuesToResp ar = Array (length ar) $ map valueToResp ar
   where
     valueToResp :: SM.Value ByteString ByteString -> Resp
-    valueToResp v = Array 2 [streamIdToResp v.streamId, listToResp $ vals v.vals]
+    valueToResp v = Array 2 [streamIdToResp v.streamId, arraySimpleToResp $ vals v.vals]
     vals :: [(ByteString, ByteString)] -> [ByteString]
     vals = concatMap (\(k, v) -> [k, v])
 
-keyValsToResp :: (ByteString, [SM.Value ByteString ByteString]) -> Resp
-keyValsToResp (k, vs) = Array 2 [BulkStr k, arrayToResp vs]
+arrayKeyValsToResp :: (ByteString, [SM.Value ByteString ByteString]) -> Resp
+arrayKeyValsToResp (k, vs) = Array 2 [BulkStr k, arrayStreamValuesToResp vs]
 
 streamMapErrorToResp :: StreamMapError -> Resp
 streamMapErrorToResp BaseStreamId = StrErr "ERR The ID specified in XADD must be greater than 0-0"

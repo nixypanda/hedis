@@ -94,7 +94,7 @@ runCmd tvTxState cmd = do
             pure $ RSimple "OK"
         (InTx _, RedTrans Multi) -> pure $ RTxErr RMultiInMulti
         (NoTx, RedTrans Exec) -> pure $ RTxErr RExecWithoutMulti
-        (InTx _, RedTrans Exec) -> undefined
+        (InTx cs, RedTrans Exec) -> undefined
 
 runCmdSTM :: Env -> UTCTime -> CmdSTM -> STM CommandResult
 runCmdSTM env now cmd = do
@@ -131,10 +131,10 @@ runCmdSTM env now cmd = do
             pure $ RBulk val
         LPop key (Just mLen) -> do
             vals <- LS.lpopsSTM tvListMap key mLen
-            pure $ RArray vals
+            pure $ RArraySimple vals
         LRange key range -> do
             vals <- LS.lrangeSTM tvListMap key range
-            pure $ RArray vals
+            pure $ RArraySimple vals
         LLen key -> do
             len <- LS.llenSTM tvListMap key
             pure $ RInt len
@@ -144,10 +144,10 @@ runCmdSTM env now cmd = do
             pure $ either RStreamError RStreamId val
         XRange key range -> do
             vals <- StS.xRangeSTM tvStreamMap key range
-            pure $ RStreamValues vals
+            pure $ RArrayStreamValues vals
         XRead keys -> do
             vals <- StS.xReadSTM tvStreamMap keys
-            pure $ RKeyValues vals
+            pure $ RArrayKeyValues vals
 
 runCmdIO :: CmdIO -> Redis CommandResult
 runCmdIO cmd = do
@@ -157,19 +157,19 @@ runCmdIO cmd = do
         -- List Store
         BLPop key 0 -> do
             vals <- liftIO $ atomically (LS.blpopSTM tvListMap key)
-            pure $ RArray vals
+            pure $ RArraySimple vals
         BLPop key tout -> do
             val <- liftIO (timeout (nominalDiffTimeToMicros tout) (atomically (LS.blpopSTM tvListMap key)))
-            pure $ maybe RNullArray RArray val
+            pure $ maybe RArrayNull RArraySimple val
         -- Stream Store
         XReadBlock key sid 0 -> do
             sid' <- liftIO $ atomically (StS.xResolveStreamIdSTM tvStreamMap key sid)
             vals <- liftIO (atomically (StS.xReadBlockSTM tvStreamMap key sid'))
-            pure $ (RKeyValues . singleton) vals
+            pure $ (RArrayKeyValues . singleton) vals
         XReadBlock key sid tout -> do
             sid' <- liftIO $ atomically (StS.xResolveStreamIdSTM tvStreamMap key sid)
             vals <- liftIO (timeout (nominalDiffTimeToMicros tout) (atomically (StS.xReadBlockSTM tvStreamMap key sid')))
-            pure $ maybe RNullArray (RKeyValues . singleton) vals
+            pure $ maybe RArrayNull (RArrayKeyValues . singleton) vals
 
 -- Command execution
 
