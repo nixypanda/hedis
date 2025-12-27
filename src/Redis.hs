@@ -16,6 +16,7 @@ import Control.Concurrent.STM (
     writeTVar,
  )
 import Control.Exception (Exception)
+import Control.Monad (unless)
 import Control.Monad.Except (ExceptT (..), MonadError, liftEither)
 import Control.Monad.IO.Class (MonadIO (liftIO))
 import Control.Monad.Reader (MonadReader, ReaderT, asks)
@@ -25,8 +26,8 @@ import Data.List (singleton)
 import Data.Map (Map)
 import Data.Map qualified as M
 import Data.Maybe (fromMaybe)
-import Data.String (IsString (fromString))
-import Data.Time (NominalDiffTime, UTCTime, getCurrentTime, secondsToNominalDiffTime)
+import Data.String (fromString)
+import Data.Time (UTCTime, getCurrentTime)
 import System.Log.FastLogger (
     LogType' (..),
     TimedFastLogger,
@@ -39,7 +40,17 @@ import System.Log.FastLogger (
 import System.Timeout (timeout)
 import Text.Parsec (ParseError)
 
-import Parsers (readConcreteStreamId, readDollarStreamId, readFloatBS, readIntBS, readStreamId, readXRange)
+import Command (
+    Command (..),
+    Expiry,
+    Key,
+    arrayOfArrayToResp,
+    arrayToResp,
+    listToResp,
+    respToCommand,
+    streamIdToResp,
+    stremMapErrorToResp,
+ )
 import Resp (Resp (..), decode, encode)
 import Store.ExpiringMap (ExpiringMap)
 import Store.ExpiringMap qualified as EM
@@ -47,7 +58,8 @@ import Store.ListMap (ListMap, Range (..))
 import Store.ListMap qualified as LM
 import Store.StreamMap (ConcreteStreamId, StreamId, StreamMap, StreamMapError (..), XRStreamId (..))
 import Store.StreamMap qualified as SM
-import Time (millisToNominalDiffTime, nominalDiffTimeToMicros)
+import Store.TypeIndex (RequiredType (..), ValueType (..), checkAvailable)
+import Time (nominalDiffTimeToMicros)
 
 -- Types
 
@@ -61,8 +73,6 @@ data RedisError
     | WrongType
     deriving (Show, Exception)
 
-type Key = ByteString
-type Expiry = Int
 type ListStore = ListMap Key ByteString
 type StringStore = ExpiringMap Key ByteString
 type TypeIndex = Map Key ValueType
@@ -89,92 +99,6 @@ mkNewEnv = do
     (envLogger, _cleanup) <- newTimedFastLogger timeCache (LogStderr defaultBufSize)
     pure MkEnv{..}
 
--- Conversion (from Resp)
-
-data Command
-    = Ping
-    | Echo ByteString
-    | Type Key
-    | Set Key ByteString (Maybe Expiry)
-    | Get Key
-    | Rpush Key [ByteString]
-    | Lpush Key [ByteString]
-    | Lrange Key Int Int
-    | Llen Key
-    | Lpop Key (Maybe Int)
-    | Blpop Key NominalDiffTime
-    | Xadd Key StreamId [(ByteString, ByteString)]
-    | XRange Key SM.XRange
-    | XRead [(Key, ConcreteStreamId)]
-    | XReadBlock NominalDiffTime Key XRStreamId
-    deriving (Show, Eq)
-
-extractBulk :: Resp -> Either String ByteString
-extractBulk (BulkStr x) = Right x
-extractBulk r = Left $ "Invalit Type" <> show r
-
-chunksOf2 :: [a] -> Either String [(a, a)]
-chunksOf2 [] = Right []
-chunksOf2 (x : y : xs) = ((x, y) :) <$> chunksOf2 xs
-chunksOf2 _ = Left "Invalid chunk of 2"
-
-respToCommand :: Resp -> Either String Command
-respToCommand (Array 1 [BulkStr "PING"]) = pure Ping
-respToCommand (Array 2 [BulkStr "ECHO", BulkStr xs]) = pure $ Echo xs
-respToCommand (Array 2 [BulkStr "TYPE", BulkStr key]) = pure $ Type key
-respToCommand (Array 5 [BulkStr "SET", BulkStr key, BulkStr val, BulkStr "PX", BulkStr t]) = Set key val . Just <$> readIntBS t
-respToCommand (Array 3 [BulkStr "SET", BulkStr key, BulkStr val]) = pure $ Set key val Nothing
-respToCommand (Array 2 [BulkStr "GET", BulkStr key]) = pure $ Get key
-respToCommand (Array 2 [BulkStr "LLEN", BulkStr key]) = pure $ Llen key
-respToCommand (Array 2 [BulkStr "LPOP", BulkStr key]) = pure $ Lpop key Nothing
-respToCommand (Array 3 [BulkStr "LPOP", BulkStr key, BulkStr len]) = Lpop key . Just <$> readIntBS len
-respToCommand (Array 4 [BulkStr "LRANGE", BulkStr key, BulkStr start, BulkStr stop]) = Lrange key <$> readIntBS start <*> readIntBS stop
-respToCommand (Array 3 [BulkStr "BLPOP", BulkStr key, BulkStr tout]) = Blpop key . secondsToNominalDiffTime . realToFrac <$> readFloatBS tout
-respToCommand (Array _ ((BulkStr "RPUSH") : (BulkStr key) : vals)) = Rpush key <$> mapM extractBulk vals
-respToCommand (Array _ ((BulkStr "LPUSH") : (BulkStr key) : vals)) = Lpush key <$> mapM extractBulk vals
-respToCommand (Array _ ((BulkStr "XADD") : (BulkStr key) : (BulkStr sId) : vals)) = do
-    vals' <- mapM extractBulk vals
-    chunked <- chunksOf2 vals'
-    sId' <- readStreamId sId
-    pure $ Xadd key sId' chunked
-respToCommand (Array 4 [BulkStr "XRANGE", BulkStr key, BulkStr s, BulkStr e]) = XRange key <$> readXRange s e
-respToCommand (Array _ (BulkStr "XREAD" : BulkStr "streams" : vals)) = do
-    vals' <- mapM extractBulk vals
-    let (keys, ids) = splitAt (length vals' `div` 2) vals'
-    ids' <- mapM readConcreteStreamId ids
-    pure $ XRead $ zip keys ids'
-respToCommand (Array 6 [BulkStr "XREAD", BulkStr "block", BulkStr t, BulkStr "streams", BulkStr key, BulkStr sid]) = do
-    t' <- millisToNominalDiffTime <$> readIntBS t
-    sid' <- readDollarStreamId sid
-    pure $ XReadBlock t' key sid'
-respToCommand r = Left $ "Conversion Error" <> show r
-
--- Conversion (to Resp)
-
-listToResp :: [ByteString] -> Resp
-listToResp xs = Array (length xs) $ map BulkStr xs
-
-streamIdToResp :: ConcreteStreamId -> Resp
-streamIdToResp (ms, i) = BulkStr . fromString $ show ms <> "-" <> show i
-
-arrayToResp :: [SM.Value ByteString ByteString] -> Resp
-arrayToResp ar = Array (length ar) $ map valueToResp ar
-  where
-    valueToResp :: SM.Value ByteString ByteString -> Resp
-    valueToResp v = Array 2 [streamIdToResp v.streamId, listToResp $ vals v.vals]
-    vals :: [(ByteString, ByteString)] -> [ByteString]
-    vals = concatMap (\(k, v) -> [k, v])
-
-arrayOfArrayToResp :: [(Key, [SM.Value ByteString ByteString])] -> Resp
-arrayOfArrayToResp ar = Array (length ar) $ map keyValsToResp ar
-
-keyValsToResp :: (ByteString, [SM.Value ByteString ByteString]) -> Resp
-keyValsToResp (k, vs) = Array 2 [BulkStr k, arrayToResp vs]
-
-stremMapErrorToResp :: StreamMapError -> Resp
-stremMapErrorToResp BaseStreamId = StrErr "ERR The ID specified in XADD must be greater than 0-0"
-stremMapErrorToResp NotLargerId = StrErr "ERR The ID specified in XADD is equal or smaller than the target stream top item"
-
 -- Execution
 
 runCmd :: Command -> Redis Resp
@@ -189,7 +113,7 @@ runCmd cmd = do
         Echo xs -> pure $ BulkStr xs
         Type x -> do
             ty <- liftIO $ atomically $ getTypeSTM tvTypeIndex x
-            pure $ maybe (Str "none") (Str . toString) ty
+            pure $ maybe (Str "none") (Str . fromString . show) ty
         Set key val mexpiry -> do
             liftIO $ atomically (setIfAvailable tvTypeIndex key VString *> setSTM tvStringMap key val now mexpiry)
             pure (Str "OK")
@@ -226,26 +150,14 @@ runCmd cmd = do
 
 -- TYPE index
 
-data ValueType = VString | VList | VStream deriving (Eq)
-
-toString :: ValueType -> ByteString
-toString VString = "string"
-toString VList = "list"
-toString VStream = "stream"
-
-data RequiredType = AbsentOr ValueType | MustBe ValueType
-
 getTypeSTM :: TVar TypeIndex -> Key -> STM (Maybe ValueType)
 getTypeSTM tvIdx key = M.lookup key <$> readTVar tvIdx
 
 availableSTM :: TVar TypeIndex -> Key -> RequiredType -> STM ()
 availableSTM tvIdx key req = do
     idx <- readTVar tvIdx
-    case (M.lookup key idx, req) of
-        (Nothing, AbsentOr _) -> pure ()
-        (Just t, AbsentOr t') | t == t' -> pure ()
-        (Just t, MustBe t') | t == t' -> pure ()
-        _ -> throwSTM WrongType
+    unless (checkAvailable (M.lookup key idx) req) $
+        throwSTM WrongType
 
 setTypeSTM :: TVar TypeIndex -> Key -> ValueType -> STM ()
 setTypeSTM tvIdx key ty =
