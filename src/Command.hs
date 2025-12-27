@@ -125,6 +125,7 @@ data CommandResult
     | RStreamId ConcreteStreamId
     | RArrayStreamValues [SM.Value ByteString ByteString]
     | RStreamError StreamMapError
+    | RArray [CommandResult]
     | IncrError
     | RTxErr TransactionError
     deriving (Show, Eq)
@@ -141,6 +142,7 @@ resultToResp (RBulk Nothing) = NullBulk
 resultToResp (RBulk (Just b)) = BulkStr b
 resultToResp (RInt n) = Int n
 resultToResp RArrayNull = NullArray
+resultToResp (RArray ar) = Array (length ar) (map resultToResp ar)
 resultToResp (RArraySimple xs) = arraySimpleToResp xs
 resultToResp (RArrayStreamValues vals) = arrayStreamValuesToResp vals
 resultToResp (RArrayKeyValues kvs) = Array (length kvs) $ map arrayKeyValsToResp kvs
