@@ -95,6 +95,9 @@ runCmd cmd = do
         Get key -> do
             val <- liftIO $ atomically (SS.getSTM tvStringMap key now)
             pure $ RBulk val
+        Incr key -> do
+            val <- liftIO $ atomically (SS.incrSTM tvStringMap key now)
+            pure $ either (const IncrError) RInt val
         -- List Store
         Rpush key xs -> do
             count <- liftIO (atomically (TS.setIfAvailable tvTypeIndex key VList *> LS.rpushSTM tvListMap key xs))

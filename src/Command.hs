@@ -27,6 +27,7 @@ data Command
     | Type Key
     | Set Key ByteString (Maybe NominalDiffTime)
     | Get Key
+    | Incr Key
     | Rpush Key [ByteString]
     | Lpush Key [ByteString]
     | Lrange Key Range
@@ -53,13 +54,17 @@ chunksOf2 _ = Left "Invalid chunk of 2"
 respToCmd :: Resp -> Either String Command
 respToCmd (Array 1 [BulkStr "PING"]) = pure Ping
 respToCmd (Array 2 [BulkStr "ECHO", BulkStr xs]) = pure $ Echo xs
+-- Type Index
 respToCmd (Array 2 [BulkStr "TYPE", BulkStr key]) = pure $ Type key
+-- String Store
 respToCmd (Array 5 [BulkStr "SET", BulkStr key, BulkStr val, BulkStr "PX", BulkStr t]) = do
     expiry <- readIntBS t
     let expiry' = millisToNominalDiffTime expiry
     pure $ Set key val (Just expiry')
 respToCmd (Array 3 [BulkStr "SET", BulkStr key, BulkStr val]) = pure $ Set key val Nothing
 respToCmd (Array 2 [BulkStr "GET", BulkStr key]) = pure $ Get key
+respToCmd (Array 2 [BulkStr "INCR", BulkStr key]) = pure $ Incr key
+-- List Store
 respToCmd (Array 2 [BulkStr "LLEN", BulkStr key]) = pure $ Llen key
 respToCmd (Array 2 [BulkStr "LPOP", BulkStr key]) = pure $ Lpop key Nothing
 respToCmd (Array 3 [BulkStr "LPOP", BulkStr key, BulkStr len]) = Lpop key . Just <$> readIntBS len
@@ -70,6 +75,7 @@ respToCmd (Array 4 [BulkStr "LRANGE", BulkStr key, BulkStr st, BulkStr stop]) = 
 respToCmd (Array 3 [BulkStr "BLPOP", BulkStr key, BulkStr tout]) = Blpop key . secondsToNominalDiffTime . realToFrac <$> readFloatBS tout
 respToCmd (Array _ ((BulkStr "RPUSH") : (BulkStr key) : vals)) = Rpush key <$> mapM extractBulk vals
 respToCmd (Array _ ((BulkStr "LPUSH") : (BulkStr key) : vals)) = Lpush key <$> mapM extractBulk vals
+-- Stream Store
 respToCmd (Array _ ((BulkStr "XADD") : (BulkStr key) : (BulkStr sId) : vals)) = do
     vals' <- mapM extractBulk vals
     chunked <- chunksOf2 vals'
@@ -85,6 +91,7 @@ respToCmd (Array 6 [BulkStr "XREAD", BulkStr "block", BulkStr t, BulkStr "stream
     t' <- millisToNominalDiffTime <$> readIntBS t
     sid' <- readXReadStreamId sid
     pure $ XReadBlock t' key sid'
+-- Unhandled
 respToCmd r = Left $ "Conversion Error" <> show r
 
 -- Conversion (to Resp)
@@ -99,6 +106,7 @@ data CommandResult
     | RStreamId ConcreteStreamId
     | RStreamValues [SM.Value ByteString ByteString]
     | RStreamError StreamMapError
+    | IncrError
     deriving (Show, Eq)
 
 resultToResp :: CommandResult -> Resp
@@ -112,6 +120,7 @@ resultToResp (RStreamValues vals) = arrayToResp vals
 resultToResp (RKeyValues kvs) = Array (length kvs) $ map keyValsToResp kvs
 resultToResp RNullArray = NullArray
 resultToResp (RStreamError e) = streamMapErrorToResp e
+resultToResp IncrError = StrErr "ERR value is not an integer or out of range"
 
 listToResp :: [ByteString] -> Resp
 listToResp xs = Array (length xs) $ map BulkStr xs
