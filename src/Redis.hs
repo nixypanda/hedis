@@ -27,7 +27,7 @@ import System.Timeout (timeout)
 import Text.Parsec (ParseError)
 import Time (nominalDiffTimeToMicros)
 
-import Command (CmdIO (..), CmdSTM (..), CmdTransaction (..), Command (..), CommandResult (..), respToCmd, resultToResp)
+import Command (CmdIO (..), CmdSTM (..), CmdTransaction (..), Command (..), CommandResult (..), TransactionError (..), respToCmd, resultToResp)
 import Resp (decode, encode)
 import Store.ListStore (ListStore)
 import Store.ListStore qualified as LS
@@ -83,12 +83,18 @@ runCmd :: TVar TxState -> Command -> Redis CommandResult
 runCmd tvTxState cmd = do
     env <- ask
     now <- liftIO getCurrentTime
-    case cmd of
-        RedSTM cmd' -> liftIO $ atomically $ runCmdSTM env now cmd'
-        RedIO cmd' -> runCmdIO cmd'
-        RedTrans Multi -> liftIO $ atomically $ do
+    txState <- liftIO $ readTVarIO tvTxState
+    case (txState, cmd) of
+        (NoTx, RedSTM cmd') -> liftIO $ atomically $ runCmdSTM env now cmd'
+        (InTx _, RedSTM _) -> undefined
+        (NoTx, RedIO cmd') -> runCmdIO cmd'
+        (InTx _, RedIO _) -> pure $ RTxErr RNotSupportedInTx
+        (NoTx, RedTrans Multi) -> liftIO $ atomically $ do
             modifyTVar tvTxState (const $ InTx [])
             pure $ RSimple "OK"
+        (InTx _, RedTrans Multi) -> pure $ RTxErr RMultiInMulti
+        (NoTx, RedTrans Exec) -> pure $ RTxErr RExecWithoutMulti
+        (InTx _, RedTrans Exec) -> undefined
 
 runCmdSTM :: Env -> UTCTime -> CmdSTM -> STM CommandResult
 runCmdSTM env now cmd = do

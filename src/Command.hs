@@ -8,6 +8,7 @@ module Command (
     Key,
     respToCmd,
     CommandResult (..),
+    TransactionError (..),
     resultToResp,
 ) where
 
@@ -46,7 +47,7 @@ data CmdIO
     | XReadBlock Key XReadStreamId NominalDiffTime
     deriving (Show)
 
-data CmdTransaction = Multi
+data CmdTransaction = Multi | Exec
     deriving (Show)
 
 data Command
@@ -108,6 +109,7 @@ respToCmd (Array 6 [BulkStr "XREAD", BulkStr "block", BulkStr t, BulkStr "stream
     pure $ RedIO $ XReadBlock key sid' t'
 -- Transaactions
 respToCmd (Array 1 [BulkStr "MULTI"]) = pure $ RedTrans Multi
+respToCmd (Array 1 [BulkStr "EXEC"]) = pure $ RedTrans Exec
 -- Unhandled
 respToCmd r = Left $ "Conversion Error" <> show r
 
@@ -124,6 +126,13 @@ data CommandResult
     | RStreamValues [SM.Value ByteString ByteString]
     | RStreamError StreamMapError
     | IncrError
+    | RTxErr TransactionError
+    deriving (Show, Eq)
+
+data TransactionError
+    = RExecWithoutMulti
+    | RNotSupportedInTx
+    | RMultiInMulti
     deriving (Show, Eq)
 
 resultToResp :: CommandResult -> Resp
@@ -138,6 +147,12 @@ resultToResp (RKeyValues kvs) = Array (length kvs) $ map keyValsToResp kvs
 resultToResp RNullArray = NullArray
 resultToResp (RStreamError e) = streamMapErrorToResp e
 resultToResp IncrError = StrErr "ERR value is not an integer or out of range"
+resultToResp (RTxErr txErr) = txErrorToResp txErr
+
+txErrorToResp :: TransactionError -> Resp
+txErrorToResp RExecWithoutMulti = StrErr "ERR EXEC without MULTI"
+txErrorToResp RNotSupportedInTx = StrErr "ERR command not supported in transaction"
+txErrorToResp RMultiInMulti = StrErr "ERR MULTI inside MULTI"
 
 listToResp :: [ByteString] -> Resp
 listToResp xs = Array (length xs) $ map BulkStr xs
