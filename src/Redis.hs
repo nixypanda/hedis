@@ -39,13 +39,13 @@ import System.Log.FastLogger (
 import System.Timeout (timeout)
 import Text.Parsec (ParseError)
 
-import Command (Command (..), CommandResult (..), Key, respToCommand, resultToResp)
+import Command (Command (..), CommandResult (..), Key, respToCmd, resultToResp)
 import Resp (decode, encode)
 import Store.ExpiringMap (ExpiringMap)
 import Store.ExpiringMap qualified as EM
 import Store.ListMap (ListMap, Range (..))
 import Store.ListMap qualified as LM
-import Store.StreamMap (ConcreteStreamId, StreamId, StreamMap, StreamMapError (..), XRStreamId (..))
+import Store.StreamMap (ConcreteStreamId, StreamMap, StreamMapError (..), XAddStreamId, XReadStreamId (..))
 import Store.StreamMap qualified as SM
 import Store.TypeIndex (RequiredType (..), ValueType (..), checkAvailable)
 import Time (nominalDiffTimeToMicros)
@@ -238,7 +238,7 @@ llenSTM tv key = do
 
 -- stream operations
 
-xAddSTM :: TVar StreamStore -> Key -> StreamId -> [(ByteString, ByteString)] -> UTCTime -> STM (Either StreamMapError ConcreteStreamId)
+xAddSTM :: TVar StreamStore -> Key -> XAddStreamId -> [(ByteString, ByteString)] -> UTCTime -> STM (Either StreamMapError ConcreteStreamId)
 xAddSTM tv key sid vals time = do
     m <- readTVar tv
     case SM.insert key sid vals time m of
@@ -257,7 +257,7 @@ xReadSTM tv keys = do
     m <- readTVar tv
     pure $ map (\(k, sid) -> (k, SM.queryEx k sid m)) keys
 
-xResolveStreamIdSTM :: TVar StreamStore -> Key -> XRStreamId -> STM ConcreteStreamId
+xResolveStreamIdSTM :: TVar StreamStore -> Key -> XReadStreamId -> STM ConcreteStreamId
 xResolveStreamIdSTM tv key sid = do
     m <- readTVar tv
     case sid of
@@ -278,7 +278,7 @@ handleRequest bs = do
     logInfo ("Received: " <> show bs)
     resp <- liftEither $ first ParsingError $ decode bs
     logDebug ("Decoded: " <> show resp)
-    cmd <- liftEither $ first ConversionError $ respToCommand resp
+    cmd <- liftEither $ first ConversionError $ respToCmd resp
     logDebug ("Command: " <> show cmd)
     result <- runCmd cmd
     logDebug ("Execution result: " <> show result)

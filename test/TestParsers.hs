@@ -11,7 +11,7 @@ import Test.Tasty.Hedgehog (testProperty)
 import Data.String (fromString)
 import Test.Tasty.HUnit (testCase, (@?=))
 
-import Parsers (readFloatBS, readIntBS, readStreamId)
+import Parsers (readFloatBS, readIntBS, readXAddStreamId)
 import Store.StreamMap
 
 tests :: TestTree
@@ -43,9 +43,9 @@ streamIdTests :: TestTree
 streamIdTests =
     testGroup
         "StreamId parser"
-        [ testCase "*" $ readStreamId "*" @?= Right AutoId
-        , testCase "0-1" $ readStreamId "0-1" @?= Right (ExplicitId 0 (Seq 1))
-        , testCase "1526919030474-0" $ readStreamId "1526919030474-0" @?= Right (ExplicitId 1526919030474 (Seq 0))
-        , testCase "1-*" $ readStreamId "1-*" @?= Right (ExplicitId 1 SeqAuto)
-        , testCase "1526919030474-*" $ readStreamId "1526919030474-*" @?= Right (ExplicitId 1526919030474 SeqAuto)
+        [ testCase "*" $ readXAddStreamId "*" @?= Right AutoId
+        , testCase "0-1" $ readXAddStreamId "0-1" @?= Right (ExplicitId 0 (Seq 1))
+        , testCase "1526919030474-0" $ readXAddStreamId "1526919030474-0" @?= Right (ExplicitId 1526919030474 (Seq 0))
+        , testCase "1-*" $ readXAddStreamId "1-*" @?= Right (ExplicitId 1 SeqAuto)
+        , testCase "1526919030474-*" $ readXAddStreamId "1526919030474-*" @?= Right (ExplicitId 1526919030474 SeqAuto)
         ]

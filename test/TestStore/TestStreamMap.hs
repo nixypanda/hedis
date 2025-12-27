@@ -141,10 +141,10 @@ fullRange = MkXrange XMinus XPlus
 
 -- Generator
 
-genInsertSeq :: Gen [StreamId]
+genInsertSeq :: Gen [XAddStreamId]
 genInsertSeq = Gen.list (Range.linear 100 200) genStreamId
 
-genStreamId :: Gen StreamId
+genStreamId :: Gen XAddStreamId
 genStreamId = ExplicitId <$> Gen.int (Range.linear 1 1_000_000) <*> genIdSeq
 
 genIdSeq :: Gen IdSeq

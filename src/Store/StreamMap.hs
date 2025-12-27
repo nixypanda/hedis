@@ -1,15 +1,15 @@
 module Store.StreamMap (
     ConcreteStreamId,
-    StreamId (..),
+    XAddStreamId (..),
     IdSeq (..),
     StreamMap,
     StreamMapError (..),
     Value (..),
     XRange (..),
-    XStart (..),
-    XEnd (..),
-    XStreamId,
-    XRStreamId (..),
+    XRangeStart (..),
+    XRangeEnd (..),
+    XRangeStreamId,
+    XReadStreamId (..),
     (!),
     empty,
     fromList,
@@ -29,13 +29,27 @@ import Time (utcToMillis)
 
 -- Stream Id
 
-data StreamId = AutoId | ExplicitId Int IdSeq
+type ConcreteStreamId = (Int, Int)
+
+baseStreamId :: ConcreteStreamId
+baseStreamId = (0, 0)
+
+endStreamId :: ConcreteStreamId
+endStreamId = (maxBound, maxBound)
+
+baseStreamIdWIthSeqStart :: Int -> ConcreteStreamId
+baseStreamIdWIthSeqStart ts = (ts, 0)
+
+baseStreamIdWithSeqEnd :: Int -> ConcreteStreamId
+baseStreamIdWithSeqEnd ts = (ts, maxBound)
+
+-- XAdd StreamId
+
+data XAddStreamId = AutoId | ExplicitId Int IdSeq
     deriving (Show, Eq)
 
 data IdSeq = Seq Int | SeqAuto
     deriving (Show, Eq)
-
-type ConcreteStreamId = (Int, Int)
 
 data Value k v = MkValue
     { streamId :: !ConcreteStreamId
@@ -43,7 +57,9 @@ data Value k v = MkValue
     }
     deriving (Eq, Ord, Show)
 
-data XRStreamId = Dollar | Concrete ConcreteStreamId
+-- XRead Stream Id
+
+data XReadStreamId = Dollar | Concrete ConcreteStreamId
     deriving (Eq, Ord, Show)
 
 -- Stream Error
@@ -51,42 +67,32 @@ data XRStreamId = Dollar | Concrete ConcreteStreamId
 data StreamMapError = BaseStreamId | NotLargerId
     deriving (Show, Eq)
 
--- Xrange
+-- XRange StreamId
 
-type XStreamId = (Int, Maybe Int)
+type XRangeStreamId = (Int, Maybe Int)
 
-data XStart = XS XStreamId | XMinus deriving (Show, Eq)
-data XEnd = XE XStreamId | XPlus deriving (Show, Eq)
+data XRangeStart = XS XRangeStreamId | XMinus deriving (Show, Eq)
+data XRangeEnd = XE XRangeStreamId | XPlus deriving (Show, Eq)
 
-data XRange = MkXrange {start :: !XStart, end :: !XEnd}
+data XRange = MkXrange {start :: !XRangeStart, end :: !XRangeEnd}
     deriving (Show, Eq)
 
-xrangeToConcrete :: XRange -> (ConcreteStreamId, ConcreteStreamId)
-xrangeToConcrete (MkXrange{..}) = (xStartToConcrete start, xEndToConcrete end)
+xRangeToConcrete :: XRange -> (ConcreteStreamId, ConcreteStreamId)
+xRangeToConcrete (MkXrange{..}) = (xRangeStartToConcrete start, xRangeEndToConcrete end)
+  where
+    xRangeEndToConcrete :: XRangeEnd -> ConcreteStreamId
+    xRangeEndToConcrete XPlus = endStreamId
+    xRangeEndToConcrete (XE (ts, Just ms)) = (ts, ms)
+    xRangeEndToConcrete (XE (ts, Nothing)) = baseStreamIdWithSeqEnd ts
 
-xEndToConcrete :: XEnd -> ConcreteStreamId
-xEndToConcrete XPlus = endId
-xEndToConcrete (XE (ts, Just ms)) = (ts, ms)
-xEndToConcrete (XE (ts, Nothing)) = baseEnd ts
-
-xStartToConcrete :: XStart -> ConcreteStreamId
-xStartToConcrete XMinus = baseId
-xStartToConcrete (XS (ts, Just ms)) = (ts, ms)
-xStartToConcrete (XS (ts, Nothing)) = baseStart ts
-
-baseId :: ConcreteStreamId
-baseId = (0, 0)
-
-endId :: ConcreteStreamId
-endId = (maxBound, maxBound)
-
-baseStart :: Int -> ConcreteStreamId
-baseStart ts = (ts, 0)
-
-baseEnd :: Int -> ConcreteStreamId
-baseEnd ts = (ts, maxBound)
+    xRangeStartToConcrete :: XRangeStart -> ConcreteStreamId
+    xRangeStartToConcrete XMinus = baseStreamId
+    xRangeStartToConcrete (XS (ts, Just ms)) = (ts, ms)
+    xRangeStartToConcrete (XS (ts, Nothing)) = baseStreamIdWIthSeqStart ts
 
 -- Stream Map
+
+type StreamMap k ik v = Map k [Value ik v]
 
 empty :: StreamMap k ik a
 empty = M.empty
@@ -97,11 +103,9 @@ fromList = M.fromList
 (!) :: (Ord k) => Map k a -> k -> a
 m ! i = fromJust $ M.lookup i m
 
-type StreamMap k ik v = Map k [Value ik v]
-
-insert :: (Ord k) => k -> StreamId -> [(ik, v)] -> UTCTime -> StreamMap k ik v -> Either StreamMapError (ConcreteStreamId, StreamMap k ik v)
+insert :: (Ord k) => k -> XAddStreamId -> [(ik, v)] -> UTCTime -> StreamMap k ik v -> Either StreamMapError (ConcreteStreamId, StreamMap k ik v)
 insert key sid values time sMap
-    | streamId == baseId = Left BaseStreamId
+    | streamId == baseStreamId = Left BaseStreamId
     | Nothing <- mxs = okInsert [] streamId
     | Just [] <- mxs = okInsert [] streamId
     | Just xs <- mxs, Just (_, lastVal) <- unsnoc xs, lastVal.streamId >= streamId = Left NotLargerId
@@ -130,7 +134,7 @@ insert key sid values time sMap
 query :: (Ord k) => k -> XRange -> StreamMap k ik v -> [Value ik v]
 query key range sMap = takeWhile (\elm -> elm.streamId <= e) $ dropWhile (\elm -> elm.streamId < s) vals
   where
-    (s, e) = xrangeToConcrete range
+    (s, e) = xRangeToConcrete range
     vals = fromMaybe [] $ M.lookup key sMap
 
 queryEx :: (Ord k) => k -> ConcreteStreamId -> StreamMap k ik v -> [Value ik v]
@@ -138,7 +142,7 @@ queryEx key streamId sMap = dropWhile (\elm -> elm.streamId <= streamId) $ fromM
 
 lookupLatest :: (Ord k) => k -> StreamMap k ik v -> ConcreteStreamId
 lookupLatest k sMap = case M.lookup k sMap of
-    Nothing -> baseId
+    Nothing -> baseStreamId
     Just xs -> case unsnoc xs of
-        Nothing -> baseId
+        Nothing -> baseStreamId
         Just (_, x) -> x.streamId

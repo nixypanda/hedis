@@ -1,8 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Store.TypeIndex (ValueType (..), RequiredType (..), toString, checkAvailable) where
-
-import Data.ByteString (ByteString)
+module Store.TypeIndex (ValueType (..), RequiredType (..), checkAvailable) where
 
 data ValueType = VString | VList | VStream deriving (Eq)
 
@@ -11,11 +9,6 @@ instance Show ValueType where
     show VString = "string"
     show VList = "list"
     show VStream = "stream"
-
-toString :: ValueType -> ByteString
-toString VString = "string"
-toString VList = "list"
-toString VStream = "stream"
 
 data RequiredType = AbsentOr ValueType | MustBe ValueType
 

@@ -6,9 +6,9 @@ module Parsers (
     signedFloatParser,
     readIntBS,
     readFloatBS,
-    readStreamId,
+    readXAddStreamId,
     readXRange,
-    readDollarStreamId,
+    readXReadStreamId,
     readConcreteStreamId,
 ) where
 
@@ -20,12 +20,12 @@ import Data.String (fromString)
 import Store.StreamMap (
     ConcreteStreamId,
     IdSeq (..),
-    StreamId (..),
-    XEnd (..),
-    XRStreamId (..),
+    XAddStreamId (..),
     XRange (..),
-    XStart (..),
-    XStreamId,
+    XRangeEnd (..),
+    XRangeStart (..),
+    XRangeStreamId,
+    XReadStreamId (..),
  )
 import Text.Parsec (
     anyChar,
@@ -76,13 +76,13 @@ readFloatBS = parseBS signedFloatParser
 
 -- Redis stream id
 
-streamIdParser :: Parser StreamId
-streamIdParser = autoId <|> explicitId
+xAddStreamIdParser :: Parser XAddStreamId
+xAddStreamIdParser = autoId <|> explicitId
 
-autoId :: Parser StreamId
+autoId :: Parser XAddStreamId
 autoId = char '*' $> AutoId
 
-explicitId :: Parser StreamId
+explicitId :: Parser XAddStreamId
 explicitId = do
     ts <- intParser
     _ <- char '-'
@@ -94,28 +94,28 @@ seqParser = (char '*' $> SeqAuto) <|> (Seq <$> intParser)
 integer :: Parser Integer
 integer = read <$> many1 digit
 
-readStreamId :: ByteString -> Either String StreamId
-readStreamId = parseBS streamIdParser
+readXAddStreamId :: ByteString -> Either String XAddStreamId
+readXAddStreamId = parseBS xAddStreamIdParser
 
 -- Xrange
 
-xStreamId :: Parser XStreamId
-xStreamId = do
+xRangeStreamId :: Parser XRangeStreamId
+xRangeStreamId = do
     ts <- intParser
     mSeq <- optionMaybe (char '-' *> optionMaybe intParser)
     pure (ts, join mSeq)
 
-xStartParser :: Parser XStart
-xStartParser = (char '-' $> XMinus) <|> (XS <$> xStreamId)
+xRangeStartParser :: Parser XRangeStart
+xRangeStartParser = (char '-' $> XMinus) <|> (XS <$> xRangeStreamId)
 
-xEndParser :: Parser XEnd
-xEndParser = (char '+' $> XPlus) <|> (XE <$> xStreamId)
+xRangeEndParser :: Parser XRangeEnd
+xRangeEndParser = (char '+' $> XPlus) <|> (XE <$> xRangeStreamId)
 
 xRangeParser :: Parser XRange
 xRangeParser = do
-    s <- xStartParser
+    s <- xRangeStartParser
     spaces
-    e <- xEndParser
+    e <- xRangeEndParser
     eof
     pure (MkXrange s e)
 
@@ -130,11 +130,11 @@ concreteStreamIdParser = do
     _ <- char '-'
     (,) ts <$> intParser
 
-dollarStreamIdParser :: Parser XRStreamId
-dollarStreamIdParser = char '$' $> Dollar <|> (Concrete <$> concreteStreamIdParser)
+xReadStreamIdParser :: Parser XReadStreamId
+xReadStreamIdParser = char '$' $> Dollar <|> (Concrete <$> concreteStreamIdParser)
 
 readConcreteStreamId :: ByteString -> Either String ConcreteStreamId
 readConcreteStreamId = parseBS concreteStreamIdParser
 
-readDollarStreamId :: ByteString -> Either String XRStreamId
-readDollarStreamId = parseBS dollarStreamIdParser
+readXReadStreamId :: ByteString -> Either String XReadStreamId
+readXReadStreamId = parseBS xReadStreamIdParser
