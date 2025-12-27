@@ -2,6 +2,8 @@
 
 module Command (
     Command (..),
+    CmdSTM (..),
+    CmdIO (..),
     Key,
     respToCmd,
     CommandResult (..),
@@ -21,24 +23,32 @@ import Time (millisToNominalDiffTime)
 
 type Key = ByteString
 
-data Command
+data CmdSTM
     = Ping
     | Echo ByteString
     | Type Key
     | Set Key ByteString (Maybe NominalDiffTime)
     | Get Key
     | Incr Key
-    | Rpush Key [ByteString]
-    | Lpush Key [ByteString]
-    | Lrange Key Range
-    | Llen Key
-    | Lpop Key (Maybe Int)
-    | Blpop Key NominalDiffTime
-    | Xadd Key XAddStreamId [(ByteString, ByteString)]
+    | RPush Key [ByteString]
+    | LPush Key [ByteString]
+    | LPop Key (Maybe Int)
+    | LRange Key Range
+    | LLen Key
+    | XAdd Key XAddStreamId [(ByteString, ByteString)]
     | XRange Key XRange
     | XRead [(Key, ConcreteStreamId)]
-    | XReadBlock NominalDiffTime Key XReadStreamId
-    deriving (Show, Eq)
+    deriving (Show)
+
+data CmdIO
+    = BLPop Key NominalDiffTime
+    | XReadBlock Key XReadStreamId NominalDiffTime
+    deriving (Show)
+
+data Command
+    = RedSTM CmdSTM
+    | RedIO CmdIO
+    deriving (Show)
 
 -- Conversion (from Resp)
 
@@ -52,45 +62,45 @@ chunksOf2 (x : y : xs) = ((x, y) :) <$> chunksOf2 xs
 chunksOf2 _ = Left "Invalid chunk of 2"
 
 respToCmd :: Resp -> Either String Command
-respToCmd (Array 1 [BulkStr "PING"]) = pure Ping
-respToCmd (Array 2 [BulkStr "ECHO", BulkStr xs]) = pure $ Echo xs
+respToCmd (Array 1 [BulkStr "PING"]) = pure $ RedSTM Ping
+respToCmd (Array 2 [BulkStr "ECHO", BulkStr xs]) = pure $ RedSTM $ Echo xs
 -- Type Index
-respToCmd (Array 2 [BulkStr "TYPE", BulkStr key]) = pure $ Type key
+respToCmd (Array 2 [BulkStr "TYPE", BulkStr key]) = pure $ RedSTM $ Type key
 -- String Store
 respToCmd (Array 5 [BulkStr "SET", BulkStr key, BulkStr val, BulkStr "PX", BulkStr t]) = do
     expiry <- readIntBS t
     let expiry' = millisToNominalDiffTime expiry
-    pure $ Set key val (Just expiry')
-respToCmd (Array 3 [BulkStr "SET", BulkStr key, BulkStr val]) = pure $ Set key val Nothing
-respToCmd (Array 2 [BulkStr "GET", BulkStr key]) = pure $ Get key
-respToCmd (Array 2 [BulkStr "INCR", BulkStr key]) = pure $ Incr key
+    pure $ RedSTM $ Set key val (Just expiry')
+respToCmd (Array 3 [BulkStr "SET", BulkStr key, BulkStr val]) = pure $ RedSTM $ Set key val Nothing
+respToCmd (Array 2 [BulkStr "GET", BulkStr key]) = pure $ RedSTM $ Get key
+respToCmd (Array 2 [BulkStr "INCR", BulkStr key]) = pure $ RedSTM $ Incr key
 -- List Store
-respToCmd (Array 2 [BulkStr "LLEN", BulkStr key]) = pure $ Llen key
-respToCmd (Array 2 [BulkStr "LPOP", BulkStr key]) = pure $ Lpop key Nothing
-respToCmd (Array 3 [BulkStr "LPOP", BulkStr key, BulkStr len]) = Lpop key . Just <$> readIntBS len
+respToCmd (Array 2 [BulkStr "LLEN", BulkStr key]) = pure $ RedSTM $ LLen key
+respToCmd (Array 2 [BulkStr "LPOP", BulkStr key]) = pure $ RedSTM $ LPop key Nothing
+respToCmd (Array 3 [BulkStr "LPOP", BulkStr key, BulkStr len]) = RedSTM . LPop key . Just <$> readIntBS len
 respToCmd (Array 4 [BulkStr "LRANGE", BulkStr key, BulkStr st, BulkStr stop]) = do
     start <- readIntBS st
     end <- readIntBS stop
-    pure $ Lrange key (MkRange{..})
-respToCmd (Array 3 [BulkStr "BLPOP", BulkStr key, BulkStr tout]) = Blpop key . secondsToNominalDiffTime . realToFrac <$> readFloatBS tout
-respToCmd (Array _ ((BulkStr "RPUSH") : (BulkStr key) : vals)) = Rpush key <$> mapM extractBulk vals
-respToCmd (Array _ ((BulkStr "LPUSH") : (BulkStr key) : vals)) = Lpush key <$> mapM extractBulk vals
+    pure $ RedSTM $ LRange key (MkRange{..})
+respToCmd (Array 3 [BulkStr "BLPOP", BulkStr key, BulkStr tout]) = RedIO . BLPop key . secondsToNominalDiffTime . realToFrac <$> readFloatBS tout
+respToCmd (Array _ ((BulkStr "RPUSH") : (BulkStr key) : vals)) = RedSTM . RPush key <$> mapM extractBulk vals
+respToCmd (Array _ ((BulkStr "LPUSH") : (BulkStr key) : vals)) = RedSTM . LPush key <$> mapM extractBulk vals
 -- Stream Store
 respToCmd (Array _ ((BulkStr "XADD") : (BulkStr key) : (BulkStr sId) : vals)) = do
     vals' <- mapM extractBulk vals
     chunked <- chunksOf2 vals'
     sId' <- readXAddStreamId sId
-    pure $ Xadd key sId' chunked
-respToCmd (Array 4 [BulkStr "XRANGE", BulkStr key, BulkStr s, BulkStr e]) = XRange key <$> readXRange s e
+    pure $ RedSTM $ XAdd key sId' chunked
+respToCmd (Array 4 [BulkStr "XRANGE", BulkStr key, BulkStr s, BulkStr e]) = RedSTM . XRange key <$> readXRange s e
 respToCmd (Array _ (BulkStr "XREAD" : BulkStr "streams" : vals)) = do
     vals' <- mapM extractBulk vals
     let (keys, ids) = splitAt (length vals' `div` 2) vals'
     ids' <- mapM readConcreteStreamId ids
-    pure $ XRead $ zip keys ids'
+    pure $ RedSTM $ XRead $ zip keys ids'
 respToCmd (Array 6 [BulkStr "XREAD", BulkStr "block", BulkStr t, BulkStr "streams", BulkStr key, BulkStr sid]) = do
     t' <- millisToNominalDiffTime <$> readIntBS t
     sid' <- readXReadStreamId sid
-    pure $ XReadBlock t' key sid'
+    pure $ RedIO $ XReadBlock key sid' t'
 -- Unhandled
 respToCmd r = Left $ "Conversion Error" <> show r
 
