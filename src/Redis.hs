@@ -25,7 +25,6 @@ import Data.ByteString (ByteString)
 import Data.List (singleton)
 import Data.Map (Map)
 import Data.Map qualified as M
-import Data.Maybe (fromMaybe)
 import Data.String (fromString)
 import Data.Time (UTCTime, getCurrentTime)
 import System.Log.FastLogger (
@@ -40,18 +39,8 @@ import System.Log.FastLogger (
 import System.Timeout (timeout)
 import Text.Parsec (ParseError)
 
-import Command (
-    Command (..),
-    Expiry,
-    Key,
-    arrayOfArrayToResp,
-    arrayToResp,
-    listToResp,
-    respToCommand,
-    streamIdToResp,
-    stremMapErrorToResp,
- )
-import Resp (Resp (..), decode, encode)
+import Command (Command (..), CommandResult (..), Expiry, Key, respToCommand, resultToResp)
+import Resp (decode, encode)
 import Store.ExpiringMap (ExpiringMap)
 import Store.ExpiringMap qualified as EM
 import Store.ListMap (ListMap, Range (..))
@@ -101,7 +90,7 @@ mkNewEnv = do
 
 -- Execution
 
-runCmd :: Command -> Redis Resp
+runCmd :: Command -> Redis CommandResult
 runCmd cmd = do
     tvListMap <- asks listStore
     tvStringMap <- asks stringStore
@@ -109,44 +98,61 @@ runCmd cmd = do
     tvStreamMap <- asks streamStore
     now <- liftIO getCurrentTime
     case cmd of
-        Ping -> pure $ Str "PONG"
-        Echo xs -> pure $ BulkStr xs
+        Ping -> pure $ RSimple "PONG"
+        Echo xs -> pure $ RBulk (Just xs)
         Type x -> do
             ty <- liftIO $ atomically $ getTypeSTM tvTypeIndex x
-            pure $ maybe (Str "none") (Str . fromString . show) ty
+            pure $ maybe (RSimple "none") (RSimple . fromString . show) ty
+        -- String Store
         Set key val mexpiry -> do
             liftIO $ atomically (setIfAvailable tvTypeIndex key VString *> setSTM tvStringMap key val now mexpiry)
-            pure (Str "OK")
+            pure $ RSimple "OK"
         Get key -> do
-            m <- liftIO $ atomically (getSTM tvStringMap key now)
-            pure $ maybe NullBulk BulkStr m
-        Rpush key xs -> Int <$> liftIO (atomically (setIfAvailable tvTypeIndex key VList *> rpushSTM tvListMap key xs))
-        Lpush key xs -> Int <$> liftIO (atomically (setIfAvailable tvTypeIndex key VList *> lpushSTM tvListMap key xs))
-        Lpop key Nothing -> maybe NullBulk BulkStr <$> liftIO (atomically (lpopSTM tvListMap key))
-        Lpop key (Just mLen) -> listToResp <$> liftIO (atomically (lpopsSTM tvListMap key mLen))
-        Blpop key 0 -> liftIO $ atomically (blpopSTM tvListMap key)
-        Blpop key tout -> fromMaybe NullArray <$> liftIO (timeout (nominalDiffTimeToMicros tout) (atomically (blpopSTM tvListMap key)))
+            val <- liftIO $ atomically (getSTM tvStringMap key now)
+            pure $ RBulk val
+        -- List Store
+        Rpush key xs -> do
+            count <- liftIO (atomically (setIfAvailable tvTypeIndex key VList *> rpushSTM tvListMap key xs))
+            pure $ RInt count
+        Lpush key xs -> do
+            count <- liftIO (atomically (setIfAvailable tvTypeIndex key VList *> lpushSTM tvListMap key xs))
+            pure $ RInt count
+        Lpop key Nothing -> do
+            val <- liftIO (atomically (lpopSTM tvListMap key))
+            pure $ RBulk val
+        Lpop key (Just mLen) -> do
+            vals <- liftIO (atomically (lpopsSTM tvListMap key mLen))
+            pure $ RArray vals
+        Blpop key 0 -> do
+            vals <- liftIO $ atomically (blpopSTM tvListMap key)
+            pure $ RArray vals
+        Blpop key tout -> do
+            val <- liftIO (timeout (nominalDiffTimeToMicros tout) (atomically (blpopSTM tvListMap key)))
+            pure $ maybe RNullArray RArray val
         Lrange key start end -> do
             vals <- liftIO (atomically (lrangeSTM tvListMap key MkRange{..}))
-            pure $ listToResp vals
-        Llen key -> Int <$> liftIO (atomically (llenSTM tvListMap key))
+            pure $ RArray vals
+        Llen key -> do
+            len <- liftIO (atomically (llenSTM tvListMap key))
+            pure $ RInt len
+        -- Stream Store
         Xadd key sId chunked -> do
             val <- liftIO $ atomically (setIfAvailable tvTypeIndex key VStream *> xAddSTM tvStreamMap key sId chunked now)
-            pure $ either stremMapErrorToResp streamIdToResp val
+            pure $ either RStreamError RStreamId val
         XRange key range -> do
             vals <- liftIO (atomically (xRangeSTM tvStreamMap key range))
-            pure $ arrayToResp vals
+            pure $ RStreamValues vals
         XRead keys -> do
             vals <- liftIO (atomically (xReadSTM tvStreamMap keys))
-            pure $ arrayOfArrayToResp vals
+            pure $ RKeyValues vals
         XReadBlock 0 key sid -> do
             sid' <- liftIO $ atomically (xResolveStreamIdSTM tvStreamMap key sid)
             vals <- liftIO (atomically (xReadBlockSTM tvStreamMap key sid'))
-            pure $ (arrayOfArrayToResp . singleton) vals
+            pure $ (RKeyValues . singleton) vals
         XReadBlock tout key sid -> do
             sid' <- liftIO $ atomically (xResolveStreamIdSTM tvStreamMap key sid)
             vals <- liftIO (timeout (nominalDiffTimeToMicros tout) (atomically (xReadBlockSTM tvStreamMap key sid')))
-            pure $ maybe NullArray (arrayOfArrayToResp . singleton) vals
+            pure $ maybe RNullArray (RKeyValues . singleton) vals
 
 -- TYPE index
 
@@ -210,14 +216,14 @@ lpopsSTM tv key n = do
     writeTVar tv m'
     pure xs
 
-blpopSTM :: TVar ListStore -> Key -> STM Resp
+blpopSTM :: TVar ListStore -> Key -> STM [ByteString]
 blpopSTM tv key = do
     m <- readTVar tv
     case LM.leftPop key m of
         Nothing -> retry
         Just (x, m') -> do
             writeTVar tv m'
-            pure $ listToResp [key, x]
+            pure [key, x]
 
 lrangeSTM :: TVar ListStore -> Key -> Range -> STM [ByteString]
 lrangeSTM tv key range = do
@@ -275,7 +281,8 @@ handleRequest bs = do
     logDebug ("Command: " <> show cmd)
     result <- runCmd cmd
     logDebug ("Execution result: " <> show result)
-    encoded <- liftEither $ first EncodeError $ encode result
+    let resultResp = resultToResp result
+    encoded <- liftEither $ first EncodeError $ encode resultResp
     logInfo ("Encoded: " <> show encoded)
     pure encoded
 

@@ -4,12 +4,9 @@ module Command (
     Command (..),
     Expiry,
     Key,
-    arrayOfArrayToResp,
-    arrayToResp,
-    listToResp,
     respToCommand,
-    streamIdToResp,
-    stremMapErrorToResp,
+    CommandResult (..),
+    resultToResp,
 ) where
 
 import Data.ByteString (ByteString)
@@ -42,6 +39,30 @@ data Command
     | XRead [(Key, ConcreteStreamId)]
     | XReadBlock NominalDiffTime Key XRStreamId
     deriving (Show, Eq)
+
+data CommandResult
+    = RSimple ByteString
+    | RBulk (Maybe ByteString)
+    | RInt Int
+    | RArray [ByteString]
+    | RNullArray
+    | RKeyValues [(Key, [SM.Value ByteString ByteString])]
+    | RStreamId ConcreteStreamId
+    | RStreamValues [SM.Value ByteString ByteString]
+    | RStreamError StreamMapError
+    deriving (Show, Eq)
+
+resultToResp :: CommandResult -> Resp
+resultToResp (RSimple s) = Str s
+resultToResp (RBulk Nothing) = NullBulk
+resultToResp (RBulk (Just b)) = BulkStr b
+resultToResp (RInt n) = Int n
+resultToResp (RArray xs) = listToResp xs
+resultToResp (RStreamId sid) = streamIdToResp sid
+resultToResp (RStreamValues vals) = arrayToResp vals
+resultToResp (RKeyValues kvs) = arrayOfArrayToResp kvs
+resultToResp RNullArray = NullArray
+resultToResp (RStreamError e) = streamMapErrorToResp e
 
 -- Conversion (from Resp)
 
@@ -107,6 +128,6 @@ arrayOfArrayToResp ar = Array (length ar) $ map keyValsToResp ar
 keyValsToResp :: (ByteString, [SM.Value ByteString ByteString]) -> Resp
 keyValsToResp (k, vs) = Array 2 [BulkStr k, arrayToResp vs]
 
-stremMapErrorToResp :: StreamMapError -> Resp
-stremMapErrorToResp BaseStreamId = StrErr "ERR The ID specified in XADD must be greater than 0-0"
-stremMapErrorToResp NotLargerId = StrErr "ERR The ID specified in XADD is equal or smaller than the target stream top item"
+streamMapErrorToResp :: StreamMapError -> Resp
+streamMapErrorToResp BaseStreamId = StrErr "ERR The ID specified in XADD must be greater than 0-0"
+streamMapErrorToResp NotLargerId = StrErr "ERR The ID specified in XADD is equal or smaller than the target stream top item"
