@@ -27,7 +27,7 @@ import System.Timeout (timeout)
 import Text.Parsec (ParseError)
 import Time (nominalDiffTimeToMicros)
 
-import Command (CmdIO (..), CmdSTM (..), Command (..), CommandResult (..), respToCmd, resultToResp)
+import Command (CmdIO (..), CmdSTM (..), CmdTransaction (..), Command (..), CommandResult (..), respToCmd, resultToResp)
 import Resp (decode, encode)
 import Store.ListStore (ListStore)
 import Store.ListStore qualified as LS
@@ -81,6 +81,7 @@ runCmd cmd = do
     case cmd of
         RedSTM cmd' -> liftIO $ atomically $ runCmdSTM env now cmd'
         RedIO cmd' -> runCmdIO cmd'
+        RedTrans Multi -> pure $ RSimple "OK"
 
 runCmdSTM :: Env -> UTCTime -> CmdSTM -> STM CommandResult
 runCmdSTM env now cmd = do

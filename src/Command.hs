@@ -4,6 +4,7 @@ module Command (
     Command (..),
     CmdSTM (..),
     CmdIO (..),
+    CmdTransaction (..),
     Key,
     respToCmd,
     CommandResult (..),
@@ -45,9 +46,13 @@ data CmdIO
     | XReadBlock Key XReadStreamId NominalDiffTime
     deriving (Show)
 
+data CmdTransaction = Multi
+    deriving (Show)
+
 data Command
     = RedSTM CmdSTM
     | RedIO CmdIO
+    | RedTrans CmdTransaction
     deriving (Show)
 
 -- Conversion (from Resp)
@@ -101,6 +106,8 @@ respToCmd (Array 6 [BulkStr "XREAD", BulkStr "block", BulkStr t, BulkStr "stream
     t' <- millisToNominalDiffTime <$> readIntBS t
     sid' <- readXReadStreamId sid
     pure $ RedIO $ XReadBlock key sid' t'
+-- Transaactions
+respToCmd (Array 1 [BulkStr "MULTI"]) = pure $ RedTrans Multi
 -- Unhandled
 respToCmd r = Left $ "Conversion Error" <> show r
 
