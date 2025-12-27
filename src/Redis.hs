@@ -4,7 +4,7 @@
 
 module Redis (Env (..), Redis (..), RedisError (..), handleRequest, mkNewEnv, TxState (..)) where
 
-import Control.Concurrent.STM (STM, TVar, atomically, modifyTVar, readTVarIO)
+import Control.Concurrent.STM (STM, TVar, atomically, modifyTVar, readTVarIO, writeTVar)
 import Control.Exception (Exception)
 import Control.Monad.Except (ExceptT (..), MonadError, liftEither)
 import Control.Monad.IO.Class (MonadIO (liftIO))
@@ -86,7 +86,9 @@ runCmd tvTxState cmd = do
     txState <- liftIO $ readTVarIO tvTxState
     case (txState, cmd) of
         (NoTx, RedSTM cmd') -> liftIO $ atomically $ runCmdSTM env now cmd'
-        (InTx _, RedSTM _) -> undefined
+        (InTx cs, RedSTM c) -> liftIO $ atomically $ do
+            writeTVar tvTxState (InTx $ c : cs)
+            pure $ RSimple "QUEUED"
         (NoTx, RedIO cmd') -> runCmdIO cmd'
         (InTx _, RedIO _) -> pure $ RTxErr RNotSupportedInTx
         (NoTx, RedTrans Multi) -> liftIO $ atomically $ do
