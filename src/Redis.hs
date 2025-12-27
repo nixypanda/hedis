@@ -26,7 +26,7 @@ import Data.List (singleton)
 import Data.Map (Map)
 import Data.Map qualified as M
 import Data.String (fromString)
-import Data.Time (UTCTime, getCurrentTime)
+import Data.Time (NominalDiffTime, UTCTime, getCurrentTime)
 import System.Log.FastLogger (
     LogType' (..),
     TimedFastLogger,
@@ -39,7 +39,7 @@ import System.Log.FastLogger (
 import System.Timeout (timeout)
 import Text.Parsec (ParseError)
 
-import Command (Command (..), CommandResult (..), Expiry, Key, respToCommand, resultToResp)
+import Command (Command (..), CommandResult (..), Key, respToCommand, resultToResp)
 import Resp (decode, encode)
 import Store.ExpiringMap (ExpiringMap)
 import Store.ExpiringMap qualified as EM
@@ -100,6 +100,7 @@ runCmd cmd = do
     case cmd of
         Ping -> pure $ RSimple "PONG"
         Echo xs -> pure $ RBulk (Just xs)
+        -- type index
         Type x -> do
             ty <- liftIO $ atomically $ getTypeSTM tvTypeIndex x
             pure $ maybe (RSimple "none") (RSimple . fromString . show) ty
@@ -174,7 +175,7 @@ setIfAvailable tvIdx key ty = availableSTM tvIdx key (AbsentOr ty) *> setTypeSTM
 
 -- StringStore Operations
 
-setSTM :: TVar StringStore -> Key -> ByteString -> UTCTime -> Maybe Expiry -> STM ()
+setSTM :: TVar StringStore -> Key -> ByteString -> UTCTime -> Maybe NominalDiffTime -> STM ()
 setSTM tv key val now mexpiry = modifyTVar' tv (EM.insert key val now mexpiry)
 
 getSTM :: TVar StringStore -> Key -> UTCTime -> STM (Maybe ByteString)

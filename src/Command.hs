@@ -2,7 +2,6 @@
 
 module Command (
     Command (..),
-    Expiry,
     Key,
     respToCommand,
     CommandResult (..),
@@ -20,13 +19,12 @@ import Store.StreamMap qualified as SM
 import Time (millisToNominalDiffTime)
 
 type Key = ByteString
-type Expiry = Int
 
 data Command
     = Ping
     | Echo ByteString
     | Type Key
-    | Set Key ByteString (Maybe Expiry)
+    | Set Key ByteString (Maybe NominalDiffTime)
     | Get Key
     | Rpush Key [ByteString]
     | Lpush Key [ByteString]
@@ -79,7 +77,10 @@ respToCommand :: Resp -> Either String Command
 respToCommand (Array 1 [BulkStr "PING"]) = pure Ping
 respToCommand (Array 2 [BulkStr "ECHO", BulkStr xs]) = pure $ Echo xs
 respToCommand (Array 2 [BulkStr "TYPE", BulkStr key]) = pure $ Type key
-respToCommand (Array 5 [BulkStr "SET", BulkStr key, BulkStr val, BulkStr "PX", BulkStr t]) = Set key val . Just <$> readIntBS t
+respToCommand (Array 5 [BulkStr "SET", BulkStr key, BulkStr val, BulkStr "PX", BulkStr t]) = do
+    expiry <- readIntBS t
+    let expiry' = millisToNominalDiffTime expiry
+    pure $ Set key val (Just expiry')
 respToCommand (Array 3 [BulkStr "SET", BulkStr key, BulkStr val]) = pure $ Set key val Nothing
 respToCommand (Array 2 [BulkStr "GET", BulkStr key]) = pure $ Get key
 respToCommand (Array 2 [BulkStr "LLEN", BulkStr key]) = pure $ Llen key

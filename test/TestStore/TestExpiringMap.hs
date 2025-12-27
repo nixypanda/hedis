@@ -6,6 +6,7 @@ import Test.Tasty.HUnit (testCase, (@?=))
 import Data.Time (DiffTime, UTCTime (UTCTime), fromGregorian)
 
 import Store.ExpiringMap qualified as EM
+import Time (millisToNominalDiffTime)
 
 tests :: TestTree
 tests =
@@ -14,13 +15,13 @@ tests =
         [ testCase "lookup: returns value when not expired" $ do
             let storedAt = mkTime 0
                 now = mkTime 1
-                db = EM.insert "k" "v" storedAt (Just 5000) EM.empty
+                db = EM.insert "k" "v" storedAt (Just $ millisToNominalDiffTime 5000) EM.empty
 
             EM.lookup "k" now db @?= Just "v"
         , testCase "lookup: returns Nothing when expired" $ do
             let storedAt = mkTime 0
                 now = mkTime 10
-                db = EM.insert "k" "v" storedAt (Just 1000) EM.empty
+                db = EM.insert "k" "v" storedAt (Just $ millisToNominalDiffTime 1000) EM.empty
 
             EM.lookup "k" now db @?= Nothing
         , testCase "lookup: returns value when no expiry is set" $ do

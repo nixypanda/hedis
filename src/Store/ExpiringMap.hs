@@ -5,8 +5,6 @@ import Data.Map.Strict qualified as M
 import Data.Time (NominalDiffTime, UTCTime (..), diffUTCTime)
 import Prelude hiding (lookup)
 
-import Time (millisToNominalDiffTime)
-
 data StoredVal a = MkStoredVal
     { value :: !a
     , storedWhen :: !UTCTime
@@ -15,14 +13,12 @@ data StoredVal a = MkStoredVal
     deriving (Show)
 
 type ExpiringMap k v = Map k (StoredVal v)
-type Expiry = Int
 
 empty :: ExpiringMap k v
 empty = M.empty
 
-insert :: (Ord k) => k -> v -> UTCTime -> Maybe Expiry -> ExpiringMap k v -> ExpiringMap k v
-insert k value storedWhen maybeExpiry db = do
-    let expiration = millisToNominalDiffTime <$> maybeExpiry
+insert :: (Ord k) => k -> v -> UTCTime -> Maybe NominalDiffTime -> ExpiringMap k v -> ExpiringMap k v
+insert k value storedWhen expiration db = do
     M.insert k MkStoredVal{..} db
 
 lookup :: (Ord k) => k -> UTCTime -> ExpiringMap k v -> Maybe v
