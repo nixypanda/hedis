@@ -96,9 +96,10 @@ runCmd tvTxState cmd = do
             pure $ RSimple "OK"
         (InTx _, RedTrans Multi) -> pure $ RTxErr RMultiInMulti
         (NoTx, RedTrans Exec) -> pure $ RTxErr RExecWithoutMulti
-        (InTx _, RedTrans Exec) -> liftIO $ atomically $ do
+        (InTx cs, RedTrans Exec) -> liftIO $ atomically $ do
+            vals <- mapM (runCmdSTM env now) (reverse cs)
             modifyTVar tvTxState (const NoTx)
-            pure $ RArray []
+            pure $ RArray vals
 
 runCmdSTM :: Env -> UTCTime -> CmdSTM -> STM CommandResult
 runCmdSTM env now cmd = do
