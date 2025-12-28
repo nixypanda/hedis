@@ -198,49 +198,49 @@ runCmdSTM env now cmd = do
         tvTypeIndex = (typeIndex . getStores) env
         tvStreamMap = (streamStore . getStores) env
     case cmd of
-        Ping -> pure $ RSimple "PONG"
-        Echo xs -> pure $ RBulk (Just xs)
+        CmdPing -> pure $ RSimple "PONG"
+        CmdEcho xs -> pure $ RBulk (Just xs)
         -- type index
-        Type x -> do
+        CmdType x -> do
             ty <- TS.getTypeSTM tvTypeIndex x
             pure $ maybe (RSimple "none") (RSimple . fromString . show) ty
         -- String Store
-        Set key val mexpiry -> do
+        CmdSet key val mexpiry -> do
             TS.setIfAvailable tvTypeIndex key VString *> SS.setSTM tvStringMap key val now mexpiry
             pure $ RSimple "OK"
-        Get key -> do
+        CmdGet key -> do
             val <- SS.getSTM tvStringMap key now
             pure $ RBulk val
-        Incr key -> do
+        CmdIncr key -> do
             val <- SS.incrSTM tvStringMap key now
             pure $ either (const $ RErr RIncrError) RInt val
         -- List Store
-        RPush key xs -> do
+        CmdRPush key xs -> do
             count <- TS.setIfAvailable tvTypeIndex key VList *> LS.rpushSTM tvListMap key xs
             pure $ RInt count
-        LPush key xs -> do
+        CmdLPush key xs -> do
             count <- TS.setIfAvailable tvTypeIndex key VList *> LS.lpushSTM tvListMap key xs
             pure $ RInt count
-        LPop key Nothing -> do
+        CmdLPop key Nothing -> do
             val <- LS.lpopSTM tvListMap key
             pure $ RBulk val
-        LPop key (Just mLen) -> do
+        CmdLPop key (Just mLen) -> do
             vals <- LS.lpopsSTM tvListMap key mLen
             pure $ RArraySimple vals
-        LRange key range -> do
+        CmdLRange key range -> do
             vals <- LS.lrangeSTM tvListMap key range
             pure $ RArraySimple vals
-        LLen key -> do
+        CmdLLen key -> do
             len <- LS.llenSTM tvListMap key
             pure $ RInt len
         -- Stream Store
-        XAdd key sId ks -> do
+        CmdXAdd key sId ks -> do
             val <- TS.setIfAvailable tvTypeIndex key VStream *> StS.xAddSTM tvStreamMap key sId ks now
             pure $ either (RErr . RStreamError) RStreamId val
-        XRange key range -> do
+        CmdXRange key range -> do
             vals <- StS.xRangeSTM tvStreamMap key range
             pure $ RArrayStreamValues vals
-        XRead keys -> do
+        CmdXRead keys -> do
             vals <- StS.xReadSTM tvStreamMap keys
             pure $ RArrayKeyValues vals
 
@@ -250,18 +250,18 @@ runCmdIO cmd = do
     tvStreamMap <- asks (streamStore . getStores)
     case cmd of
         -- List Store
-        BLPop key 0 -> do
+        CmdBLPop key 0 -> do
             vals <- liftIO $ atomically (LS.blpopSTM tvListMap key)
             pure $ RArraySimple vals
-        BLPop key t -> do
+        CmdBLPop key t -> do
             val <- liftIO (timeout' t (atomically (LS.blpopSTM tvListMap key)))
             pure $ maybe RArrayNull RArraySimple val
         -- Stream Store
-        XReadBlock key sid 0 -> do
+        CmdXReadBlock key sid 0 -> do
             sid' <- liftIO $ atomically (StS.xResolveStreamIdSTM tvStreamMap key sid)
             vals <- liftIO (atomically (StS.xReadBlockSTM tvStreamMap key sid'))
             pure $ (RArrayKeyValues . singleton) vals
-        XReadBlock key sid tout -> do
+        CmdXReadBlock key sid tout -> do
             sid' <- liftIO $ atomically (StS.xResolveStreamIdSTM tvStreamMap key sid)
             vals <- liftIO (timeout' tout (atomically (StS.xReadBlockSTM tvStreamMap key sid')))
             pure $ maybe RArrayNull (RArrayKeyValues . singleton) vals
@@ -272,13 +272,13 @@ runReplication sock = do
     case env of
         EnvReplica _ (MkReplicaState{..}) -> do
             -- replInfo <- asks (.replication)
-            liftIO $ send sock $ encode $ cmdToResp $ RedSTM Ping
+            liftIO $ send sock $ encode $ cmdToResp $ RedSTM CmdPing
             _ <- liftIO $ recv sock 1024
-            liftIO $ send sock $ encode $ cmdToResp $ RedRepl (ReplConfListen localPort)
+            liftIO $ send sock $ encode $ cmdToResp $ RedRepl (CmdReplConfListen localPort)
             _ <- liftIO $ recv sock 1024
-            liftIO $ send sock $ encode $ cmdToResp $ RedRepl ReplConfCapabilities
+            liftIO $ send sock $ encode $ cmdToResp $ RedRepl CmdReplConfCapabilities
             _ <- liftIO $ recv sock 1024
-            liftIO $ send sock $ encode $ cmdToResp $ RedRepl $ PSync "?" (-1)
+            liftIO $ send sock $ encode $ cmdToResp $ RedRepl $ CmdPSync "?" (-1)
             _ <- liftIO $ recv sock 1024
             pure ()
 

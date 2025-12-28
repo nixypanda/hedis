@@ -45,25 +45,25 @@ type Key = ByteString
 data SubInfo = IReplication deriving (Show)
 
 data CmdSTM
-    = Ping
-    | Echo ByteString
-    | Type Key
-    | Set Key ByteString (Maybe NominalDiffTime)
-    | Get Key
-    | Incr Key
-    | RPush Key [ByteString]
-    | LPush Key [ByteString]
-    | LPop Key (Maybe Int)
-    | LRange Key Range
-    | LLen Key
-    | XAdd Key XAddStreamId [(ByteString, ByteString)]
-    | XRange Key XRange
-    | XRead [(Key, ConcreteStreamId)]
+    = CmdPing
+    | CmdEcho ByteString
+    | CmdType Key
+    | CmdSet Key ByteString (Maybe NominalDiffTime)
+    | CmdGet Key
+    | CmdIncr Key
+    | CmdRPush Key [ByteString]
+    | CmdLPush Key [ByteString]
+    | CmdLPop Key (Maybe Int)
+    | CmdLRange Key Range
+    | CmdLLen Key
+    | CmdXAdd Key XAddStreamId [(ByteString, ByteString)]
+    | CmdXRange Key XRange
+    | CmdXRead [(Key, ConcreteStreamId)]
     deriving (Show)
 
 data CmdIO
-    = BLPop Key NominalDiffTime
-    | XReadBlock Key XReadStreamId NominalDiffTime
+    = CmdBLPop Key NominalDiffTime
+    | CmdXReadBlock Key XReadStreamId NominalDiffTime
     deriving (Show)
 
 data CmdTransaction = Multi | Exec | Discard
@@ -78,9 +78,9 @@ data Command
     deriving (Show)
 
 data CmdReplication
-    = ReplConfListen Int
-    | ReplConfCapabilities
-    | PSync ByteString Int
+    = CmdReplConfListen Int
+    | CmdReplConfCapabilities
+    | CmdPSync ByteString Int
     deriving (Show)
 
 -- Conversion (from Resp)
@@ -95,47 +95,47 @@ chunksOf2 (x : y : xs) = ((x, y) :) <$> chunksOf2 xs
 chunksOf2 _ = Left "Invalid chunk of 2"
 
 respToCmd :: Resp -> Either String Command
-respToCmd (Array 1 [BulkStr "PING"]) = pure $ RedSTM Ping
-respToCmd (Array 2 [BulkStr "ECHO", BulkStr xs]) = pure $ RedSTM $ Echo xs
+respToCmd (Array 1 [BulkStr "PING"]) = pure $ RedSTM CmdPing
+respToCmd (Array 2 [BulkStr "ECHO", BulkStr xs]) = pure $ RedSTM $ CmdEcho xs
 -- Type Index
-respToCmd (Array 2 [BulkStr "TYPE", BulkStr key]) = pure $ RedSTM $ Type key
+respToCmd (Array 2 [BulkStr "TYPE", BulkStr key]) = pure $ RedSTM $ CmdType key
 -- String Store
 respToCmd (Array 5 [BulkStr "SET", BulkStr key, BulkStr val, BulkStr "PX", BulkStr t]) = do
     expiry <- readIntBS t
     let expiry' = millisToNominalDiffTime expiry
-    pure $ RedSTM $ Set key val (Just expiry')
+    pure $ RedSTM $ CmdSet key val (Just expiry')
 respToCmd (Array 3 [BulkStr "SET", BulkStr key, BulkStr val]) =
-    pure $ RedSTM $ Set key val Nothing
-respToCmd (Array 2 [BulkStr "GET", BulkStr key]) = pure $ RedSTM $ Get key
-respToCmd (Array 2 [BulkStr "INCR", BulkStr key]) = pure $ RedSTM $ Incr key
+    pure $ RedSTM $ CmdSet key val Nothing
+respToCmd (Array 2 [BulkStr "GET", BulkStr key]) = pure $ RedSTM $ CmdGet key
+respToCmd (Array 2 [BulkStr "INCR", BulkStr key]) = pure $ RedSTM $ CmdIncr key
 -- List Store
-respToCmd (Array 2 [BulkStr "LLEN", BulkStr key]) = pure $ RedSTM $ LLen key
-respToCmd (Array 2 [BulkStr "LPOP", BulkStr key]) = pure $ RedSTM $ LPop key Nothing
+respToCmd (Array 2 [BulkStr "LLEN", BulkStr key]) = pure $ RedSTM $ CmdLLen key
+respToCmd (Array 2 [BulkStr "LPOP", BulkStr key]) = pure $ RedSTM $ CmdLPop key Nothing
 respToCmd (Array 3 [BulkStr "LPOP", BulkStr key, BulkStr len]) =
-    RedSTM . LPop key . Just <$> readIntBS len
+    RedSTM . CmdLPop key . Just <$> readIntBS len
 respToCmd (Array 4 [BulkStr "LRANGE", BulkStr key, BulkStr st, BulkStr stop]) = do
     start <- readIntBS st
     end <- readIntBS stop
-    pure $ RedSTM $ LRange key (MkRange{..})
+    pure $ RedSTM $ CmdLRange key (MkRange{..})
 respToCmd (Array 3 [BulkStr "BLPOP", BulkStr key, BulkStr tout]) =
-    RedIO . BLPop key . secondsToNominalDiffTime . realToFrac <$> readFloatBS tout
+    RedIO . CmdBLPop key . secondsToNominalDiffTime . realToFrac <$> readFloatBS tout
 respToCmd (Array _ ((BulkStr "RPUSH") : (BulkStr key) : vals)) =
-    RedSTM . RPush key <$> mapM extractBulk vals
+    RedSTM . CmdRPush key <$> mapM extractBulk vals
 respToCmd (Array _ ((BulkStr "LPUSH") : (BulkStr key) : vals)) =
-    RedSTM . LPush key <$> mapM extractBulk vals
+    RedSTM . CmdLPush key <$> mapM extractBulk vals
 -- Stream Store
 respToCmd (Array _ ((BulkStr "XADD") : (BulkStr key) : (BulkStr sId) : vals)) = do
     vals' <- mapM extractBulk vals
     chunked <- chunksOf2 vals'
     sId' <- readXAddStreamId sId
-    pure $ RedSTM $ XAdd key sId' chunked
+    pure $ RedSTM $ CmdXAdd key sId' chunked
 respToCmd (Array 4 [BulkStr "XRANGE", BulkStr key, BulkStr s, BulkStr e]) =
-    RedSTM . XRange key <$> readXRange s e
+    RedSTM . CmdXRange key <$> readXRange s e
 respToCmd (Array _ (BulkStr "XREAD" : BulkStr "streams" : vals)) = do
     vals' <- mapM extractBulk vals
     let (keys, ids) = splitAt (length vals' `div` 2) vals'
     ids' <- mapM readConcreteStreamId ids
-    pure $ RedSTM $ XRead $ zip keys ids'
+    pure $ RedSTM $ CmdXRead $ zip keys ids'
 respToCmd
     ( Array
             6
@@ -143,7 +143,7 @@ respToCmd
         ) = do
         t' <- millisToNominalDiffTime <$> readIntBS t
         sid' <- readXReadStreamId sid
-        pure $ RedIO $ XReadBlock key sid' t'
+        pure $ RedIO $ CmdXReadBlock key sid' t'
 -- Transaactions
 respToCmd (Array 1 [BulkStr "MULTI"]) = pure $ RedTrans Multi
 respToCmd (Array 1 [BulkStr "EXEC"]) = pure $ RedTrans Exec
@@ -156,11 +156,11 @@ respToCmd r = Left $ "Conversion Error" <> show r
 -- Conversion (to Resp)
 
 cmdToResp :: Command -> Resp
-cmdToResp (RedSTM Ping) = Array 1 [BulkStr "PING"]
-cmdToResp (RedRepl (ReplConfListen port)) =
+cmdToResp (RedSTM CmdPing) = Array 1 [BulkStr "PING"]
+cmdToResp (RedRepl (CmdReplConfListen port)) =
     Array 3 [BulkStr "REPLCONF", BulkStr "listening-port", BulkStr $ fromString $ show port]
-cmdToResp (RedRepl ReplConfCapabilities) = Array 3 [BulkStr "REPLCONF", BulkStr "capa", BulkStr "psync2"]
-cmdToResp (RedRepl (PSync sId s)) = Array 3 [BulkStr "PSYNC", BulkStr sId, BulkStr $ fromString $ show s]
+cmdToResp (RedRepl CmdReplConfCapabilities) = Array 3 [BulkStr "REPLCONF", BulkStr "capa", BulkStr "psync2"]
+cmdToResp (RedRepl (CmdPSync sId s)) = Array 3 [BulkStr "PSYNC", BulkStr sId, BulkStr $ fromString $ show s]
 cmdToResp r = error $ "Not implemented: " <> show r
 
 data CommandResult
