@@ -148,9 +148,11 @@ respToCmd
 respToCmd (Array 1 [BulkStr "MULTI"]) = pure $ RedTrans Multi
 respToCmd (Array 1 [BulkStr "EXEC"]) = pure $ RedTrans Exec
 respToCmd (Array 1 [BulkStr "DISCARD"]) = pure $ RedTrans Discard
--- Unhandled
 -- Replication
 respToCmd (Array 2 [BulkStr "INFO", BulkStr "replication"]) = pure $ RedInfo (Just IReplication)
+respToCmd (Array 3 [BulkStr "REPLCONF", BulkStr "listening-port", BulkStr port]) = RedRepl . CmdReplConfListen <$> readIntBS port
+respToCmd (Array 3 [BulkStr "REPLCONF", BulkStr "capa", BulkStr "psync2"]) = pure $ RedRepl CmdReplConfCapabilities
+-- Unhandled
 respToCmd r = Left $ "Conversion Error" <> show r
 
 -- Conversion (to Resp)

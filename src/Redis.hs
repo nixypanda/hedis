@@ -207,7 +207,10 @@ runCmd tvTxState cmd = do
                     pure $ RSimple "OK"
             RedInfo (Just IReplication) -> pure $ RBulk $ Just $ replicationInfo $ getReplication env
             RedInfo _ -> error "not handled"
-            RedRepl _ -> error "not handled"
+            RedRepl c -> case c of
+                CmdReplConfCapabilities -> pure $ RSimple "OK"
+                CmdReplConfListen _ -> pure $ RSimple "OK"
+                CmdPSync _ _ -> error "not Handled"
 
 runCmdSTM :: (HasStores r) => Env r -> UTCTime -> CmdSTM -> STM CommandResult
 runCmdSTM env now cmd = do
