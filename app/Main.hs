@@ -109,9 +109,6 @@ runMaster env port = do
     let (logInfo', _) = loggingFuncs (getLogger env)
     logInfo' $ "Starting master server on port " <> show port
     runServer env port
-    case env of
-        EnvMaster _ MkMasterState{..} ->
-            cleanupReplicaRegistry replicaRegistry
 
 runServer :: (HasLogger r, HasStores r, HasReplication r) => Env r -> Int -> IO ()
 runServer env port = do
