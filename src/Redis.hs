@@ -1,13 +1,22 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Redis (
     Env (..),
     Redis (..),
     RedisError (..),
+    Master,
+    Replica,
+    HasLogger (..),
+    HasStores (..),
+    HasReplication (..),
     handleRequest,
-    mkNewEnv,
+    mkMasterEnv,
+    mkReplicaEnv,
     runReplication,
     TxState (..),
 ) where
@@ -50,7 +59,7 @@ import Command (
     resultToResp,
  )
 import Network.Simple.TCP (Socket, recv, send)
-import Replication (ReplicaState (..), Replication (..), ReplicationConfig, initReplication, replicationInfo)
+import Replication (MasterConfig, MasterState, ReplicaConfig, ReplicaState (..), Replication (..), initMaster, initReplica, replicationInfo)
 import Resp (decode, encode)
 import Store.ListStore (ListStore)
 import Store.ListStore qualified as LS
@@ -88,31 +97,70 @@ data Stores = MkStores
     , streamStore :: TVar StreamStore
     }
 
-data Env = MkEnv
+data Master
+data Replica
+
+data Env (r :: *) where
+    EnvMaster :: CommonEnv -> MasterState -> Env Master
+    EnvReplica :: CommonEnv -> ReplicaState -> Env Replica
+
+data CommonEnv = MkCommonEnv
     { stores :: Stores
     , envLogger :: TimedFastLogger
-    , replication :: Replication
     }
 
-mkNewEnv :: ReplicationConfig -> IO Env
-mkNewEnv rr = do
+mkCommonEnv :: IO CommonEnv
+mkCommonEnv = do
     stores <- atomically $ do
         stringStore <- SS.emptySTM
         listStore <- LS.emptySTM
         typeIndex <- TS.emptySTM
         streamStore <- StS.emptySTM
         pure $ MkStores{..}
-    let replication = initReplication rr
+
     timeCache <- newTimeCache simpleTimeFormat
     (envLogger, _cleanup) <- newTimedFastLogger timeCache (LogStderr defaultBufSize)
-    pure MkEnv{..}
+    pure $ MkCommonEnv stores envLogger
 
-newtype Redis a = MkRedis {runRedis :: ReaderT Env (ExceptT RedisError IO) a}
-    deriving newtype (Functor, Applicative, Monad, MonadError RedisError, MonadIO, MonadReader Env)
+mkMasterEnv :: MasterConfig -> IO (Env Master)
+mkMasterEnv mc = EnvMaster <$> mkCommonEnv <*> pure (initMaster mc)
+
+mkReplicaEnv :: ReplicaConfig -> IO (Env Replica)
+mkReplicaEnv rc = EnvReplica <$> mkCommonEnv <*> pure (initReplica rc)
+
+newtype Redis r a = MkRedis {runRedis :: ReaderT (Env r) (ExceptT RedisError IO) a}
+    deriving newtype (Functor, Applicative, Monad, MonadError RedisError, MonadIO, MonadReader (Env r))
+
+class HasStores r where
+    getStores :: Env r -> Stores
+
+instance HasStores Master where
+    getStores (EnvMaster c _) = c.stores
+
+instance HasStores Replica where
+    getStores (EnvReplica c _) = c.stores
+
+class HasLogger r where
+    getLogger :: Env r -> TimedFastLogger
+
+instance HasLogger Master where
+    getLogger (EnvMaster c _) = c.envLogger
+
+instance HasLogger Replica where
+    getLogger (EnvReplica c _) = c.envLogger
+
+class HasReplication r where
+    getReplication :: Env r -> Replication
+
+instance HasReplication Master where
+    getReplication (EnvMaster _ ms) = MkReplicationMaster ms
+
+instance HasReplication Replica where
+    getReplication (EnvReplica _ rs) = MkReplicationReplica rs
 
 -- Execution
 
-runCmd :: TVar TxState -> Command -> Redis CommandResult
+runCmd :: (HasStores r, HasReplication r) => TVar TxState -> Command -> Redis r CommandResult
 runCmd tvTxState cmd = do
     env <- ask
     now <- liftIO getCurrentTime
@@ -138,17 +186,17 @@ runCmd tvTxState cmd = do
             writeTVar tvTxState NoTx
             pure $ RSimple "OK"
         (InTx _, RedInfo _) -> pure $ RErr $ RTxErr RNotSupportedInTx
-        (NoTx, RedInfo (Just IReplication)) -> pure $ RBulk $ Just $ replicationInfo env.replication
+        (NoTx, RedInfo (Just IReplication)) -> pure $ RBulk $ Just $ replicationInfo $ getReplication env
         (NoTx, RedInfo _) -> undefined
         (InTx _, RedRepl _) -> pure $ RErr $ RTxErr RNotSupportedInTx
         (NoTx, RedRepl _) -> error "not handled"
 
-runCmdSTM :: Env -> UTCTime -> CmdSTM -> STM CommandResult
+runCmdSTM :: (HasStores r) => Env r -> UTCTime -> CmdSTM -> STM CommandResult
 runCmdSTM env now cmd = do
-    let tvListMap = env.stores.listStore
-        tvStringMap = env.stores.stringStore
-        tvTypeIndex = env.stores.typeIndex
-        tvStreamMap = env.stores.streamStore
+    let tvListMap = (listStore . getStores) env
+        tvStringMap = (stringStore . getStores) env
+        tvTypeIndex = (typeIndex . getStores) env
+        tvStreamMap = (streamStore . getStores) env
     case cmd of
         Ping -> pure $ RSimple "PONG"
         Echo xs -> pure $ RBulk (Just xs)
@@ -196,10 +244,10 @@ runCmdSTM env now cmd = do
             vals <- StS.xReadSTM tvStreamMap keys
             pure $ RArrayKeyValues vals
 
-runCmdIO :: CmdIO -> Redis CommandResult
+runCmdIO :: (HasStores r) => CmdIO -> Redis r CommandResult
 runCmdIO cmd = do
-    tvListMap <- asks (.stores.listStore)
-    tvStreamMap <- asks (.stores.streamStore)
+    tvListMap <- asks (listStore . getStores)
+    tvStreamMap <- asks (streamStore . getStores)
     case cmd of
         -- List Store
         BLPop key 0 -> do
@@ -218,12 +266,12 @@ runCmdIO cmd = do
             vals <- liftIO (timeout' tout (atomically (StS.xReadBlockSTM tvStreamMap key sid')))
             pure $ maybe RArrayNull (RArrayKeyValues . singleton) vals
 
-runReplication :: Socket -> Redis ()
+runReplication :: Socket -> Redis Replica ()
 runReplication sock = do
-    replInfo <- asks (.replication)
-    case replInfo of
-        ReplicationMaster _ -> error "Master role not supported" -- fix this at type level
-        ReplicationReplica (MkReplicaState{localPort}) -> do
+    env <- ask
+    case env of
+        EnvReplica _ (MkReplicaState{..}) -> do
+            -- replInfo <- asks (.replication)
             liftIO $ send sock $ encode $ cmdToResp $ RedSTM Ping
             _ <- liftIO $ recv sock 1024
             liftIO $ send sock $ encode $ cmdToResp $ RedRepl (ReplConfListen localPort)
@@ -236,7 +284,7 @@ runReplication sock = do
 
 -- Command execution
 
-handleRequest :: TVar TxState -> ByteString -> Redis ByteString
+handleRequest :: (HasLogger r, HasStores r, HasReplication r) => TVar TxState -> ByteString -> Redis r ByteString
 handleRequest tvTxState bs = do
     txState <- liftIO $ readTVarIO tvTxState
     logInfo ("Client State: " <> show txState)
@@ -257,12 +305,12 @@ handleRequest tvTxState bs = do
 timeout' :: NominalDiffTime -> IO a -> IO (Maybe a)
 timeout' t = timeout (nominalDiffTimeToMicros t)
 
-logInfo :: (MonadReader Env m, MonadIO m) => String -> m ()
+logInfo :: (MonadReader (Env r) m, MonadIO m, HasLogger r) => String -> m ()
 logInfo msg = do
-    logger <- asks envLogger
+    logger <- asks getLogger
     liftIO $ logger (\t -> toLogStr (show t <> "[INFO] " <> msg <> "\n"))
 
-logDebug :: (MonadReader Env m, MonadIO m) => String -> m ()
+logDebug :: (MonadReader (Env r) m, MonadIO m, HasLogger r) => String -> m ()
 logDebug msg = do
-    logger <- asks envLogger
+    logger <- asks getLogger
     liftIO $ logger (\t -> toLogStr (show t <> "[DEBUG] " <> msg <> "\n"))

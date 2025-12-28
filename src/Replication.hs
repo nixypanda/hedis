@@ -10,7 +10,8 @@ module Replication (
     MasterState (..),
     ReplicaState (..),
     replicationInfo,
-    initReplication,
+    initMaster,
+    initReplica,
 ) where
 
 import Data.ByteString (ByteString)
@@ -43,8 +44,8 @@ data ReplicaConfig = MkReplicaConfig {masterInfo :: ReplicaOf, localPort :: Int}
 
 -- Replication is what we store in the Env
 data Replication
-    = ReplicationMaster MasterState
-    | ReplicationReplica ReplicaState
+    = MkReplicationMaster MasterState
+    | MkReplicationReplica ReplicaState
     deriving (Show)
 
 data MasterState = MkMasterState
@@ -61,30 +62,28 @@ data ReplicaState = MkReplicaState
     }
     deriving (Show)
 
-initReplication :: ReplicationConfig -> Replication
-initReplication cfg =
-    case cfg of
-        RCMaster _ ->
-            ReplicationMaster $
-                MkMasterState
-                    { masterReplId = "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb"
-                    , masterReplOffset = 0
-                    }
-        RCReplica (MkReplicaConfig{..}) ->
-            ReplicationReplica $
-                MkReplicaState
-                    { masterInfo = masterInfo
-                    , localPort = localPort
-                    , replicaOffset = -1
-                    , knownMasterRepl = "?"
-                    }
+initMaster :: MasterConfig -> MasterState
+initMaster _ =
+    MkMasterState
+        { masterReplId = "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb"
+        , masterReplOffset = 0
+        }
+
+initReplica :: ReplicaConfig -> ReplicaState
+initReplica MkReplicaConfig{..} =
+    MkReplicaState
+        { masterInfo = masterInfo
+        , localPort = localPort
+        , replicaOffset = -1
+        , knownMasterRepl = "?"
+        }
 
 replicationInfo :: Replication -> ByteString
-replicationInfo (ReplicationMaster (MkMasterState{..})) =
+replicationInfo (MkReplicationMaster (MkMasterState{..})) =
     BS.intercalate
         "\r\n"
         [ "role:master"
         , "master_replid:" <> masterReplId
         , "master_repl_offset:" <> fromString (show masterReplOffset)
         ]
-replicationInfo (ReplicationReplica (MkReplicaState{})) = "role:slave"
+replicationInfo (MkReplicationReplica (MkReplicaState{})) = "role:slave"

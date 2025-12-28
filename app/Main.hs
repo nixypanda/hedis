@@ -63,7 +63,7 @@ redis = info (optsParser <**> helper) (fullDesc <> progDesc "Hedis (A Redis toy-
 bufferSize :: Int
 bufferSize = 1024
 
-clientLoop :: TVar TxState -> Socket -> Redis ()
+clientLoop :: (HasLogger r, HasStores r, HasReplication r) => TVar TxState -> Socket -> Redis r ()
 clientLoop txVar socket = do
     mbs <- recv socket bufferSize
     ebs <- maybe (throwError EmptyBuffer) pure mbs
@@ -82,15 +82,18 @@ main = do
     let replicationConfig = case cli.replicaOf of
             Nothing -> RCMaster ()
             Just ro -> RCReplica $ MkReplicaConfig ro cli.port
-
-    env <- mkNewEnv replicationConfig
     case cli.replicaOf of
-        Nothing -> runMaster env cli.port
-        Just r -> runReplica env cli.port r
+        Nothing -> do
+            env <- mkMasterEnv ()
+            runMaster env cli.port
+        Just r -> do
+            env <- mkReplicaEnv $ MkReplicaConfig r cli.port
 
-runReplica :: Env -> Int -> ReplicaOf -> IO ()
+            runReplica env cli.port r
+
+runReplica :: Env Replica -> Int -> ReplicaOf -> IO ()
 runReplica env port replicaOf = do
-    let (logInfo', logError') = loggingFuncs env.envLogger
+    let (logInfo', logError') = loggingFuncs (getLogger env)
     logInfo' $ "Starting replica server on port " <> show port
     connect replicaOf.masterHost (show replicaOf.masterPort) $ \(sock, _) -> do
         logInfo' $ "Connected to master " <> "on (" <> show replicaOf.masterHost <> ":" <> show replicaOf.masterPort <> ")"
@@ -101,15 +104,15 @@ runReplica env port replicaOf = do
             Right _ -> pure ()
     runServer env port
 
-runMaster :: Env -> Int -> IO ()
+runMaster :: Env Master -> Int -> IO ()
 runMaster env port = do
-    let (logInfo', _) = loggingFuncs env.envLogger
+    let (logInfo', _) = loggingFuncs (getLogger env)
     logInfo' $ "Starting master server on port " <> show port
     runServer env port
 
-runServer :: Env -> Int -> IO ()
+runServer :: (HasLogger r, HasStores r, HasReplication r) => Env r -> Int -> IO ()
 runServer env port = do
-    let (logInfo', logError') = loggingFuncs env.envLogger
+    let (logInfo', logError') = loggingFuncs (getLogger env)
     serve HostAny (show port) $ \(socket, address) -> do
         logInfo' $ "successfully connected client: " ++ show address
         txVar <- newTVarIO NoTx
