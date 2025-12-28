@@ -2,8 +2,6 @@
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-{- HLINT ignore "Replace case with maybe" -}
-
 module Replication (
     Replication (..),
     ReplicaOf (..),
@@ -22,16 +20,14 @@ module Replication (
 ) where
 
 import Control.Concurrent.Async (Async, async, cancel)
-import Control.Concurrent.STM (TVar, atomically, modifyTVar, newTQueueIO, readTVarIO, writeTVar)
+import Control.Concurrent.STM (TVar, atomically, modifyTVar, newTQueueIO, readTQueue, readTVarIO, writeTVar)
 import Control.Concurrent.STM.TQueue (TQueue)
 import Control.Concurrent.STM.TVar (newTVarIO)
 import Control.Exception (Exception)
-import Control.Monad (replicateM)
+import Control.Monad (forever, replicateM)
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.Char (ord)
-import Data.Map (Map)
-import Data.Map qualified as M
 import Data.String (fromString)
 import Network.Simple.TCP (Socket, send)
 import System.Random (randomRIO)
@@ -85,7 +81,7 @@ data ReplicaState = MkReplicaState
 data ReplicaConn = MkReplicaConn
     { rcSocket :: Socket
     , rcOffset :: TVar Int
-    , rcQueue :: TQueue [ByteString]
+    , rcQueue :: TQueue ByteString
     , rcSender :: Async ()
     }
 
@@ -95,11 +91,11 @@ data ReplicationError = ReplicaDisconnected
 -- For ease let's just assign integers
 type MasterAssignedReplicaId = ByteString
 
-type ReplicaRegistry = TVar (Map MasterAssignedReplicaId ReplicaConn)
+type ReplicaRegistry = TVar [(Socket, ReplicaConn)]
 
 initMasterState :: MasterConfig -> IO MasterState
 initMasterState _ = do
-    registry <- newTVarIO M.empty
+    registry <- newTVarIO []
     pure $
         MkMasterState
             { masterReplId = "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb"
@@ -151,22 +147,26 @@ initReplica masterState rcSocket = do
 
     rcSender <- async $ replicaSender rcSocket masterState.rdbFile rcQueue
     let rc = MkReplicaConn{..}
-    atomically $ modifyTVar masterState.replicaRegistry (M.insert rid rc)
+    atomically $ modifyTVar masterState.replicaRegistry ((rcSocket, rc) :)
 
     pure rid
 
 cleanupReplicaRegistry :: ReplicaRegistry -> IO ()
 cleanupReplicaRegistry reg = do
     replicas <- readTVarIO reg
-    mapM_ (cancel . (.rcSender)) (M.elems replicas)
-    atomically $ writeTVar reg M.empty
+    mapM_ ((cancel . (.rcSender)) . snd) replicas
+    atomically $ writeTVar reg []
 
-replicaSender :: Socket -> FilePath -> TQueue [ByteString] -> IO ()
-replicaSender sock rdbFile _ = do
+replicaSender :: Socket -> FilePath -> TQueue ByteString -> IO ()
+replicaSender sock rdbFile q = do
     -- Phase 1: RDB snapshot
     rdbFileData <- readRdbFile rdbFile
     let respEncoded = "$" <> fromString (show $ BS.length rdbFileData) <> "\r\n" <> rdbFileData
     send sock respEncoded
+    -- Phase 2: Write Command Propogation
+    forever $ do
+        resp <- atomically $ readTQueue q
+        send sock resp
 
 readRdbFile :: FilePath -> IO ByteString
 readRdbFile = BS.readFile
