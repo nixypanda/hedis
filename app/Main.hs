@@ -13,6 +13,7 @@ import System.Log.FastLogger (toLogStr)
 import System.Log.FastLogger.Date (simpleTimeFormat)
 
 import Redis
+import Replication
 
 -- network
 

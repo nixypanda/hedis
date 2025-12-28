@@ -6,8 +6,6 @@ module Redis (
     Env (..),
     Redis (..),
     RedisError (..),
-    ReplicationRole (..),
-    ReplicaOf (..),
     handleRequest,
     mkNewEnv,
     TxState (..),
@@ -48,7 +46,7 @@ import Command (
     respToCmd,
     resultToResp,
  )
-import Data.ByteString qualified as BS
+import Replication (Replication, ReplicationRole, initReplication, replicationInfo)
 import Resp (decode, encode)
 import Store.ListStore (ListStore)
 import Store.ListStore qualified as LS
@@ -77,26 +75,6 @@ data RedisError
 data TxState = NoTx | InTx [CmdSTM] -- queue only STM-capable commands
     deriving (Show)
 
--- Replication
-
-data ReplicaOf = ReplicaOf
-    { masterHost :: String
-    , masterPort :: Int
-    }
-    deriving (Show, Eq)
-
-data ReplicationRole = RRMaster | RRReplica ReplicaOf
-    deriving (Show)
-
-data MasterReplicationInfo = MkMasterReplicationInfo
-    {replicationID :: ByteString, replicationOffset :: Int}
-    deriving (Show)
-
-data Replication
-    = Master MasterReplicationInfo
-    | Replica ReplicaOf
-    deriving (Show)
-
 -- Env
 
 data Stores = MkStores
@@ -120,11 +98,9 @@ mkNewEnv rr = do
         typeIndex <- TS.emptySTM
         streamStore <- StS.emptySTM
         pure $ MkStores{..}
+    let replication = initReplication rr
     timeCache <- newTimeCache simpleTimeFormat
     (envLogger, _cleanup) <- newTimedFastLogger timeCache (LogStderr defaultBufSize)
-    let replication = case rr of
-            RRMaster -> Master (MkMasterReplicationInfo "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb" 0)
-            RRReplica ro -> Replica ro
     pure MkEnv{..}
 
 newtype Redis a = MkRedis {runRedis :: ReaderT Env (ExceptT RedisError IO) a}
@@ -160,16 +136,6 @@ runCmd tvTxState cmd = do
         (InTx _, RedInfo _) -> pure $ RErr $ RTxErr RNotSupportedInTx
         (NoTx, RedInfo (Just IReplication)) -> pure $ RBulk $ Just $ replicationInfo env.replication
         (NoTx, RedInfo _) -> undefined
-
-replicationInfo :: Replication -> ByteString
-replicationInfo (Master (MkMasterReplicationInfo{..})) =
-    BS.intercalate
-        "\r\n"
-        [ "role:master"
-        , "master_replid:" <> replicationID
-        , "master_repl_offset:" <> fromString (show replicationOffset)
-        ]
-replicationInfo Replica{} = "role:slave"
 
 runCmdSTM :: Env -> UTCTime -> CmdSTM -> STM CommandResult
 runCmdSTM env now cmd = do
