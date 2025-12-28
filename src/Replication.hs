@@ -13,10 +13,13 @@ module Replication (
     replicationInfo,
     initMaster,
     initReplica,
+    initReplicaSync,
     generateReplicaId,
 ) where
 
-import Control.Concurrent.STM (TVar)
+import Command (CmdReplication (..), Command (RedRepl), CommandResult (..))
+import Control.Concurrent (forkIO)
+import Control.Concurrent.STM (TVar, atomically, modifyTVar, newTQueueIO, readTVarIO)
 import Control.Concurrent.STM.TQueue (TQueue)
 import Control.Concurrent.STM.TVar (newTVarIO)
 import Data.ByteString (ByteString)
@@ -25,7 +28,7 @@ import Data.ByteString.Char8 (pack)
 import Data.Map (Map)
 import Data.Map qualified as M
 import Data.String (fromString)
-import Network.Simple.TCP (Socket)
+import Network.Simple.TCP (Socket, send)
 import System.Random (randomRIO)
 
 -- CLI flags ──▶ ReplicationConfig
@@ -61,6 +64,7 @@ data MasterState = MkMasterState
     { masterReplId :: ByteString
     , masterReplOffset :: Int
     , replicaRegistry :: ReplicaRegistry
+    , rdbFile :: FilePath
     }
 
 data ReplicaState = MkReplicaState
@@ -90,6 +94,7 @@ initMaster _ = do
             { masterReplId = "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb"
             , masterReplOffset = 0
             , replicaRegistry = registry
+            , rdbFile = "./master.rdb"
             }
 
 initReplica :: ReplicaConfig -> ReplicaState
@@ -121,3 +126,24 @@ generateReplicaId =
     randomChar = do
         i <- randomRIO (0, length alphabet - 1)
         pure (alphabet !! i)
+
+initReplicaSync :: Socket -> MasterState -> IO CommandResult
+initReplicaSync rcSocket masterState = do
+    rcOffset <- newTVarIO (-1)
+    rcQueue <- newTQueueIO
+    replicaId <- generateReplicaId
+    _ <- atomically $ modifyTVar masterState.replicaRegistry (M.insert replicaId MkReplicaConn{..})
+    _ <- forkIO $ replicaSender masterState replicaId
+    pure $ RCmd $ RedRepl $ CmdFullResync masterState.masterReplId masterState.masterReplOffset
+
+replicaSender :: MasterState -> MasterAssignedReplicaId -> IO ()
+replicaSender masterState replicaId = do
+    -- Phase 1: send RDB snapshot
+    tvReplicaRegistry <- readTVarIO masterState.replicaRegistry
+    let rcConn = tvReplicaRegistry M.! replicaId
+    rdbFileData <- readRdbFile masterState.rdbFile
+    let respEncoded = "$" <> fromString (show $ BS.length rdbFileData) <> "\r\n" <> rdbFileData
+    send rcConn.rcSocket respEncoded
+
+readRdbFile :: FilePath -> IO ByteString
+readRdbFile = BS.readFile
