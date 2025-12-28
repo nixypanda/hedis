@@ -89,6 +89,11 @@ runReplica :: Env -> Int -> ReplicaOf -> IO ()
 runReplica env port replicaOf = do
     let (logInfo', _) = loggingFuncs env.envLogger
     logInfo' $ "Starting replica server on port " <> show port
+    connect replicaOf.masterHost (show replicaOf.masterPort) $ \(sock, _) -> do
+        logInfo' $ "Connected to master " <> "on (" <> show replicaOf.masterHost <> ":" <> show replicaOf.masterPort <> ")"
+        send sock "*1\r\n$4\r\nPING\r\n"
+        resp <- recv sock 1024
+        logInfo' $ "Master replied: " ++ show resp
     runServer env port
 
 runMaster :: Env -> Int -> IO ()
