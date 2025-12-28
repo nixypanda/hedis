@@ -22,7 +22,8 @@ module Redis (
     TxState (..),
 ) where
 
-import Control.Concurrent.STM (STM, TVar, atomically, modifyTVar, readTVarIO, writeTVar)
+import Control.Concurrent.STM (STM, TVar, atomically, modifyTVar, newTQueueIO, readTVarIO, writeTVar)
+import Control.Concurrent.STM.TVar (newTVarIO)
 import Control.Exception (Exception)
 import Control.Monad.Except (ExceptT (..), MonadError, liftEither)
 import Control.Monad.IO.Class (MonadIO (liftIO))
@@ -45,7 +46,6 @@ import System.Log.FastLogger (
  )
 import System.Timeout (timeout)
 import Text.Parsec (ParseError)
-import Time (nominalDiffTimeToMicros)
 
 import Command (
     CmdIO (..),
@@ -61,7 +61,6 @@ import Command (
     respToCmd,
     resultToResp,
  )
-import Control.Concurrent.STM.TVar (newTVarIO)
 import Data.Map qualified as M
 import Replication (
     MasterConfig,
@@ -85,6 +84,7 @@ import Store.StringStore qualified as SS
 import Store.TypeStore (IncorrectType, TypeIndex)
 import Store.TypeStore qualified as TS
 import StoreBackend.TypeIndex (ValueType (..))
+import Time (nominalDiffTimeToMicros)
 
 -- Types
 
@@ -223,9 +223,11 @@ runCmd clientState cmd = do
                 CmdPSync "?" (-1) -> case getReplication env of
                     MkReplicationMaster (MkMasterState{..}) -> do
                         let rcSocket = clientState.socket
-                        rcOffset <- liftIO $ newTVarIO 0
+                        rcOffset <- liftIO $ newTVarIO (-1)
+                        rcQueue <- liftIO newTQueueIO
                         replicaId <- liftIO generateReplicaId
                         _ <- liftIO $ atomically $ modifyTVar replicaRegistry (M.insert replicaId MkReplicaConn{..})
+                        -- setup queue
                         pure $ RCmd $ RedRepl $ CmdFullResync masterReplId masterReplOffset
                     MkReplicationReplica _ -> error "called on replica" -- handle later
                 CmdPSync _ _ -> error "not handled"

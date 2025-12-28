@@ -17,6 +17,7 @@ module Replication (
 ) where
 
 import Control.Concurrent.STM (TVar)
+import Control.Concurrent.STM.TQueue (TQueue)
 import Control.Concurrent.STM.TVar (newTVarIO)
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
@@ -73,6 +74,7 @@ data ReplicaState = MkReplicaState
 data ReplicaConn = MkReplicaConn
     { rcSocket :: Socket
     , rcOffset :: TVar Int
+    , rcQueue :: TQueue [ByteString]
     }
 
 -- For ease let's just assign integers
