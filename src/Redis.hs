@@ -133,7 +133,7 @@ mkCommonEnv = do
     pure $ MkCommonEnv stores envLogger
 
 mkMasterEnv :: MasterConfig -> IO (Env Master)
-mkMasterEnv mc = EnvMaster <$> mkCommonEnv <*> pure (initMaster mc)
+mkMasterEnv mc = EnvMaster <$> mkCommonEnv <*> initMaster mc
 
 mkReplicaEnv :: ReplicaConfig -> IO (Env Replica)
 mkReplicaEnv rc = EnvReplica <$> mkCommonEnv <*> pure (initReplica rc)

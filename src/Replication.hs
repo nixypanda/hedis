@@ -14,9 +14,14 @@ module Replication (
     initReplica,
 ) where
 
+import Control.Concurrent.STM (TVar)
+import Control.Concurrent.STM.TVar (newTVarIO)
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
+import Data.Map (Map)
+import Data.Map qualified as M
 import Data.String (fromString)
+import Network.Simple.TCP (Socket)
 
 -- CLI flags ──▶ ReplicationConfig
 --                 │
@@ -46,13 +51,12 @@ data ReplicaConfig = MkReplicaConfig {masterInfo :: ReplicaOf, localPort :: Int}
 data Replication
     = MkReplicationMaster MasterState
     | MkReplicationReplica ReplicaState
-    deriving (Show)
 
 data MasterState = MkMasterState
     { masterReplId :: ByteString
     , masterReplOffset :: Int
+    , replicaRegistry :: ReplicaRegistry
     }
-    deriving (Show)
 
 data ReplicaState = MkReplicaState
     { masterInfo :: ReplicaOf
@@ -62,12 +66,25 @@ data ReplicaState = MkReplicaState
     }
     deriving (Show)
 
-initMaster :: MasterConfig -> MasterState
-initMaster _ =
-    MkMasterState
-        { masterReplId = "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb"
-        , masterReplOffset = 0
-        }
+data ReplicaConn = ReplicaConn
+    { rcSocket :: Socket
+    , rcOffset :: TVar Int
+    }
+
+-- For ease let's just assign integers
+type MasterAssignedReplicaId = Int
+
+type ReplicaRegistry = TVar (Map MasterAssignedReplicaId ReplicaConn)
+
+initMaster :: MasterConfig -> IO MasterState
+initMaster _ = do
+    registry <- newTVarIO M.empty
+    pure $
+        MkMasterState
+            { masterReplId = "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb"
+            , masterReplOffset = 0
+            , replicaRegistry = registry
+            }
 
 initReplica :: ReplicaConfig -> ReplicaState
 initReplica MkReplicaConfig{..} =
