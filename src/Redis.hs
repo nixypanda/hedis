@@ -230,6 +230,8 @@ runReplication sock = do
             _ <- liftIO $ recv sock 1024
             liftIO $ send sock $ encode $ cmdToResp $ RedRepl ReplConfCapabilities
             _ <- liftIO $ recv sock 1024
+            liftIO $ send sock $ encode $ cmdToResp $ RedRepl $ PSync "?" (-1)
+            _ <- liftIO $ recv sock 1024
             pure ()
 
 -- Command execution

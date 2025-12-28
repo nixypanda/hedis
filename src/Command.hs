@@ -80,6 +80,7 @@ data Command
 data CmdReplication
     = ReplConfListen Int
     | ReplConfCapabilities
+    | PSync ByteString Int
     deriving (Show)
 
 -- Conversion (from Resp)
@@ -159,6 +160,7 @@ cmdToResp (RedSTM Ping) = Array 1 [BulkStr "PING"]
 cmdToResp (RedRepl (ReplConfListen port)) =
     Array 3 [BulkStr "REPLCONF", BulkStr "listening-port", BulkStr $ fromString $ show port]
 cmdToResp (RedRepl ReplConfCapabilities) = Array 3 [BulkStr "REPLCONF", BulkStr "capa", BulkStr "psync2"]
+cmdToResp (RedRepl (PSync sId s)) = Array 3 [BulkStr "PSYNC", BulkStr sId, BulkStr $ fromString $ show s]
 cmdToResp r = error $ "Not implemented: " <> show r
 
 data CommandResult
