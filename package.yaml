@@ -29,6 +29,7 @@ library:
     - parsec
     - stm
     - time
+    - random
 
 executables:
   codecrafters-redis-exe:

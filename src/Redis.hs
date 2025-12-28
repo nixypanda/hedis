@@ -61,12 +61,16 @@ import Command (
     respToCmd,
     resultToResp,
  )
+import Control.Concurrent.STM.TVar (newTVarIO)
+import Data.Map qualified as M
 import Replication (
     MasterConfig,
     MasterState (..),
     ReplicaConfig,
+    ReplicaConn (..),
     ReplicaState (..),
     Replication (..),
+    generateReplicaId,
     initMaster,
     initReplica,
     replicationInfo,
@@ -217,7 +221,11 @@ runCmd clientState cmd = do
                 CmdReplConfCapabilities -> pure $ RSimple "OK"
                 CmdReplConfListen _ -> pure $ RSimple "OK"
                 CmdPSync "?" (-1) -> case getReplication env of
-                    MkReplicationMaster (MkMasterState{..}) ->
+                    MkReplicationMaster (MkMasterState{..}) -> do
+                        let rcSocket = clientState.socket
+                        rcOffset <- liftIO $ newTVarIO 0
+                        replicaId <- liftIO generateReplicaId
+                        _ <- liftIO $ atomically $ modifyTVar replicaRegistry (M.insert replicaId MkReplicaConn{..})
                         pure $ RCmd $ RedRepl $ CmdFullResync masterReplId masterReplOffset
                     MkReplicationReplica _ -> error "called on replica" -- handle later
                 CmdPSync _ _ -> error "not handled"

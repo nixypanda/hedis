@@ -9,19 +9,23 @@ module Replication (
     ReplicaConfig (..),
     MasterState (..),
     ReplicaState (..),
+    ReplicaConn (..),
     replicationInfo,
     initMaster,
     initReplica,
+    generateReplicaId,
 ) where
 
 import Control.Concurrent.STM (TVar)
 import Control.Concurrent.STM.TVar (newTVarIO)
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
+import Data.ByteString.Char8 (pack)
 import Data.Map (Map)
 import Data.Map qualified as M
 import Data.String (fromString)
 import Network.Simple.TCP (Socket)
+import System.Random (randomRIO)
 
 -- CLI flags ──▶ ReplicationConfig
 --                 │
@@ -66,13 +70,13 @@ data ReplicaState = MkReplicaState
     }
     deriving (Show)
 
-data ReplicaConn = ReplicaConn
+data ReplicaConn = MkReplicaConn
     { rcSocket :: Socket
     , rcOffset :: TVar Int
     }
 
 -- For ease let's just assign integers
-type MasterAssignedReplicaId = Int
+type MasterAssignedReplicaId = ByteString
 
 type ReplicaRegistry = TVar (Map MasterAssignedReplicaId ReplicaConn)
 
@@ -104,3 +108,14 @@ replicationInfo (MkReplicationMaster (MkMasterState{..})) =
         , "master_repl_offset:" <> fromString (show masterReplOffset)
         ]
 replicationInfo (MkReplicationReplica (MkReplicaState{})) = "role:slave"
+
+alphabet :: [Char]
+alphabet = ['0' .. '9'] ++ ['a' .. 'z']
+
+generateReplicaId :: IO MasterAssignedReplicaId
+generateReplicaId =
+    pack <$> mapM (const randomChar) [1 :: Int .. 40]
+  where
+    randomChar = do
+        i <- randomRIO (0, length alphabet - 1)
+        pure (alphabet !! i)
