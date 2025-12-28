@@ -18,21 +18,22 @@ module Replication (
     initReplicaState,
     generateReplicaId,
     acceptReplica,
+    cleanupReplicaRegistry,
 ) where
 
 import Control.Concurrent.Async (Async, async, cancel)
-import Control.Concurrent.STM (TVar, atomically, modifyTVar, newTQueueIO, readTVar, writeTVar)
+import Control.Concurrent.STM (TVar, atomically, modifyTVar, newTQueueIO, readTVarIO, writeTVar)
 import Control.Concurrent.STM.TQueue (TQueue)
 import Control.Concurrent.STM.TVar (newTVarIO)
-import Control.Exception (Exception, bracket, throwIO)
-import Control.Monad (forM_, forever, replicateM)
+import Control.Exception (Exception)
+import Control.Monad (replicateM)
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.Char (ord)
 import Data.Map (Map)
 import Data.Map qualified as M
 import Data.String (fromString)
-import Network.Simple.TCP (Socket, closeSock, recv, send)
+import Network.Simple.TCP (Socket, send)
 import System.Random (randomRIO)
 
 import Command (CmdReplication (CmdFullResync), Command (RedRepl), CommandResult (RCmd))
@@ -140,10 +141,6 @@ generateReplicaId =
 acceptReplica :: MasterState -> Socket -> IO CommandResult
 acceptReplica masterState sock = do
     _ <- initReplica masterState sock
-    -- bracket
-    --     (initReplica masterState sock) -- acquire
-    --     (cleanupReplica masterState) -- release
-    --     (\_ -> replicaProtocolLoop sock) -- use
     pure $ RCmd $ RedRepl $ CmdFullResync masterState.masterReplId masterState.masterReplOffset
 
 initReplica :: MasterState -> Socket -> IO MasterAssignedReplicaId
@@ -158,28 +155,11 @@ initReplica masterState rcSocket = do
 
     pure rid
 
-cleanupReplica :: MasterState -> MasterAssignedReplicaId -> IO ()
-cleanupReplica masterState rid = do
-    mReplica <- atomically $ do
-        m <- readTVar masterState.replicaRegistry
-        case M.lookup rid m of
-            Nothing -> pure Nothing
-            Just rc -> do
-                writeTVar masterState.replicaRegistry (M.delete rid m)
-                pure (Just rc)
-
-    forM_ mReplica $ \rc -> do
-        cancel rc.rcSender -- stop sender thread
-        closeSock rc.rcSocket -- close socket
-
-replicaProtocolLoop :: Socket -> IO ()
-replicaProtocolLoop sock = forever $ do
-    mbs <- recv sock 4096
-    case mbs of
-        Nothing -> throwIO ReplicaDisconnected
-        Just bs
-            | BS.null bs -> throwIO ReplicaDisconnected
-            | otherwise -> pure ()
+cleanupReplicaRegistry :: ReplicaRegistry -> IO ()
+cleanupReplicaRegistry reg = do
+    replicas <- readTVarIO reg
+    mapM_ (cancel . (.rcSender)) (M.elems replicas)
+    atomically $ writeTVar reg M.empty
 
 replicaSender :: Socket -> FilePath -> TQueue [ByteString] -> IO ()
 replicaSender sock rdbFile _ = do

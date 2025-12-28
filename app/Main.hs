@@ -1,4 +1,5 @@
 {-# LANGUAGE ApplicativeDo #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Main (main) where
@@ -88,7 +89,6 @@ main = do
             runMaster env cli.port
         Just r -> do
             env <- mkReplicaEnv $ MkReplicaConfig r cli.port
-
             runReplica env cli.port r
 
 runReplica :: Env Replica -> Int -> ReplicaOf -> IO ()
@@ -109,6 +109,9 @@ runMaster env port = do
     let (logInfo', _) = loggingFuncs (getLogger env)
     logInfo' $ "Starting master server on port " <> show port
     runServer env port
+    case env of
+        EnvMaster _ MkMasterState{..} ->
+            cleanupReplicaRegistry replicaRegistry
 
 runServer :: (HasLogger r, HasStores r, HasReplication r) => Env r -> Int -> IO ()
 runServer env port = do
