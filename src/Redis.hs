@@ -34,6 +34,7 @@ import Command (
     Command (..),
     CommandError (..),
     CommandResult (..),
+    SubInfo (..),
     TransactionError (..),
     respToCmd,
     resultToResp,
@@ -66,6 +67,16 @@ data RedisError
 data TxState = NoTx | InTx [CmdSTM] -- queue only STM-capable commands
     deriving (Show)
 
+-- Replication
+
+data ReplicationRole = Master
+    deriving (Show)
+
+newtype Replication = MkReplication
+    { role :: ReplicationRole
+    }
+    deriving (Show)
+
 -- Env
 
 data Stores = MkStores
@@ -78,6 +89,7 @@ data Stores = MkStores
 data Env = MkEnv
     { stores :: Stores
     , envLogger :: TimedFastLogger
+    , replication :: Replication
     }
 
 mkNewEnv :: IO Env
@@ -90,6 +102,7 @@ mkNewEnv = do
         pure $ MkStores{..}
     timeCache <- newTimeCache simpleTimeFormat
     (envLogger, _cleanup) <- newTimedFastLogger timeCache (LogStderr defaultBufSize)
+    let replication = MkReplication Master
     pure MkEnv{..}
 
 newtype Redis a = MkRedis {runRedis :: ReaderT Env (ExceptT RedisError IO) a}
@@ -122,6 +135,15 @@ runCmd tvTxState cmd = do
         (InTx _, RedTrans Discard) -> liftIO $ atomically $ do
             writeTVar tvTxState NoTx
             pure $ RSimple "OK"
+        (InTx _, RedInfo _) -> pure $ RErr $ RTxErr RNotSupportedInTx
+        (NoTx, RedInfo (Just IReplication)) -> pure $ RBulk $ Just $ replicationInfo env.replication
+        (NoTx, RedInfo _) -> undefined
+
+replicationInfo :: Replication -> ByteString
+replicationInfo MkReplication{..} = "role:" <> roleInfo role
+
+roleInfo :: ReplicationRole -> ByteString
+roleInfo Master = "master"
 
 runCmdSTM :: Env -> UTCTime -> CmdSTM -> STM CommandResult
 runCmdSTM env now cmd = do

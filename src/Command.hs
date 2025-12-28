@@ -9,6 +9,7 @@ module Command (
     CommandResult (..),
     CommandError (..),
     TransactionError (..),
+    SubInfo (..),
     respToCmd,
     resultToResp,
 ) where
@@ -39,6 +40,8 @@ import Time (millisToNominalDiffTime)
 
 type Key = ByteString
 
+data SubInfo = IReplication deriving (Show)
+
 data CmdSTM
     = Ping
     | Echo ByteString
@@ -68,6 +71,7 @@ data Command
     = RedSTM CmdSTM
     | RedIO CmdIO
     | RedTrans CmdTransaction
+    | RedInfo (Maybe SubInfo)
     deriving (Show)
 
 -- Conversion (from Resp)
@@ -136,6 +140,8 @@ respToCmd (Array 1 [BulkStr "MULTI"]) = pure $ RedTrans Multi
 respToCmd (Array 1 [BulkStr "EXEC"]) = pure $ RedTrans Exec
 respToCmd (Array 1 [BulkStr "DISCARD"]) = pure $ RedTrans Discard
 -- Unhandled
+-- Replication
+respToCmd (Array 2 [BulkStr "INFO", BulkStr "replication"]) = pure $ RedInfo (Just IReplication)
 respToCmd r = Left $ "Conversion Error" <> show r
 
 -- Conversion (to Resp)
