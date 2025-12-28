@@ -6,27 +6,14 @@ module Main (main) where
 import Control.Monad.Except (MonadError (throwError), liftEither, runExceptT)
 import Control.Monad.Reader (MonadReader, ReaderT (runReaderT), asks)
 import GHC.Conc (TVar, newTVarIO)
-import Network.Simple.TCP (HostPreference (HostAny), Socket, closeSock, recv, send, serve)
+import Network.Simple.TCP (HostPreference (HostAny), Socket, closeSock, connect, recv, send, serve)
 import Options.Applicative
 import System.IO (BufferMode (NoBuffering), hSetBuffering, stderr, stdout)
-import System.Log.FastLogger (toLogStr)
+import System.Log.FastLogger (LogStr, toLogStr)
 import System.Log.FastLogger.Date (simpleTimeFormat)
 
 import Redis
 import Replication
-
--- network
-
-bufferSize :: Int
-bufferSize = 1024
-
-clientLoop :: TVar TxState -> Socket -> Redis ()
-clientLoop txVar socket = do
-    mbs <- recv socket bufferSize
-    ebs <- maybe (throwError EmptyBuffer) pure mbs
-    encoded <- handleRequest txVar ebs
-    send socket encoded
-    clientLoop txVar socket
 
 -- CLI parsing
 
@@ -71,6 +58,19 @@ parseReplicaOf s =
 redis :: ParserInfo CliOptions
 redis = info (optsParser <**> helper) (fullDesc <> progDesc "Hedis (A Redis toy-clone)")
 
+-- network
+
+bufferSize :: Int
+bufferSize = 1024
+
+clientLoop :: TVar TxState -> Socket -> Redis ()
+clientLoop txVar socket = do
+    mbs <- recv socket bufferSize
+    ebs <- maybe (throwError EmptyBuffer) pure mbs
+    encoded <- handleRequest txVar ebs
+    send socket encoded
+    clientLoop txVar socket
+
 -- main
 
 main :: IO ()
@@ -81,12 +81,26 @@ main = do
     cli <- execParser redis
 
     env <- mkNewEnv (maybe RRMaster RRReplica cli.replicaOf)
-    let logInfo' msg = env.envLogger (\t -> toLogStr (show t <> "[INFO] " <> msg <> "\n"))
-        logError' msg = env.envLogger (\t -> toLogStr (show t <> "[ERROR] " <> msg <> "\n"))
+    case cli.replicaOf of
+        Nothing -> runMaster env cli.port
+        Just r -> runReplica env cli.port r
 
-    logInfo' $ "Redis server listening on port " ++ show cli.port
+runReplica :: Env -> Int -> ReplicaOf -> IO ()
+runReplica env port replicaOf = do
+    let (logInfo', _) = loggingFuncs env.envLogger
+    logInfo' $ "Starting replica server on port " <> show port
+    runServer env port
 
-    serve HostAny (show cli.port) $ \(socket, address) -> do
+runMaster :: Env -> Int -> IO ()
+runMaster env port = do
+    let (logInfo', _) = loggingFuncs env.envLogger
+    logInfo' $ "Starting master server on port " <> show port
+    runServer env port
+
+runServer :: Env -> Int -> IO ()
+runServer env port = do
+    let (logInfo', logError') = loggingFuncs env.envLogger
+    serve HostAny (show port) $ \(socket, address) -> do
         logInfo' $ "successfully connected client: " ++ show address
         txVar <- newTVarIO NoTx
         errOrRes <- runExceptT $ runReaderT (runRedis $ clientLoop txVar socket) env
@@ -96,3 +110,9 @@ main = do
             Right _ -> pure ()
         logInfo' "Closing connection"
         closeSock socket
+
+loggingFuncs :: (Show a) => ((a -> LogStr) -> t) -> (String -> t, String -> t)
+loggingFuncs envLogger =
+    let logInfo' msg = envLogger (\t -> toLogStr (show t <> "[INFO] " <> msg <> "\n"))
+        logError' msg = envLogger (\t -> toLogStr (show t <> "[ERROR] " <> msg <> "\n"))
+     in (logInfo', logError')
