@@ -62,7 +62,7 @@ import Command (
  )
 import Replication (
     MasterConfig,
-    MasterState,
+    MasterState (..),
     ReplicaConfig,
     ReplicaState (..),
     Replication (..),
@@ -210,7 +210,12 @@ runCmd tvTxState cmd = do
             RedRepl c -> case c of
                 CmdReplConfCapabilities -> pure $ RSimple "OK"
                 CmdReplConfListen _ -> pure $ RSimple "OK"
-                CmdPSync _ _ -> error "not Handled"
+                CmdPSync "?" (-1) -> case getReplication env of
+                    MkReplicationMaster (MkMasterState{..}) ->
+                        pure $ RCmd $ RedRepl $ CmdFullResync masterReplId masterReplOffset
+                    MkReplicationReplica _ -> error "called on replica" -- handle later
+                CmdPSync _ _ -> error "not handled"
+                CmdFullResync _ _ -> error "not handled"
 
 runCmdSTM :: (HasStores r) => Env r -> UTCTime -> CmdSTM -> STM CommandResult
 runCmdSTM env now cmd = do

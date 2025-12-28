@@ -17,6 +17,7 @@ module Command (
 ) where
 
 import Data.ByteString (ByteString)
+import Data.ByteString qualified as BS
 import Data.String (IsString (fromString))
 import Data.Time (NominalDiffTime, secondsToNominalDiffTime)
 
@@ -42,7 +43,7 @@ import Time (millisToNominalDiffTime)
 
 type Key = ByteString
 
-data SubInfo = IReplication deriving (Show)
+data SubInfo = IReplication deriving (Show, Eq)
 
 data CmdSTM
     = CmdPing
@@ -59,15 +60,15 @@ data CmdSTM
     | CmdXAdd Key XAddStreamId [(ByteString, ByteString)]
     | CmdXRange Key XRange
     | CmdXRead [(Key, ConcreteStreamId)]
-    deriving (Show)
+    deriving (Show, Eq)
 
 data CmdIO
     = CmdBLPop Key NominalDiffTime
     | CmdXReadBlock Key XReadStreamId NominalDiffTime
-    deriving (Show)
+    deriving (Show, Eq)
 
 data CmdTransaction = Multi | Exec | Discard
-    deriving (Show)
+    deriving (Show, Eq)
 
 data Command
     = RedSTM CmdSTM
@@ -75,13 +76,14 @@ data Command
     | RedTrans CmdTransaction
     | RedInfo (Maybe SubInfo)
     | RedRepl CmdReplication
-    deriving (Show)
+    deriving (Show, Eq)
 
 data CmdReplication
     = CmdReplConfListen Int
     | CmdReplConfCapabilities
     | CmdPSync ByteString Int
-    deriving (Show)
+    | CmdFullResync ByteString Int
+    deriving (Show, Eq)
 
 -- Conversion (from Resp)
 
@@ -152,6 +154,9 @@ respToCmd (Array 1 [BulkStr "DISCARD"]) = pure $ RedTrans Discard
 respToCmd (Array 2 [BulkStr "INFO", BulkStr "replication"]) = pure $ RedInfo (Just IReplication)
 respToCmd (Array 3 [BulkStr "REPLCONF", BulkStr "listening-port", BulkStr port]) = RedRepl . CmdReplConfListen <$> readIntBS port
 respToCmd (Array 3 [BulkStr "REPLCONF", BulkStr "capa", BulkStr "psync2"]) = pure $ RedRepl CmdReplConfCapabilities
+respToCmd (Array 3 [BulkStr "PSYNC", BulkStr sid, BulkStr offset]) = do
+    offset' <- readIntBS offset
+    pure $ RedRepl $ CmdPSync sid offset'
 -- Unhandled
 respToCmd r = Left $ "Conversion Error" <> show r
 
@@ -163,6 +168,7 @@ cmdToResp (RedRepl (CmdReplConfListen port)) =
     Array 3 [BulkStr "REPLCONF", BulkStr "listening-port", BulkStr $ fromString $ show port]
 cmdToResp (RedRepl CmdReplConfCapabilities) = Array 3 [BulkStr "REPLCONF", BulkStr "capa", BulkStr "psync2"]
 cmdToResp (RedRepl (CmdPSync sId s)) = Array 3 [BulkStr "PSYNC", BulkStr sId, BulkStr $ fromString $ show s]
+cmdToResp (RedRepl (CmdFullResync sId s)) = Str $ BS.intercalate " " ["FULLRESYNC", sId, fromString $ show s]
 cmdToResp r = error $ "Not implemented: " <> show r
 
 data CommandResult
@@ -176,6 +182,7 @@ data CommandResult
     | RArrayStreamValues [SM.Value ByteString ByteString]
     | RArray [CommandResult]
     | RErr CommandError
+    | RCmd Command
     deriving (Show, Eq)
 
 data CommandError
@@ -203,6 +210,7 @@ resultToResp (RArrayStreamValues vals) = arrayMap valueToResp vals
 resultToResp (RArrayKeyValues kvs) = arrayMap arrayKeyValsToResp kvs
 resultToResp (RStreamId sid) = streamIdToResp sid
 resultToResp (RErr e) = errorToResp e
+resultToResp (RCmd c) = cmdToResp c
 
 arrayMap :: (a -> Resp) -> [a] -> Resp
 arrayMap f xs = Array (length xs) (map f xs)
