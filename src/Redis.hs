@@ -226,7 +226,7 @@ handleRequest tvTxState bs = do
     result <- runCmd tvTxState cmd
     logDebug ("Execution result: " <> show result)
     let resultResp = resultToResp result
-    encoded <- liftEither $ first EncodeError $ encode resultResp
+        encoded = encode resultResp
     logInfo ("Encoded: " <> show encoded)
     pure encoded
 

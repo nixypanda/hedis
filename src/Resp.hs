@@ -60,11 +60,11 @@ decode = parse resp ""
 crlf' :: ByteString
 crlf' = "\r\n"
 
-encode :: Resp -> Either String ByteString
-encode (Str x) = Right $ "+" <> x <> crlf'
-encode (StrErr x) = Right $ "-" <> x <> crlf'
-encode (BulkStr x) = Right $ "$" <> fromString (show $ BS.length x) <> crlf' <> x <> crlf'
-encode (Int x) = Right $ ":" <> fromString (show x) <> crlf'
-encode (Array n rs) = (\xs -> "*" <> fromString (show n) <> crlf' <> BS.concat xs) <$> mapM encode rs
-encode NullBulk = Right "$-1\r\n"
-encode NullArray = Right "*-1\r\n"
+encode :: Resp -> ByteString
+encode (Str x) = "+" <> x <> crlf'
+encode (StrErr x) = "-" <> x <> crlf'
+encode (BulkStr x) = "$" <> fromString (show $ BS.length x) <> crlf' <> x <> crlf'
+encode (Int x) = ":" <> fromString (show x) <> crlf'
+encode (Array n rs) = "*" <> fromString (show n) <> crlf' <> BS.concat (map encode rs)
+encode NullBulk = "$-1\r\n"
+encode NullArray = "*-1\r\n"
