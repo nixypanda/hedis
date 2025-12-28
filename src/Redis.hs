@@ -61,31 +61,39 @@ data RedisError
     | WrongType IncorrectType
     deriving (Show, Exception)
 
-data Env = MkEnv
-    { stringStore :: TVar StringStore
-    , listStore :: TVar ListStore
-    , typeIndex :: TVar TypeIndex
-    , streamStore :: TVar StreamStore
-    , envLogger :: TimedFastLogger
-    }
-
-newtype Redis a = MkRedis {runRedis :: ReaderT Env (ExceptT RedisError IO) a}
-    deriving newtype (Functor, Applicative, Monad, MonadError RedisError, MonadIO, MonadReader Env)
-
 -- Transactions
 
 data TxState = NoTx | InTx [CmdSTM] -- queue only STM-capable commands
     deriving (Show)
 
+-- Env
+
+data Stores = MkStores
+    { stringStore :: TVar StringStore
+    , listStore :: TVar ListStore
+    , typeIndex :: TVar TypeIndex
+    , streamStore :: TVar StreamStore
+    }
+
+data Env = MkEnv
+    { stores :: Stores
+    , envLogger :: TimedFastLogger
+    }
+
 mkNewEnv :: IO Env
 mkNewEnv = do
-    stringStore <- atomically SS.emptySTM
-    listStore <- atomically LS.emptySTM
-    typeIndex <- atomically TS.emptySTM
-    streamStore <- atomically StS.emptySTM
+    stores <- atomically $ do
+        stringStore <- SS.emptySTM
+        listStore <- LS.emptySTM
+        typeIndex <- TS.emptySTM
+        streamStore <- StS.emptySTM
+        pure $ MkStores{..}
     timeCache <- newTimeCache simpleTimeFormat
     (envLogger, _cleanup) <- newTimedFastLogger timeCache (LogStderr defaultBufSize)
     pure MkEnv{..}
+
+newtype Redis a = MkRedis {runRedis :: ReaderT Env (ExceptT RedisError IO) a}
+    deriving newtype (Functor, Applicative, Monad, MonadError RedisError, MonadIO, MonadReader Env)
 
 -- Execution
 
@@ -117,10 +125,10 @@ runCmd tvTxState cmd = do
 
 runCmdSTM :: Env -> UTCTime -> CmdSTM -> STM CommandResult
 runCmdSTM env now cmd = do
-    let tvListMap = env.listStore
-        tvStringMap = env.stringStore
-        tvTypeIndex = env.typeIndex
-        tvStreamMap = env.streamStore
+    let tvListMap = env.stores.listStore
+        tvStringMap = env.stores.stringStore
+        tvTypeIndex = env.stores.typeIndex
+        tvStreamMap = env.stores.streamStore
     case cmd of
         Ping -> pure $ RSimple "PONG"
         Echo xs -> pure $ RBulk (Just xs)
@@ -170,8 +178,8 @@ runCmdSTM env now cmd = do
 
 runCmdIO :: CmdIO -> Redis CommandResult
 runCmdIO cmd = do
-    tvListMap <- asks listStore
-    tvStreamMap <- asks streamStore
+    tvListMap <- asks (.stores.listStore)
+    tvStreamMap <- asks (.stores.streamStore)
     case cmd of
         -- List Store
         BLPop key 0 -> do
