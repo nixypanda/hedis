@@ -12,6 +12,7 @@ module Command (
     SubInfo (..),
     respToCmd,
     resultToResp,
+    cmdToResp,
 ) where
 
 import Data.ByteString (ByteString)
@@ -145,6 +146,10 @@ respToCmd (Array 2 [BulkStr "INFO", BulkStr "replication"]) = pure $ RedInfo (Ju
 respToCmd r = Left $ "Conversion Error" <> show r
 
 -- Conversion (to Resp)
+
+cmdToResp :: Command -> Resp
+cmdToResp (RedSTM Ping) = Array 1 [BulkStr "PING"]
+cmdToResp r = error $ "Not implemented: " <> show r
 
 data CommandResult
     = RSimple ByteString

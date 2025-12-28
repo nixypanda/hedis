@@ -8,6 +8,7 @@ module Redis (
     RedisError (..),
     handleRequest,
     mkNewEnv,
+    runReplication,
     TxState (..),
 ) where
 
@@ -43,9 +44,11 @@ import Command (
     CommandResult (..),
     SubInfo (..),
     TransactionError (..),
+    cmdToResp,
     respToCmd,
     resultToResp,
  )
+import Network.Simple.TCP (Socket, recv, send)
 import Replication (Replication, ReplicationRole, initReplication, replicationInfo)
 import Resp (decode, encode)
 import Store.ListStore (ListStore)
@@ -211,6 +214,12 @@ runCmdIO cmd = do
             sid' <- liftIO $ atomically (StS.xResolveStreamIdSTM tvStreamMap key sid)
             vals <- liftIO (timeout' tout (atomically (StS.xReadBlockSTM tvStreamMap key sid')))
             pure $ maybe RArrayNull (RArrayKeyValues . singleton) vals
+
+runReplication :: Socket -> IO ()
+runReplication sock = do
+    send sock $ encode $ cmdToResp $ RedSTM Ping
+    _ <- recv sock 1024
+    pure ()
 
 -- Command execution
 
