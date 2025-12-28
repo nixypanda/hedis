@@ -2,7 +2,16 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-module Redis (Env (..), Redis (..), RedisError (..), handleRequest, mkNewEnv, TxState (..)) where
+module Redis (
+    Env (..),
+    Redis (..),
+    RedisError (..),
+    ReplicationRole (..),
+    ReplicaOf (..),
+    handleRequest,
+    mkNewEnv,
+    TxState (..),
+) where
 
 import Control.Concurrent.STM (STM, TVar, atomically, modifyTVar, readTVarIO, writeTVar)
 import Control.Exception (Exception)
@@ -69,7 +78,13 @@ data TxState = NoTx | InTx [CmdSTM] -- queue only STM-capable commands
 
 -- Replication
 
-data ReplicationRole = Master
+data ReplicaOf = ReplicaOf
+    { masterHost :: String
+    , masterPort :: Int
+    }
+    deriving (Show, Eq)
+
+data ReplicationRole = Master | Replica ReplicaOf
     deriving (Show)
 
 newtype Replication = MkReplication
@@ -92,8 +107,8 @@ data Env = MkEnv
     , replication :: Replication
     }
 
-mkNewEnv :: IO Env
-mkNewEnv = do
+mkNewEnv :: ReplicationRole -> IO Env
+mkNewEnv rr = do
     stores <- atomically $ do
         stringStore <- SS.emptySTM
         listStore <- LS.emptySTM
@@ -102,7 +117,7 @@ mkNewEnv = do
         pure $ MkStores{..}
     timeCache <- newTimeCache simpleTimeFormat
     (envLogger, _cleanup) <- newTimedFastLogger timeCache (LogStderr defaultBufSize)
-    let replication = MkReplication Master
+    let replication = MkReplication rr
     pure MkEnv{..}
 
 newtype Redis a = MkRedis {runRedis :: ReaderT Env (ExceptT RedisError IO) a}
@@ -144,6 +159,7 @@ replicationInfo MkReplication{..} = "role:" <> roleInfo role
 
 roleInfo :: ReplicationRole -> ByteString
 roleInfo Master = "master"
+roleInfo (Replica _) = "slave"
 
 runCmdSTM :: Env -> UTCTime -> CmdSTM -> STM CommandResult
 runCmdSTM env now cmd = do

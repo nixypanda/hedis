@@ -29,14 +29,43 @@ clientLoop txVar socket = do
 
 -- CLI parsing
 
-newtype CliOptions = MkCliOptions
+data CliOptions = MkCliOptions
     { port :: Int
+    , replicaOf :: Maybe ReplicaOf
     }
 
 optsParser :: Parser CliOptions
-optsParser = do
-    port <- option auto (long "port" <> metavar "PORT" <> value 6379 <> showDefault)
-    pure MkCliOptions{..}
+optsParser = MkCliOptions <$> portParser <*> replicaOfParser
+
+portParser :: Parser Int
+portParser =
+    option
+        auto
+        ( long "port"
+            <> metavar "PORT"
+            <> value 6379
+            <> showDefault
+            <> help "Port to listen on"
+        )
+
+replicaOfParser :: Parser (Maybe ReplicaOf)
+replicaOfParser =
+    optional $
+        option
+            (eitherReader parseReplicaOf)
+            ( long "replicaof"
+                <> metavar "\"HOST PORT\""
+                <> help "Make this server a replica of the given master"
+            )
+
+parseReplicaOf :: String -> Either String ReplicaOf
+parseReplicaOf s =
+    case words s of
+        [host, portStr] ->
+            case reads portStr of
+                [(port, "")] -> Right (ReplicaOf host port)
+                _ -> Left "Invalid master port"
+        _ -> Left "Expected \"<host> <port>\""
 
 redis :: ParserInfo CliOptions
 redis = info (optsParser <**> helper) (fullDesc <> progDesc "Hedis (A Redis toy-clone)")
@@ -50,7 +79,7 @@ main = do
     hSetBuffering stderr NoBuffering
     cli <- execParser redis
 
-    env <- mkNewEnv
+    env <- mkNewEnv (maybe Master Replica cli.replicaOf)
     let logInfo' msg = env.envLogger (\t -> toLogStr (show t <> "[INFO] " <> msg <> "\n"))
         logError' msg = env.envLogger (\t -> toLogStr (show t <> "[ERROR] " <> msg <> "\n"))
 
