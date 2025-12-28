@@ -30,6 +30,7 @@ library:
     - stm
     - time
     - random
+    - async
 
 executables:
   codecrafters-redis-exe:

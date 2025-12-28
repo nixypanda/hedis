@@ -66,9 +66,9 @@ import Replication (
     ReplicaConfig,
     ReplicaState (..),
     Replication (..),
-    initMaster,
-    initReplica,
-    initReplicaSync,
+    acceptReplica,
+    initMasterState,
+    initReplicaState,
     replicationInfo,
  )
 import Resp (decode, encode)
@@ -135,10 +135,10 @@ mkCommonEnv = do
     pure $ MkCommonEnv stores envLogger
 
 mkMasterEnv :: MasterConfig -> IO (Env Master)
-mkMasterEnv mc = EnvMaster <$> mkCommonEnv <*> initMaster mc
+mkMasterEnv mc = EnvMaster <$> mkCommonEnv <*> initMasterState mc
 
 mkReplicaEnv :: ReplicaConfig -> IO (Env Replica)
-mkReplicaEnv rc = EnvReplica <$> mkCommonEnv <*> pure (initReplica rc)
+mkReplicaEnv rc = EnvReplica <$> mkCommonEnv <*> pure (initReplicaState rc)
 
 data ClientState = MkClientState
     { txState :: TVar TxState
@@ -220,7 +220,7 @@ runCmd clientState cmd = do
                 CmdPSync "?" (-1) -> case getReplication env of
                     MkReplicationMaster masterState -> do
                         let rcSocket = clientState.socket
-                        liftIO $ initReplicaSync rcSocket masterState
+                        liftIO $ acceptReplica masterState rcSocket
                     MkReplicationReplica _ -> error "called on replica" -- handle later
                 CmdPSync _ _ -> error "not handled"
                 CmdFullResync _ _ -> error "not handled"

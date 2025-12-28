@@ -1,5 +1,8 @@
+{-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE OverloadedStrings #-}
+
+{- HLINT ignore "Replace case with maybe" -}
 
 module Replication (
     Replication (..),
@@ -11,25 +14,28 @@ module Replication (
     ReplicaState (..),
     ReplicaConn (..),
     replicationInfo,
-    initMaster,
-    initReplica,
-    initReplicaSync,
+    initMasterState,
+    initReplicaState,
     generateReplicaId,
+    acceptReplica,
 ) where
 
-import Command (CmdReplication (..), Command (RedRepl), CommandResult (..))
-import Control.Concurrent (forkIO)
-import Control.Concurrent.STM (TVar, atomically, modifyTVar, newTQueueIO, readTVarIO)
+import Control.Concurrent.Async (Async, async, cancel)
+import Control.Concurrent.STM (TVar, atomically, modifyTVar, newTQueueIO, readTVar, writeTVar)
 import Control.Concurrent.STM.TQueue (TQueue)
 import Control.Concurrent.STM.TVar (newTVarIO)
+import Control.Exception (Exception, bracket, throwIO)
+import Control.Monad (forM_, forever, replicateM)
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
-import Data.ByteString.Char8 (pack)
+import Data.Char (ord)
 import Data.Map (Map)
 import Data.Map qualified as M
 import Data.String (fromString)
-import Network.Simple.TCP (Socket, send)
+import Network.Simple.TCP (Socket, closeSock, recv, send)
 import System.Random (randomRIO)
+
+import Command (CmdReplication (CmdFullResync), Command (RedRepl), CommandResult (RCmd))
 
 -- CLI flags ──▶ ReplicationConfig
 --                 │
@@ -79,15 +85,19 @@ data ReplicaConn = MkReplicaConn
     { rcSocket :: Socket
     , rcOffset :: TVar Int
     , rcQueue :: TQueue [ByteString]
+    , rcSender :: Async ()
     }
+
+data ReplicationError = ReplicaDisconnected
+    deriving (Show, Exception)
 
 -- For ease let's just assign integers
 type MasterAssignedReplicaId = ByteString
 
 type ReplicaRegistry = TVar (Map MasterAssignedReplicaId ReplicaConn)
 
-initMaster :: MasterConfig -> IO MasterState
-initMaster _ = do
+initMasterState :: MasterConfig -> IO MasterState
+initMasterState _ = do
     registry <- newTVarIO M.empty
     pure $
         MkMasterState
@@ -97,8 +107,8 @@ initMaster _ = do
             , rdbFile = "./master.rdb"
             }
 
-initReplica :: ReplicaConfig -> ReplicaState
-initReplica MkReplicaConfig{..} =
+initReplicaState :: ReplicaConfig -> ReplicaState
+initReplicaState MkReplicaConfig{..} =
     MkReplicaState
         { masterInfo = masterInfo
         , localPort = localPort
@@ -121,29 +131,62 @@ alphabet = ['0' .. '9'] ++ ['a' .. 'z']
 
 generateReplicaId :: IO MasterAssignedReplicaId
 generateReplicaId =
-    pack <$> mapM (const randomChar) [1 :: Int .. 40]
+    BS.pack <$> replicateM 40 randomChar
   where
     randomChar = do
         i <- randomRIO (0, length alphabet - 1)
-        pure (alphabet !! i)
+        pure (fromIntegral $ ord $ alphabet !! i)
 
-initReplicaSync :: Socket -> MasterState -> IO CommandResult
-initReplicaSync rcSocket masterState = do
-    rcOffset <- newTVarIO (-1)
-    rcQueue <- newTQueueIO
-    replicaId <- generateReplicaId
-    _ <- atomically $ modifyTVar masterState.replicaRegistry (M.insert replicaId MkReplicaConn{..})
-    _ <- forkIO $ replicaSender masterState replicaId
+acceptReplica :: MasterState -> Socket -> IO CommandResult
+acceptReplica masterState sock = do
+    _ <- initReplica masterState sock
+    -- bracket
+    --     (initReplica masterState sock) -- acquire
+    --     (cleanupReplica masterState) -- release
+    --     (\_ -> replicaProtocolLoop sock) -- use
     pure $ RCmd $ RedRepl $ CmdFullResync masterState.masterReplId masterState.masterReplOffset
 
-replicaSender :: MasterState -> MasterAssignedReplicaId -> IO ()
-replicaSender masterState replicaId = do
-    -- Phase 1: send RDB snapshot
-    tvReplicaRegistry <- readTVarIO masterState.replicaRegistry
-    let rcConn = tvReplicaRegistry M.! replicaId
-    rdbFileData <- readRdbFile masterState.rdbFile
+initReplica :: MasterState -> Socket -> IO MasterAssignedReplicaId
+initReplica masterState rcSocket = do
+    rcOffset <- newTVarIO (-1)
+    rcQueue <- newTQueueIO
+    rid <- generateReplicaId
+
+    rcSender <- async $ replicaSender rcSocket masterState.rdbFile rcQueue
+    let rc = MkReplicaConn{..}
+    atomically $ modifyTVar masterState.replicaRegistry (M.insert rid rc)
+
+    pure rid
+
+cleanupReplica :: MasterState -> MasterAssignedReplicaId -> IO ()
+cleanupReplica masterState rid = do
+    mReplica <- atomically $ do
+        m <- readTVar masterState.replicaRegistry
+        case M.lookup rid m of
+            Nothing -> pure Nothing
+            Just rc -> do
+                writeTVar masterState.replicaRegistry (M.delete rid m)
+                pure (Just rc)
+
+    forM_ mReplica $ \rc -> do
+        cancel rc.rcSender -- stop sender thread
+        closeSock rc.rcSocket -- close socket
+
+replicaProtocolLoop :: Socket -> IO ()
+replicaProtocolLoop sock = forever $ do
+    mbs <- recv sock 4096
+    case mbs of
+        Nothing -> throwIO ReplicaDisconnected
+        Just bs
+            | BS.null bs -> throwIO ReplicaDisconnected
+            | otherwise -> pure ()
+
+replicaSender :: Socket -> FilePath -> TQueue [ByteString] -> IO ()
+replicaSender sock rdbFile _ = do
+    -- Phase 1: RDB snapshot
+    rdbFileData <- readRdbFile rdbFile
     let respEncoded = "$" <> fromString (show $ BS.length rdbFileData) <> "\r\n" <> rdbFileData
-    send rcConn.rcSocket respEncoded
+    send sock respEncoded
 
 readRdbFile :: FilePath -> IO ByteString
 readRdbFile = BS.readFile
