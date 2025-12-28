@@ -48,6 +48,7 @@ import Command (
     respToCmd,
     resultToResp,
  )
+import Data.ByteString qualified as BS
 import Resp (decode, encode)
 import Store.ListStore (ListStore)
 import Store.ListStore qualified as LS
@@ -84,12 +85,16 @@ data ReplicaOf = ReplicaOf
     }
     deriving (Show, Eq)
 
-data ReplicationRole = Master | Replica ReplicaOf
+data ReplicationRole = RRMaster | RRReplica ReplicaOf
     deriving (Show)
 
-newtype Replication = MkReplication
-    { role :: ReplicationRole
-    }
+data MasterReplicationInfo = MkMasterReplicationInfo
+    {replicationID :: ByteString, replicationOffset :: Int}
+    deriving (Show)
+
+data Replication
+    = Master MasterReplicationInfo
+    | Replica ReplicaOf
     deriving (Show)
 
 -- Env
@@ -117,7 +122,9 @@ mkNewEnv rr = do
         pure $ MkStores{..}
     timeCache <- newTimeCache simpleTimeFormat
     (envLogger, _cleanup) <- newTimedFastLogger timeCache (LogStderr defaultBufSize)
-    let replication = MkReplication rr
+    let replication = case rr of
+            RRMaster -> Master (MkMasterReplicationInfo "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb" 0)
+            RRReplica ro -> Replica ro
     pure MkEnv{..}
 
 newtype Redis a = MkRedis {runRedis :: ReaderT Env (ExceptT RedisError IO) a}
@@ -155,11 +162,14 @@ runCmd tvTxState cmd = do
         (NoTx, RedInfo _) -> undefined
 
 replicationInfo :: Replication -> ByteString
-replicationInfo MkReplication{..} = "role:" <> roleInfo role
-
-roleInfo :: ReplicationRole -> ByteString
-roleInfo Master = "master"
-roleInfo (Replica _) = "slave"
+replicationInfo (Master (MkMasterReplicationInfo{..})) =
+    BS.intercalate
+        "\r\n"
+        [ "role:master"
+        , "master_replid:" <> replicationID
+        , "master_repl_offset:" <> fromString (show replicationOffset)
+        ]
+replicationInfo Replica{} = "role:slave"
 
 runCmdSTM :: Env -> UTCTime -> CmdSTM -> STM CommandResult
 runCmdSTM env now cmd = do

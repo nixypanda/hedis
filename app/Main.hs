@@ -79,7 +79,7 @@ main = do
     hSetBuffering stderr NoBuffering
     cli <- execParser redis
 
-    env <- mkNewEnv (maybe Master Replica cli.replicaOf)
+    env <- mkNewEnv (maybe RRMaster RRReplica cli.replicaOf)
     let logInfo' msg = env.envLogger (\t -> toLogStr (show t <> "[INFO] " <> msg <> "\n"))
         logError' msg = env.envLogger (\t -> toLogStr (show t <> "[ERROR] " <> msg <> "\n"))
 
