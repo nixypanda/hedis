@@ -14,6 +14,7 @@ module Redis (
     HasLogger (..),
     HasStores (..),
     HasReplication (..),
+    ClientState (..),
     handleRequest,
     mkMasterEnv,
     mkReplicaEnv,
@@ -138,6 +139,11 @@ mkMasterEnv mc = EnvMaster <$> mkCommonEnv <*> initMaster mc
 mkReplicaEnv :: ReplicaConfig -> IO (Env Replica)
 mkReplicaEnv rc = EnvReplica <$> mkCommonEnv <*> pure (initReplica rc)
 
+data ClientState = MkClientState
+    { txState :: TVar TxState
+    , socket :: Socket
+    }
+
 newtype Redis r a = MkRedis {runRedis :: ReaderT (Env r) (ExceptT RedisError IO) a}
     deriving newtype (Functor, Applicative, Monad, MonadError RedisError, MonadIO, MonadReader (Env r))
 
@@ -176,24 +182,24 @@ instance HasReplication Replica where
 
 -- Execution
 
-runCmd :: (HasStores r, HasReplication r) => TVar TxState -> Command -> Redis r CommandResult
-runCmd tvTxState cmd = do
+runCmd :: (HasStores r, HasReplication r) => ClientState -> Command -> Redis r CommandResult
+runCmd clientState cmd = do
     env <- ask
     now <- liftIO getCurrentTime
-    txState <- liftIO $ readTVarIO tvTxState
+    txState <- liftIO $ readTVarIO clientState.txState
     case txState of
         InTx cs -> case cmd of
             RedSTM c -> liftIO $ atomically $ do
-                writeTVar tvTxState (InTx $ c : cs)
+                writeTVar clientState.txState (InTx $ c : cs)
                 pure $ RSimple "QUEUED"
             RedTrans m -> case m of
                 Multi -> pure $ RErr $ RTxErr RMultiInMulti
                 Exec -> liftIO $ atomically $ do
                     vals <- mapM (runCmdSTM env now) (reverse cs)
-                    modifyTVar tvTxState (const NoTx)
+                    modifyTVar clientState.txState (const NoTx)
                     pure $ RArray vals
                 Discard -> liftIO $ atomically $ do
-                    writeTVar tvTxState NoTx
+                    writeTVar clientState.txState NoTx
                     pure $ RSimple "OK"
             _ -> pure $ RErr $ RTxErr RNotSupportedInTx
         NoTx -> case cmd of
@@ -203,7 +209,7 @@ runCmd tvTxState cmd = do
                 Exec -> pure $ RErr $ RTxErr RExecWithoutMulti
                 Discard -> pure $ RErr $ RTxErr RDiscardWithoutMulti
                 Multi -> liftIO $ atomically $ do
-                    modifyTVar tvTxState (const $ InTx [])
+                    modifyTVar clientState.txState (const $ InTx [])
                     pure $ RSimple "OK"
             RedInfo (Just IReplication) -> pure $ RBulk $ Just $ replicationInfo $ getReplication env
             RedInfo _ -> error "not handled"
@@ -310,16 +316,16 @@ runReplication sock = do
 
 -- Command execution
 
-handleRequest :: (HasLogger r, HasStores r, HasReplication r) => TVar TxState -> ByteString -> Redis r ByteString
-handleRequest tvTxState bs = do
-    txState <- liftIO $ readTVarIO tvTxState
+handleRequest :: (HasLogger r, HasStores r, HasReplication r) => ClientState -> ByteString -> Redis r ByteString
+handleRequest clientState bs = do
+    txState <- liftIO $ readTVarIO clientState.txState
     logInfo ("Client State: " <> show txState)
     logInfo ("Received: " <> show bs)
     resp <- liftEither $ first ParsingError $ decode bs
     logDebug ("Decoded: " <> show resp)
     cmd <- liftEither $ first ConversionError $ respToCmd resp
     logDebug ("Command: " <> show cmd)
-    result <- runCmd tvTxState cmd
+    result <- runCmd clientState cmd
     logDebug ("Execution result: " <> show result)
     let resultResp = resultToResp result
         encoded = encode resultResp

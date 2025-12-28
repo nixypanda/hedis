@@ -63,13 +63,13 @@ redis = info (optsParser <**> helper) (fullDesc <> progDesc "Hedis (A Redis toy-
 bufferSize :: Int
 bufferSize = 1024
 
-clientLoop :: (HasLogger r, HasStores r, HasReplication r) => TVar TxState -> Socket -> Redis r ()
-clientLoop txVar socket = do
+clientLoop :: (HasLogger r, HasStores r, HasReplication r) => ClientState -> Socket -> Redis r ()
+clientLoop clientState socket = do
     mbs <- recv socket bufferSize
     ebs <- maybe (throwError EmptyBuffer) pure mbs
-    encoded <- handleRequest txVar ebs
+    encoded <- handleRequest clientState ebs
     send socket encoded
-    clientLoop txVar socket
+    clientLoop clientState socket
 
 -- main
 
@@ -115,8 +115,9 @@ runServer env port = do
     let (logInfo', logError') = loggingFuncs (getLogger env)
     serve HostAny (show port) $ \(socket, address) -> do
         logInfo' $ "successfully connected client: " ++ show address
-        txVar <- newTVarIO NoTx
-        errOrRes <- runExceptT $ runReaderT (runRedis $ clientLoop txVar socket) env
+        txState <- newTVarIO NoTx
+        let clientState = MkClientState{..}
+        errOrRes <- runExceptT $ runReaderT (runRedis $ clientLoop clientState socket) env
         case errOrRes of
             Left EmptyBuffer -> logInfo' "Client closed connection"
             Left err -> logError' $ show err
