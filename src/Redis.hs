@@ -22,7 +22,7 @@ module Redis (
     TxState (..),
 ) where
 
-import Control.Concurrent.STM (STM, TVar, atomically, modifyTVar, readTVarIO, writeTVar)
+import Control.Concurrent.STM (STM, TVar, atomically, modifyTVar, readTVar, readTVarIO, writeTQueue, writeTVar)
 import Control.Exception (Exception)
 import Control.Monad.Except (ExceptT (..), MonadError, liftEither)
 import Control.Monad.IO.Class (MonadIO (liftIO))
@@ -31,6 +31,7 @@ import Data.Bifunctor (Bifunctor (first))
 import Data.ByteString (ByteString)
 import Data.Kind (Type)
 import Data.List (singleton)
+import Data.Map qualified as M
 import Data.String (fromString)
 import Data.Time (NominalDiffTime, UTCTime, getCurrentTime)
 import Network.Simple.TCP (Socket, recv, send)
@@ -57,13 +58,16 @@ import Command (
     SubInfo (..),
     TransactionError (..),
     cmdToResp,
+    isWriteCmd,
     respToCmd,
     resultToResp,
  )
 import Replication (
+    MasterAssignedReplicaId,
     MasterConfig,
     MasterState (..),
     ReplicaConfig,
+    ReplicaConn (..),
     ReplicaState (..),
     Replication (..),
     acceptReplica,
@@ -143,6 +147,7 @@ mkReplicaEnv rc = EnvReplica <$> mkCommonEnv <*> pure (initReplicaState rc)
 data ClientState = MkClientState
     { txState :: TVar TxState
     , socket :: Socket
+    , clientId :: MasterAssignedReplicaId
     }
 
 newtype Redis r a = MkRedis {runRedis :: ReaderT (Env r) (ExceptT RedisError IO) a}
@@ -188,6 +193,18 @@ runCmd clientState cmd = do
     env <- ask
     now <- liftIO getCurrentTime
     txState <- liftIO $ readTVarIO clientState.txState
+
+    let
+        queueCmd :: CmdSTM -> STM ()
+        queueCmd cmd' = do
+            let replication = getReplication env
+            case replication of
+                MkReplicationMaster (MkMasterState{..}) -> do
+                    registry <- readTVar replicaRegistry
+                    mapM_ (\rc -> writeTQueue rc.rcQueue $ encode $ cmdToResp $ RedSTM cmd') (M.elems registry)
+                MkReplicationReplica _ -> do
+                    error "fuck this shti"
+
     case txState of
         InTx cs -> case cmd of
             RedSTM c -> liftIO $ atomically $ do
@@ -198,13 +215,21 @@ runCmd clientState cmd = do
                 Exec -> liftIO $ atomically $ do
                     vals <- mapM (runCmdSTM env now) (reverse cs)
                     modifyTVar clientState.txState (const NoTx)
+                    mapM_ queueCmd $ filter isWriteCmd cs
                     pure $ RArray vals
                 Discard -> liftIO $ atomically $ do
                     writeTVar clientState.txState NoTx
                     pure $ RSimple "OK"
             _ -> pure $ RErr $ RTxErr RNotSupportedInTx
         NoTx -> case cmd of
-            RedSTM cmd' -> liftIO $ atomically $ runCmdSTM env now cmd'
+            RedSTM cmd' -> do
+                liftIO $ atomically $ do
+                    res <- runCmdSTM env now cmd'
+                    if isWriteCmd cmd'
+                        then do
+                            queueCmd cmd'
+                            pure res
+                        else pure res
             RedIO cmd' -> runCmdIO cmd'
             RedTrans txCmd -> case txCmd of
                 Exec -> pure $ RErr $ RTxErr RExecWithoutMulti
@@ -220,7 +245,8 @@ runCmd clientState cmd = do
                 CmdPSync "?" (-1) -> case getReplication env of
                     MkReplicationMaster masterState -> do
                         let rcSocket = clientState.socket
-                        liftIO $ acceptReplica masterState rcSocket
+                            clientId = clientState.clientId
+                        liftIO $ acceptReplica masterState rcSocket clientId
                     MkReplicationReplica _ -> error "called on replica" -- handle later
                 CmdPSync _ _ -> error "not handled"
                 CmdFullResync _ _ -> error "not handled"

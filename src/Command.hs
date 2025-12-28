@@ -11,6 +11,7 @@ module Command (
     CmdReplication (..),
     TransactionError (..),
     SubInfo (..),
+    isWriteCmd,
     respToCmd,
     resultToResp,
     cmdToResp,
@@ -39,7 +40,7 @@ import StoreBackend.StreamMap (
     XReadStreamId (..),
  )
 import StoreBackend.StreamMap qualified as SM
-import Time (millisToNominalDiffTime)
+import Time (millisToNominalDiffTime, nominalDiffTimeToMillis)
 
 type Key = ByteString
 
@@ -84,6 +85,16 @@ data CmdReplication
     | CmdPSync ByteString Int
     | CmdFullResync ByteString Int
     deriving (Show, Eq)
+
+isWriteCmd :: CmdSTM -> Bool
+isWriteCmd (CmdSet{}) = True
+isWriteCmd (CmdIncr{}) = True
+isWriteCmd (CmdRPush{}) = True
+isWriteCmd (CmdLPush{}) = True
+isWriteCmd (CmdLPop{}) = True
+isWriteCmd (CmdXRange{}) = True
+-- how to handle blpop?????????
+isWriteCmd _ = False
 
 -- Conversion (from Resp)
 
@@ -164,6 +175,15 @@ respToCmd r = Left $ "Conversion Error" <> show r
 
 cmdToResp :: Command -> Resp
 cmdToResp (RedSTM CmdPing) = Array 1 [BulkStr "PING"]
+cmdToResp (RedSTM (CmdEcho xs)) = Array 2 [BulkStr "ECHO", BulkStr xs]
+cmdToResp (RedSTM (CmdType key)) = Array 2 [BulkStr "TYPE", BulkStr key]
+cmdToResp (RedSTM (CmdSet key val (Just t))) = Array 5 [BulkStr "SET", BulkStr key, BulkStr val, BulkStr "PX", BulkStr $ fromString $ show $ nominalDiffTimeToMillis t]
+cmdToResp (RedSTM (CmdSet key val Nothing)) = Array 3 [BulkStr "SET", BulkStr key, BulkStr val]
+cmdToResp (RedSTM (CmdIncr key)) = Array 2 [BulkStr "INCR", BulkStr key]
+cmdToResp (RedSTM (CmdRPush key xs)) = Array (length xs + 2) (BulkStr "RPUSH" : BulkStr key : map BulkStr xs)
+cmdToResp (RedSTM (CmdLPush key xs)) = Array (length xs + 2) (BulkStr "LPUSH" : BulkStr key : map BulkStr xs)
+cmdToResp (RedSTM (CmdLPop key Nothing)) = Array 2 [BulkStr "LPOP", BulkStr key]
+cmdToResp (RedSTM (CmdLPop key (Just len))) = Array 3 [BulkStr "LPOP", BulkStr key, BulkStr $ fromString $ show len]
 cmdToResp (RedRepl (CmdReplConfListen port)) =
     Array 3 [BulkStr "REPLCONF", BulkStr "listening-port", BulkStr $ fromString $ show port]
 cmdToResp (RedRepl CmdReplConfCapabilities) = Array 3 [BulkStr "REPLCONF", BulkStr "capa", BulkStr "psync2"]
