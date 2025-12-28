@@ -37,6 +37,7 @@ import Time (nominalDiffTimeToMicros)
 
 import Command (
     CmdIO (..),
+    CmdReplication (..),
     CmdSTM (..),
     CmdTransaction (..),
     Command (..),
@@ -49,7 +50,7 @@ import Command (
     resultToResp,
  )
 import Network.Simple.TCP (Socket, recv, send)
-import Replication (Replication, ReplicationRole, initReplication, replicationInfo)
+import Replication (Replication (..), ReplicationConfig, initReplication, replicationInfo)
 import Resp (decode, encode)
 import Store.ListStore (ListStore)
 import Store.ListStore qualified as LS
@@ -93,7 +94,7 @@ data Env = MkEnv
     , replication :: Replication
     }
 
-mkNewEnv :: ReplicationRole -> IO Env
+mkNewEnv :: ReplicationConfig -> IO Env
 mkNewEnv rr = do
     stores <- atomically $ do
         stringStore <- SS.emptySTM
@@ -139,6 +140,8 @@ runCmd tvTxState cmd = do
         (InTx _, RedInfo _) -> pure $ RErr $ RTxErr RNotSupportedInTx
         (NoTx, RedInfo (Just IReplication)) -> pure $ RBulk $ Just $ replicationInfo env.replication
         (NoTx, RedInfo _) -> undefined
+        (InTx _, RedRepl _) -> pure $ RErr $ RTxErr RNotSupportedInTx
+        (NoTx, RedRepl _) -> error "not handled"
 
 runCmdSTM :: Env -> UTCTime -> CmdSTM -> STM CommandResult
 runCmdSTM env now cmd = do
@@ -215,11 +218,19 @@ runCmdIO cmd = do
             vals <- liftIO (timeout' tout (atomically (StS.xReadBlockSTM tvStreamMap key sid')))
             pure $ maybe RArrayNull (RArrayKeyValues . singleton) vals
 
-runReplication :: Socket -> IO ()
+runReplication :: Socket -> Redis ()
 runReplication sock = do
-    send sock $ encode $ cmdToResp $ RedSTM Ping
-    _ <- recv sock 1024
-    pure ()
+    replInfo <- asks (.replication)
+    case replInfo of
+        Master _ -> error "Master role not supported" -- fix this at type level
+        Replica _ port -> do
+            liftIO $ send sock $ encode $ cmdToResp $ RedSTM Ping
+            _ <- liftIO $ recv sock 1024
+            liftIO $ send sock $ encode $ cmdToResp $ RedRepl (ReplConfListen port)
+            _ <- liftIO $ recv sock 1024
+            liftIO $ send sock $ encode $ cmdToResp $ RedRepl ReplConfCapabilities
+            _ <- liftIO $ recv sock 1024
+            pure ()
 
 -- Command execution
 

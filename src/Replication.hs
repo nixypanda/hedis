@@ -1,9 +1,10 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Replication (
-    Replication,
+    Replication (..),
     ReplicationRole (..),
     ReplicaOf (..),
+    ReplicationConfig (..),
     replicationInfo,
     initReplication,
 ) where
@@ -21,19 +22,25 @@ data ReplicaOf = ReplicaOf
 data ReplicationRole = RRMaster | RRReplica ReplicaOf
     deriving (Show)
 
+data ReplicationConfig = MkReplicationConfig
+    { role :: ReplicationRole
+    , port :: Int
+    }
+    deriving (Show)
+
 data MasterReplicationInfo = MkMasterReplicationInfo
     {replicationID :: ByteString, replicationOffset :: Int}
     deriving (Show)
 
 data Replication
     = Master MasterReplicationInfo
-    | Replica ReplicaOf
+    | Replica ReplicaOf Int
     deriving (Show)
 
-initReplication :: ReplicationRole -> Replication
-initReplication rr = case rr of
+initReplication :: ReplicationConfig -> Replication
+initReplication MkReplicationConfig{..} = case role of
     RRMaster -> Master (MkMasterReplicationInfo "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb" 0)
-    RRReplica ro -> Replica ro
+    RRReplica ro -> Replica ro port
 
 replicationInfo :: Replication -> ByteString
 replicationInfo (Master (MkMasterReplicationInfo{..})) =

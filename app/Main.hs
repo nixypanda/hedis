@@ -80,18 +80,24 @@ main = do
     hSetBuffering stderr NoBuffering
     cli <- execParser redis
 
-    env <- mkNewEnv (maybe RRMaster RRReplica cli.replicaOf)
+    let role = maybe RRMaster RRReplica cli.replicaOf
+        port = cli.port
+    env <- mkNewEnv MkReplicationConfig{..}
     case cli.replicaOf of
         Nothing -> runMaster env cli.port
         Just r -> runReplica env cli.port r
 
 runReplica :: Env -> Int -> ReplicaOf -> IO ()
 runReplica env port replicaOf = do
-    let (logInfo', _) = loggingFuncs env.envLogger
+    let (logInfo', logError') = loggingFuncs env.envLogger
     logInfo' $ "Starting replica server on port " <> show port
     connect replicaOf.masterHost (show replicaOf.masterPort) $ \(sock, _) -> do
         logInfo' $ "Connected to master " <> "on (" <> show replicaOf.masterHost <> ":" <> show replicaOf.masterPort <> ")"
-        runReplication sock
+        errOrRes <- runExceptT $ runReaderT (runRedis $ runReplication sock) env
+        case errOrRes of
+            Left EmptyBuffer -> logInfo' "Client closed connection"
+            Left err -> logError' $ show err
+            Right _ -> pure ()
     runServer env port
 
 runMaster :: Env -> Int -> IO ()

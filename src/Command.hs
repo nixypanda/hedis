@@ -8,6 +8,7 @@ module Command (
     Key,
     CommandResult (..),
     CommandError (..),
+    CmdReplication (..),
     TransactionError (..),
     SubInfo (..),
     respToCmd,
@@ -73,6 +74,12 @@ data Command
     | RedIO CmdIO
     | RedTrans CmdTransaction
     | RedInfo (Maybe SubInfo)
+    | RedRepl CmdReplication
+    deriving (Show)
+
+data CmdReplication
+    = ReplConfListen Int
+    | ReplConfCapabilities
     deriving (Show)
 
 -- Conversion (from Resp)
@@ -149,6 +156,9 @@ respToCmd r = Left $ "Conversion Error" <> show r
 
 cmdToResp :: Command -> Resp
 cmdToResp (RedSTM Ping) = Array 1 [BulkStr "PING"]
+cmdToResp (RedRepl (ReplConfListen port)) =
+    Array 3 [BulkStr "REPLCONF", BulkStr "listening-port", BulkStr $ fromString $ show port]
+cmdToResp (RedRepl ReplConfCapabilities) = Array 3 [BulkStr "REPLCONF", BulkStr "capa", BulkStr "psync2"]
 cmdToResp r = error $ "Not implemented: " <> show r
 
 data CommandResult
