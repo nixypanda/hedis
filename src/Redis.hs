@@ -50,7 +50,7 @@ import Command (
     resultToResp,
  )
 import Network.Simple.TCP (Socket, recv, send)
-import Replication (Replication (..), ReplicationConfig, initReplication, replicationInfo)
+import Replication (ReplicaState (..), Replication (..), ReplicationConfig, initReplication, replicationInfo)
 import Resp (decode, encode)
 import Store.ListStore (ListStore)
 import Store.ListStore qualified as LS
@@ -222,11 +222,11 @@ runReplication :: Socket -> Redis ()
 runReplication sock = do
     replInfo <- asks (.replication)
     case replInfo of
-        Master _ -> error "Master role not supported" -- fix this at type level
-        Replica _ port -> do
+        ReplicationMaster _ -> error "Master role not supported" -- fix this at type level
+        ReplicationReplica (MkReplicaState{localPort}) -> do
             liftIO $ send sock $ encode $ cmdToResp $ RedSTM Ping
             _ <- liftIO $ recv sock 1024
-            liftIO $ send sock $ encode $ cmdToResp $ RedRepl (ReplConfListen port)
+            liftIO $ send sock $ encode $ cmdToResp $ RedRepl (ReplConfListen localPort)
             _ <- liftIO $ recv sock 1024
             liftIO $ send sock $ encode $ cmdToResp $ RedRepl ReplConfCapabilities
             _ <- liftIO $ recv sock 1024

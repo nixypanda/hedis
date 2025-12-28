@@ -51,7 +51,7 @@ parseReplicaOf s =
     case words s of
         [host, portStr] ->
             case reads portStr of
-                [(port, "")] -> Right (ReplicaOf host port)
+                [(port, "")] -> Right (MkReplicaOf host port)
                 _ -> Left "Invalid master port"
         _ -> Left "Expected \"<host> <port>\""
 
@@ -79,10 +79,11 @@ main = do
     hSetBuffering stdout NoBuffering
     hSetBuffering stderr NoBuffering
     cli <- execParser redis
+    let replicationConfig = case cli.replicaOf of
+            Nothing -> RCMaster ()
+            Just ro -> RCReplica $ MkReplicaConfig ro cli.port
 
-    let role = maybe RRMaster RRReplica cli.replicaOf
-        port = cli.port
-    env <- mkNewEnv MkReplicationConfig{..}
+    env <- mkNewEnv replicationConfig
     case cli.replicaOf of
         Nothing -> runMaster env cli.port
         Just r -> runReplica env cli.port r

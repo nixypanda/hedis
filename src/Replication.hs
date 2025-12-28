@@ -1,10 +1,14 @@
+{-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Replication (
     Replication (..),
-    ReplicationRole (..),
     ReplicaOf (..),
     ReplicationConfig (..),
+    MasterConfig,
+    ReplicaConfig (..),
+    MasterState (..),
+    ReplicaState (..),
     replicationInfo,
     initReplication,
 ) where
@@ -13,41 +17,74 @@ import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.String (fromString)
 
-data ReplicaOf = ReplicaOf
+-- CLI flags ──▶ ReplicationConfig
+--                 │
+--                 ▼
+--           Replication (Env)
+--            /           \
+--   MasterState       ReplicaState
+--        │                  │
+--     INFO               PSYNC / REPLCONF
+
+-- Used in CLI parsing
+data ReplicaOf = MkReplicaOf
     { masterHost :: String
     , masterPort :: Int
     }
     deriving (Show, Eq)
 
-data ReplicationRole = RRMaster | RRReplica ReplicaOf
+-- ReplicationConfig is stuff read from CLI
+data ReplicationConfig = RCMaster MasterConfig | RCReplica ReplicaConfig
     deriving (Show)
 
-data ReplicationConfig = MkReplicationConfig
-    { role :: ReplicationRole
-    , port :: Int
+type MasterConfig = ()
+data ReplicaConfig = MkReplicaConfig {masterInfo :: ReplicaOf, localPort :: Int}
+    deriving (Show)
+
+-- Replication is what we store in the Env
+data Replication
+    = ReplicationMaster MasterState
+    | ReplicationReplica ReplicaState
+    deriving (Show)
+
+data MasterState = MkMasterState
+    { masterReplId :: ByteString
+    , masterReplOffset :: Int
     }
     deriving (Show)
 
-data MasterReplicationInfo = MkMasterReplicationInfo
-    {replicationID :: ByteString, replicationOffset :: Int}
-    deriving (Show)
-
-data Replication
-    = Master MasterReplicationInfo
-    | Replica ReplicaOf Int
+data ReplicaState = MkReplicaState
+    { masterInfo :: ReplicaOf
+    , knownMasterRepl :: ByteString
+    , replicaOffset :: Int
+    , localPort :: Int
+    }
     deriving (Show)
 
 initReplication :: ReplicationConfig -> Replication
-initReplication MkReplicationConfig{..} = case role of
-    RRMaster -> Master (MkMasterReplicationInfo "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb" 0)
-    RRReplica ro -> Replica ro port
+initReplication cfg =
+    case cfg of
+        RCMaster _ ->
+            ReplicationMaster $
+                MkMasterState
+                    { masterReplId = "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb"
+                    , masterReplOffset = 0
+                    }
+        RCReplica (MkReplicaConfig{..}) ->
+            ReplicationReplica $
+                MkReplicaState
+                    { masterInfo = masterInfo
+                    , localPort = localPort
+                    , replicaOffset = -1
+                    , knownMasterRepl = "?"
+                    }
 
 replicationInfo :: Replication -> ByteString
-replicationInfo (Master (MkMasterReplicationInfo{..})) =
+replicationInfo (ReplicationMaster (MkMasterState{..})) =
     BS.intercalate
         "\r\n"
         [ "role:master"
-        , "master_replid:" <> replicationID
-        , "master_repl_offset:" <> fromString (show replicationOffset)
+        , "master_replid:" <> masterReplId
+        , "master_repl_offset:" <> fromString (show masterReplOffset)
         ]
-replicationInfo Replica{} = "role:slave"
+replicationInfo (ReplicationReplica (MkReplicaState{})) = "role:slave"
