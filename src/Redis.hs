@@ -28,9 +28,11 @@ import Control.Monad.IO.Class (MonadIO (liftIO))
 import Control.Monad.Reader (MonadReader (ask), ReaderT, asks)
 import Data.Bifunctor (Bifunctor (first))
 import Data.ByteString (ByteString)
+import Data.Kind (Type)
 import Data.List (singleton)
 import Data.String (fromString)
 import Data.Time (NominalDiffTime, UTCTime, getCurrentTime)
+import Network.Simple.TCP (Socket, recv, send)
 import System.Log.FastLogger (
     LogType' (..),
     TimedFastLogger,
@@ -58,8 +60,16 @@ import Command (
     respToCmd,
     resultToResp,
  )
-import Network.Simple.TCP (Socket, recv, send)
-import Replication (MasterConfig, MasterState, ReplicaConfig, ReplicaState (..), Replication (..), initMaster, initReplica, replicationInfo)
+import Replication (
+    MasterConfig,
+    MasterState,
+    ReplicaConfig,
+    ReplicaState (..),
+    Replication (..),
+    initMaster,
+    initReplica,
+    replicationInfo,
+ )
 import Resp (decode, encode)
 import Store.ListStore (ListStore)
 import Store.ListStore qualified as LS
@@ -100,7 +110,7 @@ data Stores = MkStores
 data Master
 data Replica
 
-data Env (r :: *) where
+data Env (r :: Type) where
     EnvMaster :: CommonEnv -> MasterState -> Env Master
     EnvReplica :: CommonEnv -> ReplicaState -> Env Replica
 
@@ -135,27 +145,33 @@ class HasStores r where
     getStores :: Env r -> Stores
 
 instance HasStores Master where
+    getStores :: Env Master -> Stores
     getStores (EnvMaster c _) = c.stores
 
 instance HasStores Replica where
+    getStores :: Env Replica -> Stores
     getStores (EnvReplica c _) = c.stores
 
 class HasLogger r where
     getLogger :: Env r -> TimedFastLogger
 
 instance HasLogger Master where
+    getLogger :: Env Master -> TimedFastLogger
     getLogger (EnvMaster c _) = c.envLogger
 
 instance HasLogger Replica where
+    getLogger :: Env Replica -> TimedFastLogger
     getLogger (EnvReplica c _) = c.envLogger
 
 class HasReplication r where
     getReplication :: Env r -> Replication
 
 instance HasReplication Master where
+    getReplication :: Env Master -> Replication
     getReplication (EnvMaster _ ms) = MkReplicationMaster ms
 
 instance HasReplication Replica where
+    getReplication :: Env Replica -> Replication
     getReplication (EnvReplica _ rs) = MkReplicationReplica rs
 
 -- Execution
@@ -165,31 +181,33 @@ runCmd tvTxState cmd = do
     env <- ask
     now <- liftIO getCurrentTime
     txState <- liftIO $ readTVarIO tvTxState
-    case (txState, cmd) of
-        (NoTx, RedSTM cmd') -> liftIO $ atomically $ runCmdSTM env now cmd'
-        (InTx cs, RedSTM c) -> liftIO $ atomically $ do
-            writeTVar tvTxState (InTx $ c : cs)
-            pure $ RSimple "QUEUED"
-        (NoTx, RedIO cmd') -> runCmdIO cmd'
-        (InTx _, RedIO _) -> pure $ RErr $ RTxErr RNotSupportedInTx
-        (NoTx, RedTrans Multi) -> liftIO $ atomically $ do
-            modifyTVar tvTxState (const $ InTx [])
-            pure $ RSimple "OK"
-        (InTx _, RedTrans Multi) -> pure $ RErr $ RTxErr RMultiInMulti
-        (NoTx, RedTrans Exec) -> pure $ RErr $ RTxErr RExecWithoutMulti
-        (InTx cs, RedTrans Exec) -> liftIO $ atomically $ do
-            vals <- mapM (runCmdSTM env now) (reverse cs)
-            modifyTVar tvTxState (const NoTx)
-            pure $ RArray vals
-        (NoTx, RedTrans Discard) -> pure $ RErr $ RTxErr RDiscardWithoutMulti
-        (InTx _, RedTrans Discard) -> liftIO $ atomically $ do
-            writeTVar tvTxState NoTx
-            pure $ RSimple "OK"
-        (InTx _, RedInfo _) -> pure $ RErr $ RTxErr RNotSupportedInTx
-        (NoTx, RedInfo (Just IReplication)) -> pure $ RBulk $ Just $ replicationInfo $ getReplication env
-        (NoTx, RedInfo _) -> undefined
-        (InTx _, RedRepl _) -> pure $ RErr $ RTxErr RNotSupportedInTx
-        (NoTx, RedRepl _) -> error "not handled"
+    case txState of
+        InTx cs -> case cmd of
+            RedSTM c -> liftIO $ atomically $ do
+                writeTVar tvTxState (InTx $ c : cs)
+                pure $ RSimple "QUEUED"
+            RedTrans m -> case m of
+                Multi -> pure $ RErr $ RTxErr RMultiInMulti
+                Exec -> liftIO $ atomically $ do
+                    vals <- mapM (runCmdSTM env now) (reverse cs)
+                    modifyTVar tvTxState (const NoTx)
+                    pure $ RArray vals
+                Discard -> liftIO $ atomically $ do
+                    writeTVar tvTxState NoTx
+                    pure $ RSimple "OK"
+            _ -> pure $ RErr $ RTxErr RNotSupportedInTx
+        NoTx -> case cmd of
+            RedSTM cmd' -> liftIO $ atomically $ runCmdSTM env now cmd'
+            RedIO cmd' -> runCmdIO cmd'
+            RedTrans txCmd -> case txCmd of
+                Exec -> pure $ RErr $ RTxErr RExecWithoutMulti
+                Discard -> pure $ RErr $ RTxErr RDiscardWithoutMulti
+                Multi -> liftIO $ atomically $ do
+                    modifyTVar tvTxState (const $ InTx [])
+                    pure $ RSimple "OK"
+            RedInfo (Just IReplication) -> pure $ RBulk $ Just $ replicationInfo $ getReplication env
+            RedInfo _ -> error "not handled"
+            RedRepl _ -> error "not handled"
 
 runCmdSTM :: (HasStores r) => Env r -> UTCTime -> CmdSTM -> STM CommandResult
 runCmdSTM env now cmd = do
