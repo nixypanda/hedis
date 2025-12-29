@@ -1,12 +1,12 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Resp (Resp (..), encode, decode) where
+module Resp (Resp (..), encode, decode, decodeMany) where
 
 import Control.Monad (replicateM)
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.String (fromString)
-import Text.Parsec (ParseError, anyChar, count, crlf, parse)
+import Text.Parsec (ParseError, anyChar, count, crlf, getInput, many, parse, try)
 import Text.Parsec.ByteString (Parser)
 
 import Parsers (bytes, signedIntParser)
@@ -24,6 +24,15 @@ data Resp
     deriving (Show)
 
 -- parsing/decoding
+
+respsWithRemainder :: Parser ([Resp], ByteString)
+respsWithRemainder = do
+    rs <- resps
+    rest <- getInput
+    pure (rs, rest)
+
+resps :: Parser [Resp]
+resps = many (try resp)
 
 resp :: Parser Resp
 resp = do
@@ -54,6 +63,9 @@ bulkString = do
 
 decode :: ByteString -> Either ParseError Resp
 decode = parse resp ""
+
+decodeMany :: ByteString -> Either ParseError ([Resp], ByteString)
+decodeMany = parse respsWithRemainder "<redis-stream>"
 
 -- encoding
 

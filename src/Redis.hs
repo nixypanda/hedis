@@ -20,11 +20,13 @@ module Redis (
     mkReplicaEnv,
     runReplication,
     TxState (..),
+    clientLoopDiscard,
+    clientLoopWrite,
 ) where
 
 import Control.Concurrent.STM (STM, TVar, atomically, modifyTVar, readTVarIO, writeTVar)
 import Control.Exception (Exception)
-import Control.Monad.Except (ExceptT (..), MonadError, liftEither)
+import Control.Monad.Except (ExceptT (..), MonadError (throwError), liftEither)
 import Control.Monad.IO.Class (MonadIO (liftIO))
 import Control.Monad.Reader (MonadReader (ask), ReaderT, asks)
 import Data.Bifunctor (Bifunctor (first))
@@ -61,7 +63,7 @@ import Replication (
     propagateWrite,
     replicationInfo,
  )
-import Resp (decode, encode)
+import Resp (Resp, decode, decodeMany, encode)
 import Store.ListStore (ListStore)
 import Store.ListStore qualified as LS
 import Store.StreamStore (StreamStore)
@@ -346,6 +348,59 @@ handleRequest clientState bs = do
         encoded = encode resultResp
     logInfo ("Encoded: " <> show encoded)
     pure encoded
+
+processOne :: (HasLogger r, HasStores r, HasReplication r) => ClientState -> Resp -> Redis r CommandResult
+processOne clientState resp = do
+    logDebug ("Decoded: " <> show resp)
+    cmd <- liftEither $ first ConversionError $ respToCmd resp
+    logDebug ("Command: " <> show cmd)
+    result <- runCmd clientState cmd
+    logDebug ("Execution result: " <> show result)
+    pure result
+
+processOneWrite :: ClientState -> Socket -> Resp -> Redis Master ()
+processOneWrite clientState socket resp = do
+    result <- processOne clientState resp
+    let encoded = encode (resultToResp result)
+    logInfo ("Encoded: " <> show encoded)
+    liftIO $ send socket encoded
+
+processOneDiscard :: ClientState -> Resp -> Redis Replica ()
+processOneDiscard clientState resp = do
+    _ <- processOne clientState resp
+    pure ()
+
+clientLoopWrite :: ClientState -> Socket -> Redis Master ()
+clientLoopWrite clientState socket = go mempty
+  where
+    bufferSize = 1024
+
+    go buf = do
+        mbs <- liftIO $ recv socket bufferSize
+        bs <- maybe (throwError EmptyBuffer) pure mbs
+
+        let buf' = buf <> bs
+        case decodeMany buf' of
+            Left err -> throwError (ParsingError err)
+            Right (resps, rest) -> do
+                mapM_ (processOneWrite clientState socket) resps
+                go rest
+
+clientLoopDiscard :: ClientState -> Socket -> Redis Replica ()
+clientLoopDiscard clientState socket = go mempty
+  where
+    bufferSize = 1024
+
+    go buf = do
+        mbs <- liftIO $ recv socket bufferSize
+        bs <- maybe (throwError EmptyBuffer) pure mbs
+
+        let buf' = buf <> bs
+        case decodeMany buf' of
+            Left err -> throwError (ParsingError err)
+            Right (resps, rest) -> do
+                mapM_ (processOneDiscard clientState) resps
+                go rest
 
 -- helpers
 
