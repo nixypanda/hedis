@@ -26,7 +26,7 @@ module Redis (
 
 import Control.Concurrent.STM (STM, TVar, atomically, modifyTVar, newTVarIO, readTVarIO, writeTVar)
 import Control.Exception (Exception)
-import Control.Monad (unless, when)
+import Control.Monad (when)
 import Control.Monad.Except (ExceptT (..), MonadError (throwError), liftEither)
 import Control.Monad.IO.Class (MonadIO (liftIO))
 import Control.Monad.Reader (MonadReader (ask), ReaderT, asks)
@@ -48,11 +48,11 @@ import System.Log.FastLogger (
     simpleTimeFormat,
  )
 import System.Timeout (timeout)
-import Text.Parsec (ParseError)
+import Text.Parsec (ParseError, getInput, runParser)
 
 import Command
 import CommandResult
-import Parsers (readIntBS)
+import RDB (rdbParser)
 import Replication (
     MasterConfig,
     MasterState (..),
@@ -65,7 +65,7 @@ import Replication (
     propagateWrite,
     replicationInfo,
  )
-import Resp (Resp, decode, decodeMany, encode)
+import Resp (Resp (..), decode, decodeMany, encode)
 import Store.ListStore (ListStore)
 import Store.ListStore qualified as LS
 import Store.StreamStore (StreamStore)
@@ -75,6 +75,7 @@ import Store.StringStore qualified as SS
 import Store.TypeStore (IncorrectType, TypeIndex)
 import Store.TypeStore qualified as TS
 import StoreBackend.TypeIndex (ValueType (..))
+import Text.Parsec.ByteString (Parser)
 import Time (nominalDiffTimeToMicros)
 
 -- Types
@@ -327,20 +328,70 @@ runReplication socket = do
         EnvReplica _ (MkReplicaState{..}) -> do
             -- replInfo <- asks (.replication)
             liftIO $ send socket $ encode $ cmdToResp $ RedSTM CmdPing
-            _ <- liftIO $ recv socket 1024
-            liftIO $ send socket $ encode $ cmdToResp $ RedRepl (CmdReplConfListen localPort)
-            _ <- liftIO $ recv socket 1024
-            liftIO $ send socket $ encode $ cmdToResp $ RedRepl CmdReplConfCapabilities
-            _ <- liftIO $ recv socket 1024
-            liftIO $ send socket $ encode $ cmdToResp $ RedRepl $ CmdPSync "?" (-1)
-            _ <- liftIO $ recv socket 1024
-            pure ()
+            logInfo "Ping sent"
+            (r1, buf1) <- liftIO $ recvResp1 socket mempty
+            logInfo $ show r1 <> show buf1
+            liftIO $ expectSimple "PONG" r1
+            logInfo "PONG receieved"
 
-    logInfo $ "Handshake complete. Waiting for RDB" <> show socket
-    txState <- liftIO $ newTVarIO NoTx
-    _ <- liftIO $ readRDB socket
-    logInfo $ "Replication from master complete. Receiving new updates on " <> show socket
-    clientLoopDiscard MkClientState{..} socket
+            liftIO $ send socket $ encode $ cmdToResp $ RedRepl (CmdReplConfListen localPort)
+            logInfo "ReplConfListen sent"
+            (r2, buf2) <- liftIO $ recvResp1 socket buf1
+            liftIO $ expectSimple "OK" r2
+            logInfo "OK received"
+
+            liftIO $ send socket $ encode $ cmdToResp $ RedRepl CmdReplConfCapabilities
+            logInfo "ReplConfCapabilities sent"
+            (r3, buf3) <- liftIO $ recvResp1 socket buf2
+            liftIO $ expectSimple "OK" r3
+            logInfo "OK received"
+
+            liftIO $ send socket $ encode $ cmdToResp $ RedRepl $ CmdPSync "?" (-1)
+            (r4, buf4) <- liftIO $ recvResp1 socket buf3
+            liftIO $ expectFullResync r4
+
+            logInfo $ "Handshake complete. Waiting for RDB" <> show socket
+            txState <- liftIO $ newTVarIO NoTx
+            logInfo $ "Replication from master complete. Receiving new updates on " <> show socket
+
+            let recvMore buf = do
+                    bs <- liftIO (recv socket 4096) >>= maybe (throwError EmptyBuffer) pure
+                    pure (buf <> bs)
+            let go buf = do
+                    case parseWithRemainder rdbParser buf of
+                        Right (_rdb, rest) -> clientLoopDiscard MkClientState{..} socket rest
+                        Left _ -> recvMore buf >>= go
+
+            go buf4
+
+parseWithRemainder :: Parser a -> BS.ByteString -> Either ParseError (a, BS.ByteString)
+parseWithRemainder p bs =
+    case runParser ((,) <$> p <*> getInput) () "" bs of
+        Left e -> Left e
+        Right r -> Right r
+
+recvResp1 :: Socket -> ByteString -> IO (Resp, ByteString)
+recvResp1 sock = go
+  where
+    go acc = do
+        case decodeMany acc of
+            Right (r : _, rest) -> pure (r, rest)
+            Right ([], _) -> recvMore acc
+            Left _ -> recvMore acc
+
+    recvMore acc = do
+        bs <- recv sock 64 >>= maybe (fail "EOF") pure
+        go (acc <> bs)
+
+expectSimple :: ByteString -> Resp -> IO ()
+expectSimple expected r = case r of
+    Str s | s == expected -> pure ()
+    other -> fail $ "Unexpected reply: " <> show other
+
+expectFullResync :: Resp -> IO ()
+expectFullResync r = case r of
+    Str s | "FULLRESYNC" `BS.isPrefixOf` s -> pure ()
+    other -> fail $ "Expected FULLRESYNC, got " <> show other
 
 -- Command execution
 
@@ -398,59 +449,23 @@ clientLoopWrite clientState socket = go mempty
                 mapM_ (processOneWrite clientState socket) resps
                 go rest
 
-recvExact :: Socket -> Int -> IO ByteString
-recvExact sock = go mempty
-  where
-    go acc 0 = pure acc
-    go acc k = do
-        bs <- recv sock k >>= maybe (fail "EOF while reading RDB") pure
-        go (acc <> bs) (k - BS.length bs)
+clientLoopDiscard :: ClientState -> Socket -> ByteString -> Redis Replica ()
+clientLoopDiscard clientState socket buf = do
+    let bufferSize = 64
+    logInfo "Waiting for write command"
+    mbs <- liftIO $ recv socket bufferSize
+    bs <- maybe (throwError EmptyBuffer) pure mbs
+    logInfo $ "Received write command" <> show bs
 
-recvUntilCRLF :: Socket -> IO ByteString
-recvUntilCRLF sock = go mempty
-  where
-    go acc = do
-        bs <- recv sock 1 >>= maybe (fail "EOF while reading CRLF") pure
-        let acc' = acc <> bs
-        if BS.isSuffixOf "\r\n" acc'
-            then pure (BS.take (BS.length acc' - 2) acc')
-            else go acc'
-
-readRDB :: Socket -> IO ()
-readRDB sock = do
-    tag <- recvExact sock 1
-    when (tag /= "$") $
-        fail $
-            "Expected RDB bulk string ($)" <> show tag
-    lenBs <- recvUntilCRLF sock
-    let len = readIntBS lenBs
-    case len of
-        Left _ -> fail "Invalid RDB length"
-        Right len' -> do
-            payload <- recvExact sock len'
-            unless (BS.take 5 payload == "REDIS") $
-                fail "Invalid RDB magic"
-
-clientLoopDiscard :: ClientState -> Socket -> Redis Replica ()
-clientLoopDiscard clientState socket = go mempty
-  where
-    bufferSize = 64
-
-    go buf = do
-        logInfo "Waiting for write command"
-        mbs <- liftIO $ recv socket bufferSize
-        bs <- maybe (throwError EmptyBuffer) pure mbs
-        logInfo $ "Received write command" <> show bs
-
-        let buf' = buf <> bs
-        case decodeMany buf' of
-            Left err -> do
-                logInfo $ "Error decoding: " <> show err
-                throwError (ParsingError err)
-            Right (resps, rest) -> do
-                logInfo $ "Processing " <> show resps <> " left - " <> show rest
-                mapM_ (processOneDiscard clientState) resps
-                go rest
+    let buf' = buf <> bs
+    case decodeMany buf' of
+        Left err -> do
+            logInfo $ "Error decoding: " <> show err
+            throwError (ParsingError err)
+        Right (resps, rest) -> do
+            logInfo $ "Processing " <> show resps <> " left - " <> show rest
+            mapM_ (processOneDiscard clientState) resps
+            clientLoopDiscard clientState socket rest
 
 -- helpers
 
