@@ -360,12 +360,16 @@ runReplication socket = do
                 other -> throwError $ HandshakeError $ InvalidReturn cmd3 "OK" (fromString $ show other)
 
             -- Psync
-            let cmd4 = RedRepl $ CmdPSync "?" (-1)
+            knownMasterRepl' <- liftIO $ readTVarIO knownMasterRepl
+            replicaOffset' <- liftIO $ readTVarIO replicaOffset
+            let cmd4 = RedRepl $ CmdPSync knownMasterRepl' replicaOffset'
             liftIO $ send socket $ encode $ cmdToResp cmd4
             (r4, buf4) <- liftIO $ recvResp1 socket buf3
-            case r4 of
-                Str s | "FULLRESYNC" `BS.isPrefixOf` s -> pure ()
-                other -> throwError $ HandshakeError $ InvalidReturn cmd4 "FULLRESYNC <repli_id> 0" (fromString $ show other)
+            case respToCmd r4 of
+                Right (RedRepl (CmdFullResync sid offset)) -> liftIO . atomically $ do
+                    writeTVar knownMasterRepl sid
+                    writeTVar replicaOffset offset
+                _ -> throwError $ HandshakeError $ InvalidReturn cmd4 "FULLRESYNC <repli_id> 0" (fromString $ show r4)
 
             logInfo $ "Handshake complete. Waiting for RDB" <> show socket
             txState <- liftIO $ newTVarIO NoTx

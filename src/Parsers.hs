@@ -12,6 +12,7 @@ module Parsers (
     readXReadStreamId,
     readConcreteStreamId,
     parseWithRemainder,
+    parseBS,
 ) where
 
 import Control.Applicative ((<|>))

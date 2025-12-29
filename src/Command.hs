@@ -17,8 +17,12 @@ import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.String (IsString (fromString))
 import Data.Time (NominalDiffTime, secondsToNominalDiffTime)
+import Text.Parsec (anyChar, char, manyTill, string)
+import Text.Parsec.ByteString (Parser)
 
 import Parsers (
+    intParser,
+    parseBS,
     readConcreteStreamId,
     readFloatBS,
     readIntBS,
@@ -159,8 +163,18 @@ respToCmd (Array 3 [BulkStr "REPLCONF", BulkStr "GETACK", BulkStr "*"]) = pure $
 respToCmd (Array 3 [BulkStr "PSYNC", BulkStr sid, BulkStr offset]) = do
     offset' <- readIntBS offset
     pure $ RedRepl $ CmdPSync sid offset'
+-- sh*tty encoding
+respToCmd (Str s)
+    | "FULLRESYNC " `BS.isPrefixOf` s = RedRepl <$> parseBS fullresyncParser s
+    | otherwise = Left $ "Conversion Error: Simple String: " <> show s
 -- Unhandled
 respToCmd r = Left $ "Conversion Error" <> show r
+
+fullresyncParser :: Parser CmdReplication
+fullresyncParser = do
+    _ <- string "FULLRESYNC "
+    sId <- fromString <$> manyTill anyChar (char ' ')
+    CmdFullResync sId <$> intParser
 
 -- Conversion (to Resp)
 
