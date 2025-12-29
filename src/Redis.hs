@@ -50,6 +50,7 @@ import Text.Parsec (ParseError)
 
 import Command
 import CommandResult
+import Data.ByteString qualified as BS
 import Parsers (parseWithRemainder)
 import RDB (rdbParser)
 import Replication (
@@ -244,7 +245,9 @@ runReplicationCmds clientState cmd = do
         CmdFullResync _ _ -> error "not handled"
         CmdReplConfGetAck -> do
             offset <- liftIO $ readTVarIO (getOffset env)
-            pure $ RRepl $ ReplConfAck offset
+            -- HACK: We have processed the command, but Redis expects that this
+            -- command is not factored in. So we remove its size from the result
+            pure $ RRepl $ ReplConfAck (offset - 37)
 
 executeQueuedCmds :: (HasStores r, HasReplication r) => ClientState -> Env r -> UTCTime -> [CmdSTM] -> STM CommandResult
 executeQueuedCmds clientState env now cmds = do
@@ -373,10 +376,11 @@ runReplication socket = do
             let cmd4 = RedRepl $ CmdPSync knownMasterRepl' replicaOffset'
             liftIO $ send socket $ encode $ cmdToResp cmd4
             (r4, buf4) <- liftIO $ recvResp1 socket buf3
+            logInfo $ "Bytes processed - " <> show (BS.length buf4) <> " " <> show (BS.length buf3)
             case respToCmd r4 of
-                Right (RedRepl (CmdFullResync sid offset)) -> liftIO . atomically $ do
+                Right (RedRepl (CmdFullResync sid _)) -> liftIO . atomically $ do
                     writeTVar knownMasterRepl sid
-                    writeTVar replicaOffset offset
+                    writeTVar replicaOffset 0
                 _ -> throwError $ HandshakeError $ InvalidReturn cmd4 "FULLRESYNC <repli_id> 0" (fromString $ show r4)
 
             logInfo $ "Handshake complete. Waiting for RDB" <> show socket
@@ -445,6 +449,7 @@ clientLoopWrite clientState socket = go mempty
 
 clientLoopDiscard :: ClientState -> Socket -> ByteString -> Redis Replica ()
 clientLoopDiscard clientState socket buf = do
+    env <- ask
     let bufferSize = 1024
     logInfo $ "Waiting for write command. Current buffer - " <> show buf
 
@@ -453,7 +458,9 @@ clientLoopDiscard clientState socket buf = do
             logInfo $ "Error decoding: " <> show err
             throwError (ParsingError err)
         Right (resps, rest) -> do
-            logInfo $ "Processing " <> show resps <> " left - " <> show rest
+            logInfo $ "Processing " <> show buf
+            logInfo $ "Processed " <> show resps <> " left - " <> show rest
+            _ <- liftIO $ atomically $ modifyTVar (getOffset env) (+ (BS.length buf - BS.length rest))
             forM_ resps $ \resp -> do
                 res <- processOne clientState resp
                 case res of
