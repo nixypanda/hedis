@@ -31,7 +31,6 @@ import Control.Monad.IO.Class (MonadIO (liftIO))
 import Control.Monad.Reader (MonadReader (ask), ReaderT, asks)
 import Data.Bifunctor (Bifunctor (first))
 import Data.ByteString (ByteString)
-import Data.ByteString qualified as BS
 import Data.Kind (Type)
 import Data.List (singleton)
 import Data.String (fromString)
@@ -171,14 +170,19 @@ instance HasLogger Replica where
 
 class HasReplication r where
     getReplication :: Env r -> Replication
+    getOffset :: Env r -> TVar Int
 
 instance HasReplication Master where
     getReplication :: Env Master -> Replication
     getReplication (EnvMaster _ ms) = MkReplicationMaster ms
 
+    getOffset (EnvMaster _ ms) = ms.masterReplOffset
+
 instance HasReplication Replica where
     getReplication :: Env Replica -> Replication
     getReplication (EnvReplica _ rs) = MkReplicationReplica rs
+
+    getOffset (EnvReplica _ rs) = rs.replicaOffset
 
 -- Execution
 
@@ -216,11 +220,13 @@ runCmd clientState cmd = do
             RedRepl c -> runReplicationCmds clientState c
             RedInfo section -> runServerInfoCmds section
 
-runServerInfoCmds :: (MonadReader (Env r) m, HasReplication r) => Maybe SubInfo -> m CommandResult
+runServerInfoCmds :: (MonadReader (Env r) m, HasReplication r, MonadIO m) => Maybe SubInfo -> m CommandResult
 runServerInfoCmds cmd = do
     env <- ask
     case cmd of
-        Just IReplication -> pure $ RBulk $ Just $ replicationInfo $ getReplication env
+        Just IReplication -> do
+            info <- liftIO $ replicationInfo $ getReplication env
+            pure $ RBulk $ Just info
         _ -> error "not handled"
 
 runReplicationCmds :: (MonadReader (Env r1) m, HasReplication r1, MonadIO m, HasLogger r1) => ClientState -> CmdReplication -> m CommandResult
@@ -236,7 +242,8 @@ runReplicationCmds clientState cmd = do
             MkReplicationReplica _ -> error "called on replica" -- handle later
         CmdPSync _ _ -> error "not handled"
         CmdFullResync _ _ -> error "not handled"
-        CmdReplConfGetAck -> pure $ RRepl $ ReplConfAck 0
+        CmdReplConfGetAck -> do
+            pure $ RRepl $ ReplConfAck 0
 
 executeQueuedCmds :: (HasStores r, HasReplication r) => ClientState -> Env r -> UTCTime -> [CmdSTM] -> STM CommandResult
 executeQueuedCmds clientState env now cmds = do

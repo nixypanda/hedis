@@ -76,7 +76,7 @@ data Replication
 
 data MasterState = MkMasterState
     { masterReplId :: ByteString
-    , masterReplOffset :: Int
+    , masterReplOffset :: TVar Int
     , replicaRegistry :: ReplicaRegistry
     , rdbFile :: FilePath
     }
@@ -105,12 +105,13 @@ type ReplicaRegistry = TVar [ReplicaConn]
 
 initMasterState :: MasterConfig -> IO MasterState
 initMasterState _ = do
-    registry <- newTVarIO []
+    replicaRegistry <- newTVarIO []
+    masterReplOffset' <- newTVarIO 0
     pure $
         MkMasterState
             { masterReplId = "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb"
-            , masterReplOffset = 0
-            , replicaRegistry = registry
+            , masterReplOffset = masterReplOffset'
+            , replicaRegistry = replicaRegistry
             , rdbFile = "./master.rdb"
             }
 
@@ -120,15 +121,17 @@ initReplicaState MkReplicaConfig{..} = do
     knownMasterRepl <- newTVarIO "?"
     pure $ MkReplicaState{..}
 
-replicationInfo :: Replication -> ByteString
-replicationInfo (MkReplicationMaster (MkMasterState{..})) =
-    BS.intercalate
-        "\r\n"
-        [ "role:master"
-        , "master_replid:" <> masterReplId
-        , "master_repl_offset:" <> fromString (show masterReplOffset)
-        ]
-replicationInfo (MkReplicationReplica (MkReplicaState{})) = "role:slave"
+replicationInfo :: Replication -> IO ByteString
+replicationInfo (MkReplicationMaster (MkMasterState{..})) = do
+    offset <- readTVarIO masterReplOffset
+    pure $
+        BS.intercalate
+            "\r\n"
+            [ "role:master"
+            , "master_replid:" <> masterReplId
+            , "master_repl_offset:" <> fromString (show offset)
+            ]
+replicationInfo (MkReplicationReplica (MkReplicaState{})) = pure "role:slave"
 
 propagateWrite :: Replication -> CmdSTM -> STM ()
 propagateWrite repli cmd =
@@ -142,7 +145,8 @@ propagateWrite repli cmd =
 acceptReplica :: TimedFastLogger -> MasterState -> Socket -> IO CommandResult
 acceptReplica envLogger masterState sock = do
     _ <- initReplica envLogger masterState sock
-    pure $ RCmd $ RedRepl $ CmdFullResync masterState.masterReplId masterState.masterReplOffset
+    masterReplOffset' <- readTVarIO masterState.masterReplOffset
+    pure $ RCmd $ RedRepl $ CmdFullResync masterState.masterReplId masterReplOffset'
 
 initReplica :: TimedFastLogger -> MasterState -> Socket -> IO ()
 initReplica envLogger masterState rcSocket = do
