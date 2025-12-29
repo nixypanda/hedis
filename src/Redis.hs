@@ -248,6 +248,7 @@ runReplicationCmds clientState cmd = do
             -- HACK: We have processed the command, but Redis expects that this
             -- command is not factored in. So we remove its size from the result
             pure $ RRepl $ ReplConfAck (offset - 37)
+        CmdWait _ _ -> pure $ RInt 0
 
 executeQueuedCmds :: (HasStores r, HasReplication r) => ClientState -> Env r -> UTCTime -> [CmdSTM] -> STM CommandResult
 executeQueuedCmds clientState env now cmds = do

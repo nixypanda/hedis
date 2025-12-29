@@ -78,6 +78,7 @@ data CmdReplication
     | CmdPSync ByteString Int
     | CmdFullResync ByteString Int
     | CmdReplConfGetAck
+    | CmdWait Int NominalDiffTime
     deriving (Show, Eq)
 
 isWriteCmd :: CmdSTM -> Bool
@@ -163,6 +164,10 @@ respToCmd (Array 3 [BulkStr "REPLCONF", BulkStr "GETACK", BulkStr "*"]) = pure $
 respToCmd (Array 3 [BulkStr "PSYNC", BulkStr sid, BulkStr offset]) = do
     offset' <- readIntBS offset
     pure $ RedRepl $ CmdPSync sid offset'
+respToCmd (Array 3 [BulkStr "WAIT", BulkStr n, BulkStr t]) = do
+    n' <- readIntBS n
+    t' <- millisToNominalDiffTime <$> readIntBS t
+    pure $ RedRepl $ CmdWait n' t'
 -- sh*tty encoding
 respToCmd (Str s)
     | "FULLRESYNC " `BS.isPrefixOf` s = RedRepl <$> parseBS fullresyncParser s
