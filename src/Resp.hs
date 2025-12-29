@@ -1,6 +1,15 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Resp (Resp (..), encode, decode, decodeMany, respsWithRemainder) where
+module Resp (
+    Resp (..),
+    encode,
+    decode,
+    decodeMany,
+    -- testing
+    respsWithRemainder,
+    resp,
+    resps,
+) where
 
 import Control.Monad (replicateM)
 import Data.ByteString (ByteString)
@@ -21,7 +30,7 @@ data Resp
     | Int Int
     | NullBulk
     | NullArray
-    deriving (Show)
+    deriving (Show, Eq)
 
 -- parsing/decoding
 

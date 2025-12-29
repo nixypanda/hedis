@@ -64,3 +64,5 @@ tests:
       - tasty-hedgehog
       - tasty-hunit
       - hedgehog
+      - bytestring
+      - parsec

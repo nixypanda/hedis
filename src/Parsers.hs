@@ -33,6 +33,7 @@ import Text.Parsec (
     char,
     digit,
     eof,
+    lookAhead,
     many1,
     manyTill,
     option,
@@ -43,7 +44,7 @@ import Text.Parsec (
 import Text.Parsec.ByteString (Parser)
 
 bytes :: Parser ByteString
-bytes = fromString <$> manyTill anyChar (char '\r')
+bytes = fromString <$> manyTill anyChar (lookAhead (char '\r'))
 
 intParser :: Parser Int
 intParser = fromIntegral <$> integer
