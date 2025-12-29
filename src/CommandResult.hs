@@ -6,12 +6,14 @@ module CommandResult (
     TransactionError (..),
     ReplResult (..),
     resultToResp,
+    respToResult,
 ) where
 
 import Data.ByteString (ByteString)
 import Data.String (IsString (fromString))
 
 import Command (Command, Key, cmdToResp)
+import Parsers (readIntBS)
 import Resp (Resp (..))
 import StoreBackend.StreamMap (ConcreteStreamId, StreamMapError (..))
 import StoreBackend.StreamMap qualified as SM
@@ -77,6 +79,11 @@ valueToResp v = Array 2 [streamIdToResp v.streamId, arrayMap BulkStr $ vals v.va
 
 arrayKeyValsToResp :: (ByteString, [SM.Value ByteString ByteString]) -> Resp
 arrayKeyValsToResp (k, vs) = Array 2 [BulkStr k, arrayMap valueToResp vs]
+
+respToResult :: Resp -> Either String CommandResult
+respToResult (Str s) = Right $ RSimple s
+respToResult (Array 3 [BulkStr "REPLCONF", BulkStr "ACK", BulkStr n]) = RRepl . ReplConfAck <$> readIntBS n
+respToResult _ = error "TODO"
 
 -- error conversions
 

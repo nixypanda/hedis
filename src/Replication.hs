@@ -91,6 +91,7 @@ data ReplicaState = MkReplicaState
 data ReplicaConn = MkReplicaConn
     { rcSocket :: Socket
     , rcOffset :: TVar Int
+    , rcAuxCmdOffset :: TVar Int
     , rcQueue :: TQueue ByteString
     , rcSender :: Async ()
     }
@@ -152,6 +153,7 @@ initReplica :: TimedFastLogger -> MasterState -> Socket -> IO ()
 initReplica envLogger masterState rcSocket = do
     rcOffset <- newTVarIO (-1)
     rcQueue <- newTQueueIO
+    rcAuxCmdOffset <- newTVarIO 0
 
     rcSender <- async $ replicaSender envLogger rcSocket masterState.rdbFile rcQueue
     let rc = MkReplicaConn{..}
@@ -167,24 +169,17 @@ cleanupReplicaRegistry reg = do
 replicaSender :: TimedFastLogger -> Socket -> FilePath -> TQueue ByteString -> IO ()
 replicaSender envLogger sock rdbFile q = do
     -- Phase 1: RDB snapshot
-    let (logInfo, _) = loggingFuncs envLogger
-    logInfo "Sending RDB snapshot"
     rdbFileData <- readRdbFile rdbFile
     let respEncoded = "$" <> fromString (show $ BS.length rdbFileData) <> "\r\n" <> rdbFileData
     send sock respEncoded
-    logInfo "RDB snapshot sent"
 
     -- Phase 2: Write Command Propogation
     replicaSenderLoop envLogger sock q
 
 replicaSenderLoop :: TimedFastLogger -> Socket -> TQueue ByteString -> IO ()
 replicaSenderLoop envLogger sock q = do
-    let (logInfo, _) = loggingFuncs envLogger
-    logInfo "Waiting for write command"
     resp <- atomically $ readTQueue q
-    logInfo $ "Write command received " <> show resp
     send sock resp
-    logInfo $ "Sended write command " <> show sock
     replicaSenderLoop envLogger sock q
 
 readRdbFile :: FilePath -> IO ByteString

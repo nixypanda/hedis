@@ -82,6 +82,7 @@ data CmdReplication
     | CmdFullResync ByteString Int
     | CmdReplConfGetAck
     | CmdWait Int NominalDiffTime
+    | CmdReplConfAck Int
     deriving (Show, Eq)
 
 isWriteCmd :: CmdSTM -> Bool
@@ -164,6 +165,7 @@ respToCmd (Array 2 [BulkStr "INFO", BulkStr "replication"]) = pure $ RedInfo (Ju
 respToCmd (Array 3 [BulkStr "REPLCONF", BulkStr "listening-port", BulkStr port]) = RedRepl . CmdReplConfListen <$> readIntBS port
 respToCmd (Array 3 [BulkStr "REPLCONF", BulkStr "capa", BulkStr "psync2"]) = pure $ RedRepl CmdReplConfCapabilities
 respToCmd (Array 3 [BulkStr "REPLCONF", BulkStr "GETACK", BulkStr "*"]) = pure $ RedRepl CmdReplConfGetAck
+respToCmd (Array 3 [BulkStr "REPLCONF", BulkStr "ACK", BulkStr n]) = RedRepl . CmdReplConfAck <$> readIntBS n
 respToCmd (Array 3 [BulkStr "PSYNC", BulkStr sid, BulkStr offset]) = do
     offset' <- readIntBS offset
     pure $ RedRepl $ CmdPSync sid offset'
@@ -202,6 +204,7 @@ cmdToResp (RedRepl (CmdReplConfListen port)) =
 cmdToResp (RedRepl CmdReplConfCapabilities) = Array 3 [BulkStr "REPLCONF", BulkStr "capa", BulkStr "psync2"]
 cmdToResp (RedRepl (CmdPSync sId s)) = Array 3 [BulkStr "PSYNC", BulkStr sId, BulkStr $ fromString $ show s]
 cmdToResp (RedRepl (CmdFullResync sId s)) = Str $ BS.intercalate " " ["FULLRESYNC", sId, fromString $ show s]
+cmdToResp (RedRepl CmdReplConfGetAck) = Array 3 [BulkStr "REPLCONF", BulkStr "GETACK", BulkStr "*"]
 cmdToResp r = error $ "Not implemented: " <> show r
 
 cmdBytes :: Command -> Int

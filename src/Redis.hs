@@ -23,7 +23,15 @@ module Redis (
     clientLoopWrite,
 ) where
 
-import Control.Concurrent.STM (STM, TVar, atomically, modifyTVar, newTVarIO, readTVarIO, writeTVar)
+import Control.Concurrent.STM (
+    STM,
+    TVar,
+    atomically,
+    modifyTVar,
+    newTVarIO,
+    readTVarIO,
+    writeTVar,
+ )
 import Control.Exception (Exception)
 import Control.Monad (forM_, when)
 import Control.Monad.Except (ExceptT (..), MonadError (throwError), liftEither)
@@ -32,7 +40,7 @@ import Control.Monad.Reader (MonadReader (ask), ReaderT, asks)
 import Data.Bifunctor (Bifunctor (first))
 import Data.ByteString (ByteString)
 import Data.Kind (Type)
-import Data.List (singleton)
+import Data.List (find, singleton)
 import Data.String (fromString)
 import Data.Time (NominalDiffTime, UTCTime, getCurrentTime)
 import Network.Simple.TCP (Socket, recv, send)
@@ -50,13 +58,14 @@ import Text.Parsec (ParseError)
 
 import Command
 import CommandResult
-import Data.ByteString qualified as BS
+import Control.Concurrent (threadDelay)
 import Parsers (parseWithRemainder)
 import RDB (rdbParser)
 import Replication (
     MasterConfig,
     MasterState (..),
     ReplicaConfig,
+    ReplicaConn (..),
     ReplicaState (..),
     Replication (..),
     acceptReplica,
@@ -187,39 +196,37 @@ instance HasReplication Replica where
 
 -- Execution
 
-runCmd :: (HasStores r, HasReplication r, HasLogger r) => ClientState -> Command -> Redis r CommandResult
+runCmd :: (HasStores r, HasReplication r, HasLogger r) => ClientState -> Command -> Redis r (Maybe CommandResult)
 runCmd clientState cmd = do
     env <- ask
     now <- liftIO getCurrentTime
     txState <- liftIO $ readTVarIO clientState.txState
-    logInfo $ "Current client state " <> show txState
 
     case txState of
-        InTx cs -> case cmd of
-            RedSTM c -> liftIO $ atomically $ do
-                writeTVar clientState.txState (InTx $ c : cs)
-                pure $ RSimple "QUEUED"
-            RedTrans m -> case m of
-                Multi -> pure $ RErr $ RTxErr RMultiInMulti
-                Exec -> liftIO $ atomically $ executeQueuedCmds clientState env now cs
-                Discard -> liftIO $ atomically $ do
-                    writeTVar clientState.txState NoTx
-                    pure $ RSimple "OK"
-            _ -> pure $ RErr $ RTxErr RNotSupportedInTx
+        InTx cs ->
+            Just <$> case cmd of
+                RedSTM c -> liftIO $ atomically $ do
+                    writeTVar clientState.txState (InTx $ c : cs)
+                    pure $ RSimple "QUEUED"
+                RedTrans m -> case m of
+                    Multi -> pure $ RErr $ RTxErr RMultiInMulti
+                    Exec -> liftIO $ atomically $ executeQueuedCmds clientState env now cs
+                    Discard -> liftIO $ atomically $ do
+                        writeTVar clientState.txState NoTx
+                        pure $ RSimple "OK"
+                _ -> pure $ RErr $ RTxErr RNotSupportedInTx
         NoTx -> case cmd of
-            RedSTM cmd' -> do
-                res <- liftIO $ atomically $ runAndReplicate env now cmd'
-                logInfo $ "Running and replicating " <> show cmd' <> "result:" <> show res
-                pure res
-            RedIO cmd' -> runCmdIO cmd'
-            RedTrans txCmd -> case txCmd of
-                Exec -> pure $ RErr $ RTxErr RExecWithoutMulti
-                Discard -> pure $ RErr $ RTxErr RDiscardWithoutMulti
-                Multi -> liftIO $ atomically $ do
-                    modifyTVar clientState.txState (const $ InTx [])
-                    pure $ RSimple "OK"
+            RedSTM cmd' -> Just <$> liftIO (atomically $ runAndReplicate env now cmd')
+            RedIO cmd' -> Just <$> runCmdIO cmd'
+            RedTrans txCmd ->
+                Just <$> case txCmd of
+                    Exec -> pure $ RErr $ RTxErr RExecWithoutMulti
+                    Discard -> pure $ RErr $ RTxErr RDiscardWithoutMulti
+                    Multi -> liftIO $ atomically $ do
+                        modifyTVar clientState.txState (const $ InTx [])
+                        pure $ RSimple "OK"
             RedRepl c -> runReplicationCmds clientState c
-            RedInfo section -> runServerInfoCmds section
+            RedInfo section -> Just <$> runServerInfoCmds section
 
 runServerInfoCmds :: (MonadReader (Env r) m, HasReplication r, MonadIO m) => Maybe SubInfo -> m CommandResult
 runServerInfoCmds cmd = do
@@ -230,28 +237,74 @@ runServerInfoCmds cmd = do
             pure $ RBulk $ Just info
         _ -> error "not handled"
 
-runReplicationCmds :: (MonadReader (Env r1) m, HasReplication r1, MonadIO m, HasLogger r1) => ClientState -> CmdReplication -> m CommandResult
+runReplicationCmds :: (HasReplication r, HasLogger r) => ClientState -> CmdReplication -> Redis r (Maybe CommandResult)
 runReplicationCmds clientState cmd = do
     env <- ask
     case cmd of
-        CmdReplConfCapabilities -> pure $ RSimple "OK"
-        CmdReplConfListen _ -> pure $ RSimple "OK"
+        CmdReplConfCapabilities -> pure $ Just $ RSimple "OK"
+        CmdReplConfListen _ -> pure $ Just $ RSimple "OK"
         CmdPSync "?" (-1) -> case getReplication env of
             MkReplicationMaster masterState -> do
                 let rcSocket = clientState.socket
-                liftIO $ acceptReplica (getLogger env) masterState rcSocket
+                Just <$> liftIO (acceptReplica (getLogger env) masterState rcSocket)
             MkReplicationReplica _ -> error "called on replica" -- handle later
         CmdPSync _ _ -> error "not handled"
         CmdFullResync _ _ -> error "not handled"
         CmdReplConfGetAck -> do
             offset <- liftIO $ readTVarIO (getOffset env)
-            pure $ RRepl $ ReplConfAck offset
-        CmdWait _ _ -> do
-            case getReplication env of
+            pure $ Just $ RRepl $ ReplConfAck offset
+        CmdWait n tout -> Just <$> sendReplConfs clientState n tout
+        CmdReplConfAck offset -> do
+            logInfo $ "ACK offset=" <> show offset
+            logInfo $ "received on socket " <> show clientState.socket
+
+            _ <- case getReplication env of
                 MkReplicationMaster masterState -> do
                     registry <- liftIO $ readTVarIO masterState.replicaRegistry
-                    pure $ RInt $ length registry
-                MkReplicationReplica _ -> error "not handled"
+                    let findReplica = find (\r -> r.rcSocket == clientState.socket) registry
+                    case findReplica of
+                        Nothing -> error "f this shit how to figure it out"
+                        Just r -> do
+                            liftIO $ atomically $ writeTVar r.rcOffset offset
+                            pure ()
+                MkReplicationReplica _ -> error "called on replica"
+
+            pure Nothing
+
+sendReplConfs :: (HasReplication r) => ClientState -> Int -> NominalDiffTime -> Redis r CommandResult
+sendReplConfs _clientState n tout = do
+    env <- ask
+    case getReplication env of
+        MkReplicationMaster masterState -> do
+            registry <- liftIO $ readTVarIO masterState.replicaRegistry
+            targetOffset <- liftIO $ readTVarIO masterState.masterReplOffset
+
+            liftIO $ print $ "WAIT targetOffset=" <> show targetOffset <> " replicas=" <> show n <> " timeout=" <> show tout
+
+            -- trigger GETACK
+            liftIO $ forM_ registry $ \r ->
+                send r.rcSocket (encode $ cmdToResp $ RedRepl CmdReplConfGetAck)
+
+            -- The main server is already listening for commands so we just poll
+            let countAcked :: IO Int
+                countAcked = do
+                    offsets <- mapM (readTVarIO . rcOffset) registry
+                    pure $ length (filter (>= targetOffset) offsets)
+
+                poll :: IO Int
+                poll = do
+                    acked <- countAcked
+                    if acked >= n
+                        then pure acked
+                        else do
+                            threadDelay 1000
+                            poll
+
+            mres <- liftIO $ timeout' tout poll
+            acked <- liftIO $ maybe countAcked pure mres
+            pure $ RInt $ if targetOffset > 0 then acked else length registry
+        MkReplicationReplica _ ->
+            error "WAIT called on replica"
 
 executeQueuedCmds :: (HasStores r, HasReplication r) => ClientState -> Env r -> UTCTime -> [CmdSTM] -> STM CommandResult
 executeQueuedCmds clientState env now cmds = do
@@ -350,9 +403,7 @@ runReplication socket = do
             -- Ping
             let cmd1 = RedSTM CmdPing
             liftIO $ send socket $ encode $ cmdToResp cmd1
-            logInfo "Ping sent"
             (r1, buf1) <- liftIO $ recvResp1 socket mempty
-            logInfo $ show r1 <> show buf1
             case r1 of
                 Str s | s == "PONG" -> pure ()
                 other -> throwError $ HandshakeError $ InvalidReturn cmd1 "PONG" (fromString $ show other)
@@ -360,7 +411,6 @@ runReplication socket = do
             -- Replconf
             let cmd2 = RedRepl (CmdReplConfListen localPort)
             liftIO $ send socket $ encode $ cmdToResp cmd2
-            logInfo "ReplConfListen sent"
             (r2, buf2) <- liftIO $ recvResp1 socket buf1
             case r2 of
                 Str s | s == "OK" -> pure ()
@@ -369,7 +419,6 @@ runReplication socket = do
             -- Replconf capabilities
             let cmd3 = RedRepl CmdReplConfCapabilities
             liftIO $ send socket $ encode $ cmdToResp cmd3
-            logInfo "ReplConfCapabilities sent"
             (r3, buf3) <- liftIO $ recvResp1 socket buf2
             case r3 of
                 Str s | s == "OK" -> pure ()
@@ -381,7 +430,6 @@ runReplication socket = do
             let cmd4 = RedRepl $ CmdPSync knownMasterRepl' replicaOffset'
             liftIO $ send socket $ encode $ cmdToResp cmd4
             (r4, buf4) <- liftIO $ recvResp1 socket buf3
-            logInfo $ "Bytes processed - " <> show (BS.length buf4) <> " " <> show (BS.length buf3)
             case respToCmd r4 of
                 Right (RedRepl (CmdFullResync sid _)) -> liftIO . atomically $ do
                     writeTVar knownMasterRepl sid
@@ -399,7 +447,6 @@ runReplication socket = do
                     case parseWithRemainder rdbParser buf of
                         Right (rdb, rest) -> do
                             logInfo $ "Received RDB : " <> show rdb
-                            logInfo $ "Replication from master complete. Receiving new updates on " <> show socket
                             clientLoopDiscard MkClientState{..} socket rest
                         Left _ -> recvMore buf >>= go
 
@@ -420,21 +467,20 @@ recvResp1 sock = go
 
 -- Command execution
 
-processOne :: (HasLogger r, HasStores r, HasReplication r) => ClientState -> Resp -> Redis r CommandResult
+processOne :: (HasLogger r, HasStores r, HasReplication r) => ClientState -> Resp -> Redis r (Maybe CommandResult)
 processOne clientState resp = do
-    logDebug ("Decoded: " <> show resp)
     cmd <- liftEither $ first ConversionError $ respToCmd resp
-    logDebug ("Command: " <> show cmd)
-    result <- runCmd clientState cmd
-    logDebug ("Execution result: " <> show result)
-    pure result
+    runCmd clientState cmd
 
 processOneWrite :: (HasLogger r, HasStores r, HasReplication r) => ClientState -> Socket -> Resp -> Redis r ()
 processOneWrite clientState socket resp = do
     result <- processOne clientState resp
-    let encoded = encode (resultToResp result)
-    logInfo ("Encoded: " <> show encoded)
-    liftIO $ send socket encoded
+    case result of
+        Just result' -> do
+            let encoded = encode (resultToResp result')
+            liftIO $ send socket encoded
+            pure ()
+        Nothing -> pure ()
 
 clientLoopWrite :: (HasLogger r, HasStores r, HasReplication r) => ClientState -> Socket -> Redis r ()
 clientLoopWrite clientState socket = go mempty
@@ -460,27 +506,23 @@ clientLoopDiscard clientState socket buf = do
 
     case decodeMany buf of
         Left err -> do
-            logInfo $ "Error decoding: " <> show err
             throwError (ParsingError err)
         Right (resps, rest) -> do
-            logInfo $ "Processing " <> show buf
-            logInfo $ "Processed " <> show resps <> " left - " <> show rest
             forM_ resps $ \resp -> do
                 res <- processOne clientState resp
                 case res of
-                    RRepl cr -> case cr of
+                    Just r@(RRepl cr) -> case cr of
                         ReplOk -> pure ()
                         ReplConfAck _ -> do
                             liftIO $ atomically $ modifyTVar (getOffset env) (+ respBytes resp)
-                            let encoded = encode (resultToResp res)
+                            let encoded = encode (resultToResp r)
                             liftIO $ send socket encoded
-                    RSimple "PONG" -> do
+                    Just (RSimple "PONG") -> do
                         liftIO $ atomically $ modifyTVar (getOffset env) (+ respBytes resp)
                     _ -> pure ()
 
             mbs <- liftIO $ recv socket bufferSize
             bs <- maybe (throwError EmptyBuffer) pure mbs
-            logInfo $ "Received write command" <> show bs
             clientLoopDiscard clientState socket (rest <> bs)
 
 -- helpers
@@ -497,8 +539,3 @@ logInfo msg = do
             MkReplicationReplica _ -> "[ REPLICA ]"
 
     liftIO $ logger (\t -> toLogStr (show t <> prefix <> "[INFO] " <> msg <> "\n"))
-
-logDebug :: (MonadReader (Env r) m, MonadIO m, HasLogger r) => String -> m ()
-logDebug msg = do
-    logger <- asks getLogger
-    liftIO $ logger (\t -> toLogStr (show t <> "[DEBUG] " <> msg <> "\n"))
