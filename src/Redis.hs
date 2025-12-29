@@ -22,7 +22,7 @@ module Redis (
     TxState (..),
 ) where
 
-import Control.Concurrent.STM (STM, TVar, atomically, modifyTVar, readTVar, readTVarIO, writeTQueue, writeTVar)
+import Control.Concurrent.STM (STM, TVar, atomically, modifyTVar, readTVarIO, writeTVar)
 import Control.Exception (Exception)
 import Control.Monad.Except (ExceptT (..), MonadError, liftEither)
 import Control.Monad.IO.Class (MonadIO (liftIO))
@@ -31,7 +31,6 @@ import Data.Bifunctor (Bifunctor (first))
 import Data.ByteString (ByteString)
 import Data.Kind (Type)
 import Data.List (singleton)
-import Data.Map qualified as M
 import Data.String (fromString)
 import Data.Time (NominalDiffTime, UTCTime, getCurrentTime)
 import Network.Simple.TCP (Socket, recv, send)
@@ -68,12 +67,12 @@ import Replication (
     MasterConfig,
     MasterState (..),
     ReplicaConfig,
-    ReplicaConn (..),
     ReplicaState (..),
     Replication (..),
     acceptReplica,
     initMasterState,
     initReplicaState,
+    propagateWrite,
     replicationInfo,
  )
 import Resp (decode, encode)
@@ -252,17 +251,8 @@ runAndReplicate :: (HasReplication r, HasStores r) => Env r -> UTCTime -> CmdSTM
 runAndReplicate env now cmd = do
     res <- runCmdSTM env now cmd
     when (isWriteCmd cmd) $
-        propagateWrite env cmd
+        propagateWrite (getReplication env) cmd
     pure res
-
-propagateWrite :: (HasReplication r) => Env r -> CmdSTM -> STM ()
-propagateWrite env cmd =
-    case getReplication env of
-        MkReplicationMaster (MkMasterState{..}) -> do
-            registry <- readTVar replicaRegistry
-            mapM_ (\rc -> writeTQueue rc.rcQueue $ encode $ cmdToResp $ RedSTM cmd) (M.elems registry)
-        MkReplicationReplica _ ->
-            pure () -- replicas never propagate
 
 runCmdSTM :: (HasStores r) => Env r -> UTCTime -> CmdSTM -> STM CommandResult
 runCmdSTM env now cmd = do

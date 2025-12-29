@@ -18,12 +18,24 @@ module Replication (
     generateReplicaId,
     acceptReplica,
     cleanupReplicaRegistry,
+    propagateWrite,
 ) where
 
 import Control.Concurrent.Async (Async, async, cancel)
-import Control.Concurrent.STM (TVar, atomically, modifyTVar, newTQueueIO, readTQueue, readTVarIO, writeTVar)
-import Control.Concurrent.STM.TQueue (TQueue)
-import Control.Concurrent.STM.TVar (newTVarIO)
+import Control.Concurrent.STM (
+    STM,
+    TQueue,
+    TVar,
+    atomically,
+    modifyTVar,
+    newTQueueIO,
+    newTVarIO,
+    readTQueue,
+    readTVar,
+    readTVarIO,
+    writeTQueue,
+    writeTVar,
+ )
 import Control.Exception (Exception)
 import Control.Monad (replicateM)
 import Data.ByteString (ByteString)
@@ -35,7 +47,8 @@ import Data.String (fromString)
 import Network.Simple.TCP (Socket, send)
 import System.Random (randomRIO)
 
-import Command (CmdReplication (CmdFullResync), Command (RedRepl), CommandResult (RCmd))
+import Command (CmdReplication (CmdFullResync), CmdSTM, Command (..), CommandResult (RCmd), cmdToResp)
+import Resp (encode)
 
 -- CLI flags ──▶ ReplicationConfig
 --                 │
@@ -139,6 +152,15 @@ generateReplicaId =
     randomChar = do
         i <- randomRIO (0, length alphabet - 1)
         pure (fromIntegral $ ord $ alphabet !! i)
+
+propagateWrite :: Replication -> CmdSTM -> STM ()
+propagateWrite repli cmd =
+    case repli of
+        MkReplicationMaster (MkMasterState{..}) -> do
+            registry <- readTVar replicaRegistry
+            mapM_ (\rc -> writeTQueue rc.rcQueue $ encode $ cmdToResp $ RedSTM cmd) (M.elems registry)
+        MkReplicationReplica _ ->
+            pure () -- replicas never propagate
 
 acceptReplica :: MasterState -> Socket -> MasterAssignedReplicaId -> IO CommandResult
 acceptReplica masterState sock clientId = do
