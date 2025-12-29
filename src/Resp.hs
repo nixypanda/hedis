@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Resp (Resp (..), encode, decode, decodeMany) where
+module Resp (Resp (..), encode, decode, decodeMany, respsWithRemainder) where
 
 import Control.Monad (replicateM)
 import Data.ByteString (ByteString)

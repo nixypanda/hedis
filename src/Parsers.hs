@@ -4,6 +4,7 @@ module Parsers (
     bytes,
     signedIntParser,
     signedFloatParser,
+    intParser,
     readIntBS,
     readFloatBS,
     readXAddStreamId,

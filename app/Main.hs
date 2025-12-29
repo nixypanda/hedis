@@ -4,6 +4,7 @@
 
 module Main (main) where
 
+import Control.Concurrent (forkIO)
 import Control.Monad.Except (runExceptT)
 import Control.Monad.Reader (ReaderT (runReaderT))
 import GHC.Conc (newTVarIO)
@@ -37,7 +38,7 @@ runReplica env port replicaOf = do
     let (logInfo', logError') = loggingFuncs (getLogger env)
     logInfo' $ "Starting replica server on port " <> show port
 
-    connect replicaOf.masterHost (show replicaOf.masterPort) $ \(sock, _) -> do
+    _ <- forkIO $ connect replicaOf.masterHost (show replicaOf.masterPort) $ \(sock, _) -> do
         logInfo' $ "Connected to master " <> "on (" <> show replicaOf.masterHost <> ":" <> show replicaOf.masterPort <> ")"
         errOrRes <- runExceptT $ runReaderT (runRedis $ runReplication sock) env
         case errOrRes of
@@ -49,7 +50,7 @@ runReplica env port replicaOf = do
         logInfo' $ "successfully connected client: " ++ show address
         txState <- newTVarIO NoTx
         let clientState = MkClientState{..}
-        errOrRes <- runExceptT $ runReaderT (runRedis $ clientLoopDiscard clientState socket) env
+        errOrRes <- runExceptT $ runReaderT (runRedis $ clientLoopWrite clientState socket) env
         case errOrRes of
             Left EmptyBuffer -> logInfo' "Client closed connection"
             Left err -> logError' $ show err
