@@ -47,7 +47,8 @@ import Data.String (fromString)
 import Network.Simple.TCP (Socket, send)
 import System.Random (randomRIO)
 
-import Command (CmdReplication (CmdFullResync), CmdSTM, Command (..), CommandResult (RCmd), cmdToResp)
+import Command (CmdReplication (CmdFullResync), CmdSTM, Command (..), cmdToResp)
+import CommandResult (CommandResult (..))
 import Resp (encode)
 
 -- CLI flags ──▶ ReplicationConfig
