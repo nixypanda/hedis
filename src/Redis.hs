@@ -243,7 +243,8 @@ runReplicationCmds clientState cmd = do
         CmdPSync _ _ -> error "not handled"
         CmdFullResync _ _ -> error "not handled"
         CmdReplConfGetAck -> do
-            pure $ RRepl $ ReplConfAck 0
+            offset <- liftIO $ readTVarIO (getOffset env)
+            pure $ RRepl $ ReplConfAck offset
 
 executeQueuedCmds :: (HasStores r, HasReplication r) => ClientState -> Env r -> UTCTime -> [CmdSTM] -> STM CommandResult
 executeQueuedCmds clientState env now cmds = do
