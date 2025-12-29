@@ -70,7 +70,6 @@ runServer env port = do
     serve HostAny (show port) $ \(socket, address) -> do
         logInfo' $ "successfully connected client: " ++ show address
         txState <- newTVarIO NoTx
-        clientId <- generateReplicaId
         let clientState = MkClientState{..}
         errOrRes <- runExceptT $ runReaderT (runRedis $ clientLoop clientState socket) env
         case errOrRes of

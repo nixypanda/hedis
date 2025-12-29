@@ -50,7 +50,6 @@ import Command
 import CommandResult
 import Control.Monad (when)
 import Replication (
-    MasterAssignedReplicaId,
     MasterConfig,
     MasterState (..),
     ReplicaConfig,
@@ -134,7 +133,6 @@ mkReplicaEnv rc = EnvReplica <$> mkCommonEnv <*> pure (initReplicaState rc)
 data ClientState = MkClientState
     { txState :: TVar TxState
     , socket :: Socket
-    , clientId :: MasterAssignedReplicaId
     }
 
 newtype Redis r a = MkRedis {runRedis :: ReaderT (Env r) (ExceptT RedisError IO) a}
@@ -221,8 +219,7 @@ runReplicationCmds clientState cmd = do
         CmdPSync "?" (-1) -> case getReplication env of
             MkReplicationMaster masterState -> do
                 let rcSocket = clientState.socket
-                    clientId = clientState.clientId
-                liftIO $ acceptReplica masterState rcSocket clientId
+                liftIO $ acceptReplica masterState rcSocket
             MkReplicationReplica _ -> error "called on replica" -- handle later
         CmdPSync _ _ -> error "not handled"
         CmdFullResync _ _ -> error "not handled"
