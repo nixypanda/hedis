@@ -11,6 +11,9 @@ module Command (
     isWriteCmd,
     respToCmd,
     cmdToResp,
+    cmdBytes,
+    cmdSTMBytes,
+    respBytes,
 ) where
 
 import Data.ByteString (ByteString)
@@ -30,7 +33,7 @@ import Parsers (
     readXRange,
     readXReadStreamId,
  )
-import Resp (Resp (..))
+import Resp (Resp (..), encode)
 import StoreBackend.ListMap (Range (..))
 import StoreBackend.StreamMap (ConcreteStreamId, XAddStreamId, XRange, XReadStreamId (..))
 import Time (millisToNominalDiffTime, nominalDiffTimeToMillis)
@@ -200,3 +203,12 @@ cmdToResp (RedRepl CmdReplConfCapabilities) = Array 3 [BulkStr "REPLCONF", BulkS
 cmdToResp (RedRepl (CmdPSync sId s)) = Array 3 [BulkStr "PSYNC", BulkStr sId, BulkStr $ fromString $ show s]
 cmdToResp (RedRepl (CmdFullResync sId s)) = Str $ BS.intercalate " " ["FULLRESYNC", sId, fromString $ show s]
 cmdToResp r = error $ "Not implemented: " <> show r
+
+cmdBytes :: Command -> Int
+cmdBytes = respBytes . cmdToResp
+
+cmdSTMBytes :: CmdSTM -> Int
+cmdSTMBytes = respBytes . cmdToResp . RedSTM
+
+respBytes :: Resp -> Int
+respBytes = BS.length . encode

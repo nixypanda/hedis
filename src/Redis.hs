@@ -245,9 +245,7 @@ runReplicationCmds clientState cmd = do
         CmdFullResync _ _ -> error "not handled"
         CmdReplConfGetAck -> do
             offset <- liftIO $ readTVarIO (getOffset env)
-            -- HACK: We have processed the command, but Redis expects that this
-            -- command is not factored in. So we remove its size from the result
-            pure $ RRepl $ ReplConfAck (offset - 37)
+            pure $ RRepl $ ReplConfAck offset
         CmdWait _ _ -> do
             case getReplication env of
                 MkReplicationMaster masterState -> do
@@ -264,8 +262,9 @@ executeQueuedCmds clientState env now cmds = do
 runAndReplicate :: (HasReplication r, HasStores r) => Env r -> UTCTime -> CmdSTM -> STM CommandResult
 runAndReplicate env now cmd = do
     res <- runCmdSTM env now cmd
-    when (isWriteCmd cmd) $
+    when (isWriteCmd cmd) $ do
         propagateWrite (getReplication env) cmd
+        modifyTVar (getOffset env) (+ cmdSTMBytes cmd)
     pure res
 
 runCmdSTM :: (HasStores r) => Env r -> UTCTime -> CmdSTM -> STM CommandResult
@@ -466,15 +465,17 @@ clientLoopDiscard clientState socket buf = do
         Right (resps, rest) -> do
             logInfo $ "Processing " <> show buf
             logInfo $ "Processed " <> show resps <> " left - " <> show rest
-            _ <- liftIO $ atomically $ modifyTVar (getOffset env) (+ (BS.length buf - BS.length rest))
             forM_ resps $ \resp -> do
                 res <- processOne clientState resp
                 case res of
                     RRepl cr -> case cr of
                         ReplOk -> pure ()
                         ReplConfAck _ -> do
+                            liftIO $ atomically $ modifyTVar (getOffset env) (+ respBytes resp)
                             let encoded = encode (resultToResp res)
                             liftIO $ send socket encoded
+                    RSimple "PONG" -> do
+                        liftIO $ atomically $ modifyTVar (getOffset env) (+ respBytes resp)
                     _ -> pure ()
 
             mbs <- liftIO $ recv socket bufferSize
