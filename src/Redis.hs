@@ -62,6 +62,7 @@ import Command (
     respToCmd,
     resultToResp,
  )
+import Control.Monad (when)
 import Replication (
     MasterAssignedReplicaId,
     MasterConfig,
@@ -194,17 +195,6 @@ runCmd clientState cmd = do
     now <- liftIO getCurrentTime
     txState <- liftIO $ readTVarIO clientState.txState
 
-    let
-        queueCmd :: CmdSTM -> STM ()
-        queueCmd cmd' = do
-            let replication = getReplication env
-            case replication of
-                MkReplicationMaster (MkMasterState{..}) -> do
-                    registry <- readTVar replicaRegistry
-                    mapM_ (\rc -> writeTQueue rc.rcQueue $ encode $ cmdToResp $ RedSTM cmd') (M.elems registry)
-                MkReplicationReplica _ -> do
-                    error "fuck this shti"
-
     case txState of
         InTx cs -> case cmd of
             RedSTM c -> liftIO $ atomically $ do
@@ -215,21 +205,14 @@ runCmd clientState cmd = do
                 Exec -> liftIO $ atomically $ do
                     vals <- mapM (runCmdSTM env now) (reverse cs)
                     modifyTVar clientState.txState (const NoTx)
-                    mapM_ queueCmd $ filter isWriteCmd cs
+                    mapM_ (runAndReplicate env now) cs
                     pure $ RArray vals
                 Discard -> liftIO $ atomically $ do
                     writeTVar clientState.txState NoTx
                     pure $ RSimple "OK"
             _ -> pure $ RErr $ RTxErr RNotSupportedInTx
         NoTx -> case cmd of
-            RedSTM cmd' -> do
-                liftIO $ atomically $ do
-                    res <- runCmdSTM env now cmd'
-                    if isWriteCmd cmd'
-                        then do
-                            queueCmd cmd'
-                            pure res
-                        else pure res
+            RedSTM cmd' -> liftIO $ atomically $ runAndReplicate env now cmd'
             RedIO cmd' -> runCmdIO cmd'
             RedTrans txCmd -> case txCmd of
                 Exec -> pure $ RErr $ RTxErr RExecWithoutMulti
@@ -250,6 +233,22 @@ runCmd clientState cmd = do
                     MkReplicationReplica _ -> error "called on replica" -- handle later
                 CmdPSync _ _ -> error "not handled"
                 CmdFullResync _ _ -> error "not handled"
+
+runAndReplicate :: (HasReplication r, HasStores r) => Env r -> UTCTime -> CmdSTM -> STM CommandResult
+runAndReplicate env now cmd = do
+    res <- runCmdSTM env now cmd
+    when (isWriteCmd cmd) $
+        propagateWrite env cmd
+    pure res
+
+propagateWrite :: (HasReplication r) => Env r -> CmdSTM -> STM ()
+propagateWrite env cmd =
+    case getReplication env of
+        MkReplicationMaster (MkMasterState{..}) -> do
+            registry <- readTVar replicaRegistry
+            mapM_ (\rc -> writeTQueue rc.rcQueue $ encode $ cmdToResp $ RedSTM cmd) (M.elems registry)
+        MkReplicationReplica _ ->
+            pure () -- replicas never propagate
 
 runCmdSTM :: (HasStores r) => Env r -> UTCTime -> CmdSTM -> STM CommandResult
 runCmdSTM env now cmd = do
