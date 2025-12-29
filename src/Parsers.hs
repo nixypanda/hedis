@@ -11,6 +11,7 @@ module Parsers (
     readXRange,
     readXReadStreamId,
     readConcreteStreamId,
+    parseWithRemainder,
 ) where
 
 import Control.Applicative ((<|>))
@@ -33,15 +34,18 @@ import Text.Parsec (
     char,
     digit,
     eof,
+    getInput,
     lookAhead,
     many1,
     manyTill,
     option,
     optionMaybe,
     parse,
+    runParser,
     spaces,
  )
 import Text.Parsec.ByteString (Parser)
+import Text.Parsec.Error (ParseError)
 
 bytes :: Parser ByteString
 bytes = fromString <$> manyTill anyChar (lookAhead (char '\r'))
@@ -140,3 +144,9 @@ readConcreteStreamId = parseBS concreteStreamIdParser
 
 readXReadStreamId :: ByteString -> Either String XReadStreamId
 readXReadStreamId = parseBS xReadStreamIdParser
+
+parseWithRemainder :: Parser a -> ByteString -> Either ParseError (a, ByteString)
+parseWithRemainder p bs =
+    case runParser ((,) <$> p <*> getInput) () "" bs of
+        Left e -> Left e
+        Right r -> Right r

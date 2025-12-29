@@ -15,7 +15,6 @@ module Redis (
     HasStores (..),
     HasReplication (..),
     ClientState (..),
-    handleRequest,
     mkMasterEnv,
     mkReplicaEnv,
     runReplication,
@@ -48,10 +47,11 @@ import System.Log.FastLogger (
     simpleTimeFormat,
  )
 import System.Timeout (timeout)
-import Text.Parsec (ParseError, getInput, runParser)
+import Text.Parsec (ParseError)
 
 import Command
 import CommandResult
+import Parsers (parseWithRemainder)
 import RDB (rdbParser)
 import Replication (
     MasterConfig,
@@ -65,7 +65,7 @@ import Replication (
     propagateWrite,
     replicationInfo,
  )
-import Resp (Resp (..), decode, decodeMany, encode)
+import Resp (Resp (..), decodeMany, encode)
 import Store.ListStore (ListStore)
 import Store.ListStore qualified as LS
 import Store.StreamStore (StreamStore)
@@ -75,7 +75,6 @@ import Store.StringStore qualified as SS
 import Store.TypeStore (IncorrectType, TypeIndex)
 import Store.TypeStore qualified as TS
 import StoreBackend.TypeIndex (ValueType (..))
-import Text.Parsec.ByteString (Parser)
 import Time (nominalDiffTimeToMicros)
 
 -- Types
@@ -88,7 +87,12 @@ data RedisError
     | ConversionError String
     | InvalidCommand String
     | WrongType IncorrectType
+    | HandshakeError HandshakeError
     deriving (Show, Exception)
+
+data HandshakeError
+    = InvalidReturn Command ByteString ByteString
+    deriving (Show, Eq)
 
 -- Transactions
 
@@ -326,49 +330,60 @@ runReplication socket = do
     env <- ask
     case env of
         EnvReplica _ (MkReplicaState{..}) -> do
-            -- replInfo <- asks (.replication)
-            liftIO $ send socket $ encode $ cmdToResp $ RedSTM CmdPing
+            -- Ping
+            let cmd1 = RedSTM CmdPing
+            liftIO $ send socket $ encode $ cmdToResp cmd1
             logInfo "Ping sent"
             (r1, buf1) <- liftIO $ recvResp1 socket mempty
             logInfo $ show r1 <> show buf1
-            liftIO $ expectSimple "PONG" r1
+            case r1 of
+                Str s | s == "PONG" -> pure ()
+                other -> throwError $ HandshakeError $ InvalidReturn cmd1 "PONG" (fromString $ show other)
             logInfo "PONG receieved"
 
-            liftIO $ send socket $ encode $ cmdToResp $ RedRepl (CmdReplConfListen localPort)
+            -- Replconf
+            let cmd2 = RedRepl (CmdReplConfListen localPort)
+            liftIO $ send socket $ encode $ cmdToResp cmd2
             logInfo "ReplConfListen sent"
             (r2, buf2) <- liftIO $ recvResp1 socket buf1
-            liftIO $ expectSimple "OK" r2
+            case r2 of
+                Str s | s == "OK" -> pure ()
+                other -> throwError $ HandshakeError $ InvalidReturn cmd2 "OK" (fromString $ show other)
             logInfo "OK received"
 
-            liftIO $ send socket $ encode $ cmdToResp $ RedRepl CmdReplConfCapabilities
+            -- Replconf capabilities
+            let cmd3 = RedRepl CmdReplConfCapabilities
+            liftIO $ send socket $ encode $ cmdToResp cmd3
             logInfo "ReplConfCapabilities sent"
             (r3, buf3) <- liftIO $ recvResp1 socket buf2
-            liftIO $ expectSimple "OK" r3
+            case r3 of
+                Str s | s == "OK" -> pure ()
+                other -> throwError $ HandshakeError $ InvalidReturn cmd3 "OK" (fromString $ show other)
             logInfo "OK received"
 
-            liftIO $ send socket $ encode $ cmdToResp $ RedRepl $ CmdPSync "?" (-1)
+            -- Psync
+            let cmd4 = RedRepl $ CmdPSync "?" (-1)
+            liftIO $ send socket $ encode $ cmdToResp cmd4
             (r4, buf4) <- liftIO $ recvResp1 socket buf3
-            liftIO $ expectFullResync r4
+            case r4 of
+                Str s | "FULLRESYNC" `BS.isPrefixOf` s -> pure ()
+                other -> throwError $ HandshakeError $ InvalidReturn cmd4 "FULLRESYNC <repli_id> 0" (fromString $ show other)
 
             logInfo $ "Handshake complete. Waiting for RDB" <> show socket
             txState <- liftIO $ newTVarIO NoTx
-            logInfo $ "Replication from master complete. Receiving new updates on " <> show socket
 
             let recvMore buf = do
                     bs <- liftIO (recv socket 4096) >>= maybe (throwError EmptyBuffer) pure
                     pure (buf <> bs)
-            let go buf = do
+
+                go buf = do
                     case parseWithRemainder rdbParser buf of
-                        Right (_rdb, rest) -> clientLoopDiscard MkClientState{..} socket rest
+                        Right (_rdb, rest) -> do
+                            logInfo $ "Replication from master complete. Receiving new updates on " <> show socket
+                            clientLoopDiscard MkClientState{..} socket rest
                         Left _ -> recvMore buf >>= go
 
             go buf4
-
-parseWithRemainder :: Parser a -> BS.ByteString -> Either ParseError (a, BS.ByteString)
-parseWithRemainder p bs =
-    case runParser ((,) <$> p <*> getInput) () "" bs of
-        Left e -> Left e
-        Right r -> Right r
 
 recvResp1 :: Socket -> ByteString -> IO (Resp, ByteString)
 recvResp1 sock = go
@@ -383,33 +398,7 @@ recvResp1 sock = go
         bs <- recv sock 64 >>= maybe (fail "EOF") pure
         go (acc <> bs)
 
-expectSimple :: ByteString -> Resp -> IO ()
-expectSimple expected r = case r of
-    Str s | s == expected -> pure ()
-    other -> fail $ "Unexpected reply: " <> show other
-
-expectFullResync :: Resp -> IO ()
-expectFullResync r = case r of
-    Str s | "FULLRESYNC" `BS.isPrefixOf` s -> pure ()
-    other -> fail $ "Expected FULLRESYNC, got " <> show other
-
 -- Command execution
-
-handleRequest :: (HasLogger r, HasStores r, HasReplication r) => ClientState -> ByteString -> Redis r ByteString
-handleRequest clientState bs = do
-    txState <- liftIO $ readTVarIO clientState.txState
-    logInfo ("Client State: " <> show txState)
-    logInfo ("Received: " <> show bs)
-    resp <- liftEither $ first ParsingError $ decode bs
-    logDebug ("Decoded: " <> show resp)
-    cmd <- liftEither $ first ConversionError $ respToCmd resp
-    logDebug ("Command: " <> show cmd)
-    result <- runCmd clientState cmd
-    logDebug ("Execution result: " <> show result)
-    let resultResp = resultToResp result
-        encoded = encode resultResp
-    logInfo ("Encoded: " <> show encoded)
-    pure encoded
 
 processOne :: (HasLogger r, HasStores r, HasReplication r) => ClientState -> Resp -> Redis r CommandResult
 processOne clientState resp = do
