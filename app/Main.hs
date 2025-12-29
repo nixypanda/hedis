@@ -14,6 +14,7 @@ import System.IO (BufferMode (NoBuffering), hSetBuffering, stderr, stdout)
 import System.Log.FastLogger (LogStr, toLogStr)
 
 import Cli
+import Control.Exception (throwIO)
 import Redis
 import Replication
 
@@ -35,44 +36,41 @@ main = do
 
 runReplica :: Env Replica -> Int -> ReplicaOf -> IO ()
 runReplica env port replicaOf = do
-    let (logInfo', logError') = loggingFuncs (getLogger env)
+    let (logInfo', _) = loggingFuncs (getLogger env)
     logInfo' $ "Starting replica server on port " <> show port
 
     _ <- forkIO $ connect replicaOf.masterHost (show replicaOf.masterPort) $ \(sock, _) -> do
         logInfo' $ "Connected to master " <> "on (" <> show replicaOf.masterHost <> ":" <> show replicaOf.masterPort <> ")"
-        errOrRes <- runExceptT $ runReaderT (runRedis $ runReplication sock) env
-        case errOrRes of
-            Left EmptyBuffer -> logInfo' "Client closed connection"
-            Left err -> logError' $ show err
-            Right _ -> pure ()
+        runRedisIO env (runReplication sock)
 
     serve HostAny (show port) $ \(socket, address) -> do
         logInfo' $ "successfully connected client: " ++ show address
         txState <- newTVarIO NoTx
         let clientState = MkClientState{..}
-        errOrRes <- runExceptT $ runReaderT (runRedis $ clientLoopWrite clientState socket) env
-        case errOrRes of
-            Left EmptyBuffer -> logInfo' "Client closed connection"
-            Left err -> logError' $ show err
-            Right _ -> pure ()
+        runRedisIO env (clientLoopWrite clientState socket)
         logInfo' "Closing connection"
         closeSock socket
 
 runMaster :: Env Master -> Int -> IO ()
 runMaster env port = do
-    let (logInfo', logError') = loggingFuncs (getLogger env)
+    let (logInfo', _) = loggingFuncs (getLogger env)
     logInfo' $ "Starting master server on port " <> show port
     serve HostAny (show port) $ \(socket, address) -> do
         logInfo' $ "successfully connected client: " ++ show address
         txState <- newTVarIO NoTx
         let clientState = MkClientState{..}
-        errOrRes <- runExceptT $ runReaderT (runRedis $ clientLoopWrite clientState socket) env
-        case errOrRes of
-            Left EmptyBuffer -> logInfo' "Client closed connection"
-            Left err -> logError' $ show err
-            Right _ -> pure ()
+        runRedisIO env (clientLoopWrite clientState socket)
         logInfo' "Closing connection"
         closeSock socket
+
+runRedisIO :: (HasLogger r) => Env r -> Redis r a -> IO ()
+runRedisIO env act = do
+    let (logInfo, _) = loggingFuncs (getLogger env)
+    res <- runExceptT $ runReaderT (runRedis act) env
+    case res of
+        Left EmptyBuffer -> logInfo "Client closed connection"
+        Left err -> throwIO err
+        Right _ -> pure ()
 
 loggingFuncs :: (Show a) => ((a -> LogStr) -> t) -> (String -> t, String -> t)
 loggingFuncs envLogger =
