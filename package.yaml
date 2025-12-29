@@ -7,18 +7,19 @@ default-extensions:
   - RecordWildCards
   - OverloadedRecordDot
 
+ghc-options:
+  - -Wall
+  - -Wcompat
+  - -Widentities
+  - -Wincomplete-record-updates
+  - -Wincomplete-uni-patterns
+  - -Wmissing-export-lists
+  - -Wmissing-home-modules
+  - -Wpartial-fields
+  - -Wredundant-constraints
+
 library:
   source-dirs: src
-  ghc-options:
-    - -Wall
-    - -Wcompat
-    - -Widentities
-    - -Wincomplete-record-updates
-    - -Wincomplete-uni-patterns
-    - -Wmissing-export-lists
-    - -Wmissing-home-modules
-    - -Wpartial-fields
-    - -Wredundant-constraints
   dependencies:
     - base >= 4.18 && < 5
     - bytestring

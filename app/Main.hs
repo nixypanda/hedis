@@ -4,60 +4,17 @@
 
 module Main (main) where
 
-import Control.Monad.Except (MonadError (throwError), liftEither, runExceptT)
-import Control.Monad.Reader (MonadReader, ReaderT (runReaderT), asks)
-import GHC.Conc (TVar, newTVarIO)
+import Control.Monad.Except (MonadError (throwError), runExceptT)
+import Control.Monad.Reader (ReaderT (runReaderT))
+import GHC.Conc (newTVarIO)
 import Network.Simple.TCP (HostPreference (HostAny), Socket, closeSock, connect, recv, send, serve)
-import Options.Applicative
+import Options.Applicative (execParser)
 import System.IO (BufferMode (NoBuffering), hSetBuffering, stderr, stdout)
 import System.Log.FastLogger (LogStr, toLogStr)
-import System.Log.FastLogger.Date (simpleTimeFormat)
 
+import Cli
 import Redis
 import Replication
-
--- CLI parsing
-
-data CliOptions = MkCliOptions
-    { port :: Int
-    , replicaOf :: Maybe ReplicaOf
-    }
-
-optsParser :: Parser CliOptions
-optsParser = MkCliOptions <$> portParser <*> replicaOfParser
-
-portParser :: Parser Int
-portParser =
-    option
-        auto
-        ( long "port"
-            <> metavar "PORT"
-            <> value 6379
-            <> showDefault
-            <> help "Port to listen on"
-        )
-
-replicaOfParser :: Parser (Maybe ReplicaOf)
-replicaOfParser =
-    optional $
-        option
-            (eitherReader parseReplicaOf)
-            ( long "replicaof"
-                <> metavar "\"HOST PORT\""
-                <> help "Make this server a replica of the given master"
-            )
-
-parseReplicaOf :: String -> Either String ReplicaOf
-parseReplicaOf s =
-    case words s of
-        [host, portStr] ->
-            case reads portStr of
-                [(port, "")] -> Right (MkReplicaOf host port)
-                _ -> Left "Invalid master port"
-        _ -> Left "Expected \"<host> <port>\""
-
-redis :: ParserInfo CliOptions
-redis = info (optsParser <**> helper) (fullDesc <> progDesc "Hedis (A Redis toy-clone)")
 
 -- network
 
@@ -79,10 +36,7 @@ main = do
     -- Disable output buffering
     hSetBuffering stdout NoBuffering
     hSetBuffering stderr NoBuffering
-    cli <- execParser redis
-    let replicationConfig = case cli.replicaOf of
-            Nothing -> RCMaster ()
-            Just ro -> RCReplica $ MkReplicaConfig ro cli.port
+    cli <- execParser cliArgsParser
     case cli.replicaOf of
         Nothing -> do
             env <- mkMasterEnv ()
