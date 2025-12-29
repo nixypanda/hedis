@@ -4,7 +4,8 @@
 
 module Main (main) where
 
-import Control.Concurrent (forkIO)
+import Control.Concurrent.Async (async, link)
+import Control.Exception (throwIO)
 import Control.Monad.Except (runExceptT)
 import Control.Monad.Reader (ReaderT (runReaderT))
 import GHC.Conc (newTVarIO)
@@ -14,7 +15,6 @@ import System.IO (BufferMode (NoBuffering), hSetBuffering, stderr, stdout)
 import System.Log.FastLogger (LogStr, toLogStr)
 
 import Cli
-import Control.Exception (throwIO)
 import Redis
 import Replication
 
@@ -39,7 +39,7 @@ runReplica env port replicaOf = do
     let (logInfo', _) = loggingFuncs (getLogger env)
     logInfo' $ "Starting replica server on port " <> show port
 
-    _ <- forkIO $ connect replicaOf.masterHost (show replicaOf.masterPort) $ \(sock, _) -> do
+    _ <- async $ connect replicaOf.masterHost (show replicaOf.masterPort) $ \(sock, _) -> do
         logInfo' $ "Connected to master " <> "on (" <> show replicaOf.masterHost <> ":" <> show replicaOf.masterPort <> ")"
         runRedisIO env (runReplication sock)
 

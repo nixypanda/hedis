@@ -48,6 +48,7 @@ executables:
       - network-simple
       - fast-logger
       - optparse-applicative
+      - async
 
 tests:
   codecrafters-redis-test:
