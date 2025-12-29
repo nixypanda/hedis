@@ -183,6 +183,7 @@ runCmd clientState cmd = do
     env <- ask
     now <- liftIO getCurrentTime
     txState <- liftIO $ readTVarIO clientState.txState
+    logInfo $ "Current client state " <> show txState
 
     case txState of
         InTx cs -> case cmd of
@@ -234,9 +235,8 @@ runReplicationCmds clientState cmd = do
 
 executeQueuedCmds :: (HasStores r, HasReplication r) => ClientState -> Env r -> UTCTime -> [CmdSTM] -> STM CommandResult
 executeQueuedCmds clientState env now cmds = do
-    vals <- mapM (runCmdSTM env now) (reverse cmds)
+    vals <- mapM (runAndReplicate env now) (reverse cmds)
     modifyTVar clientState.txState (const NoTx)
-    mapM_ (runAndReplicate env now) cmds
     pure $ RArray vals
 
 runAndReplicate :: (HasReplication r, HasStores r) => Env r -> UTCTime -> CmdSTM -> STM CommandResult
