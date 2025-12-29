@@ -317,7 +317,7 @@ runCmdSTM env now cmd = do
             vals <- StS.xReadSTM tvStreamMap keys
             pure $ RArrayKeyValues vals
 
-runCmdIO :: (HasStores r) => CmdIO -> Redis r CommandResult
+runCmdIO :: (MonadReader (Env r) m, HasStores r, MonadIO m) => CmdIO -> m CommandResult
 runCmdIO cmd = do
     tvListMap <- asks (listStore . getStores)
     tvStreamMap <- asks (streamStore . getStores)
