@@ -4,7 +4,7 @@
 
 module Main (main) where
 
-import Control.Concurrent.Async (async, link)
+import Control.Concurrent.Async (async)
 import Control.Exception (throwIO)
 import Control.Monad.Except (runExceptT)
 import Control.Monad.Reader (ReaderT (runReaderT))

@@ -83,11 +83,10 @@ data MasterState = MkMasterState
 
 data ReplicaState = MkReplicaState
     { masterInfo :: ReplicaOf
-    , knownMasterRepl :: ByteString
-    , replicaOffset :: Int
+    , knownMasterRepl :: TVar ByteString
+    , replicaOffset :: TVar Int
     , localPort :: Int
     }
-    deriving (Show)
 
 data ReplicaConn = MkReplicaConn
     { rcSocket :: Socket
@@ -115,14 +114,11 @@ initMasterState _ = do
             , rdbFile = "./master.rdb"
             }
 
-initReplicaState :: ReplicaConfig -> ReplicaState
-initReplicaState MkReplicaConfig{..} =
-    MkReplicaState
-        { masterInfo = masterInfo
-        , localPort = localPort
-        , replicaOffset = -1
-        , knownMasterRepl = "?"
-        }
+initReplicaState :: ReplicaConfig -> IO ReplicaState
+initReplicaState MkReplicaConfig{..} = do
+    replicaOffset <- newTVarIO (-1)
+    knownMasterRepl <- newTVarIO "?"
+    pure $ MkReplicaState{..}
 
 replicationInfo :: Replication -> ByteString
 replicationInfo (MkReplicationMaster (MkMasterState{..})) =

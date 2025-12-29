@@ -56,7 +56,10 @@
       in
       {
         devShells.default = pkgs.mkShell {
-          buildInputs = myDevTools ++ [ pkgs.redis ];
+          buildInputs = myDevTools ++ [
+            pkgs.redis
+            pkgs.codecrafters-cli
+          ];
 
           # Make external Nix c libraries like zlib known to GHC, like
           # pkgs.haskell.lib.buildStackProject does

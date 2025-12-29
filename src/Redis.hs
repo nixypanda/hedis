@@ -25,7 +25,7 @@ module Redis (
 
 import Control.Concurrent.STM (STM, TVar, atomically, modifyTVar, newTVarIO, readTVarIO, writeTVar)
 import Control.Exception (Exception)
-import Control.Monad (when)
+import Control.Monad (forM_, when)
 import Control.Monad.Except (ExceptT (..), MonadError (throwError), liftEither)
 import Control.Monad.IO.Class (MonadIO (liftIO))
 import Control.Monad.Reader (MonadReader (ask), ReaderT, asks)
@@ -137,7 +137,7 @@ mkMasterEnv :: MasterConfig -> IO (Env Master)
 mkMasterEnv mc = EnvMaster <$> mkCommonEnv <*> initMasterState mc
 
 mkReplicaEnv :: ReplicaConfig -> IO (Env Replica)
-mkReplicaEnv rc = EnvReplica <$> mkCommonEnv <*> pure (initReplicaState rc)
+mkReplicaEnv rc = EnvReplica <$> mkCommonEnv <*> initReplicaState rc
 
 data ClientState = MkClientState
     { txState :: TVar TxState
@@ -236,6 +236,7 @@ runReplicationCmds clientState cmd = do
             MkReplicationReplica _ -> error "called on replica" -- handle later
         CmdPSync _ _ -> error "not handled"
         CmdFullResync _ _ -> error "not handled"
+        CmdReplConfGetAck -> pure $ RRepl $ ReplConfAck 0
 
 executeQueuedCmds :: (HasStores r, HasReplication r) => ClientState -> Env r -> UTCTime -> [CmdSTM] -> STM CommandResult
 executeQueuedCmds clientState env now cmds = do
@@ -339,7 +340,6 @@ runReplication socket = do
             case r1 of
                 Str s | s == "PONG" -> pure ()
                 other -> throwError $ HandshakeError $ InvalidReturn cmd1 "PONG" (fromString $ show other)
-            logInfo "PONG receieved"
 
             -- Replconf
             let cmd2 = RedRepl (CmdReplConfListen localPort)
@@ -349,7 +349,6 @@ runReplication socket = do
             case r2 of
                 Str s | s == "OK" -> pure ()
                 other -> throwError $ HandshakeError $ InvalidReturn cmd2 "OK" (fromString $ show other)
-            logInfo "OK received"
 
             -- Replconf capabilities
             let cmd3 = RedRepl CmdReplConfCapabilities
@@ -359,7 +358,6 @@ runReplication socket = do
             case r3 of
                 Str s | s == "OK" -> pure ()
                 other -> throwError $ HandshakeError $ InvalidReturn cmd3 "OK" (fromString $ show other)
-            logInfo "OK received"
 
             -- Psync
             let cmd4 = RedRepl $ CmdPSync "?" (-1)
@@ -378,7 +376,8 @@ runReplication socket = do
 
                 go buf = do
                     case parseWithRemainder rdbParser buf of
-                        Right (_rdb, rest) -> do
+                        Right (rdb, rest) -> do
+                            logInfo $ "Received RDB : " <> show rdb
                             logInfo $ "Replication from master complete. Receiving new updates on " <> show socket
                             clientLoopDiscard MkClientState{..} socket rest
                         Left _ -> recvMore buf >>= go
@@ -416,12 +415,6 @@ processOneWrite clientState socket resp = do
     logInfo ("Encoded: " <> show encoded)
     liftIO $ send socket encoded
 
-processOneDiscard :: ClientState -> Resp -> Redis Replica ()
-processOneDiscard clientState resp = do
-    result <- processOne clientState resp
-    logInfo ("Discarding sending result for: " <> show result)
-    pure ()
-
 clientLoopWrite :: (HasLogger r, HasStores r, HasReplication r) => ClientState -> Socket -> Redis r ()
 clientLoopWrite clientState socket = go mempty
   where
@@ -440,31 +433,44 @@ clientLoopWrite clientState socket = go mempty
 
 clientLoopDiscard :: ClientState -> Socket -> ByteString -> Redis Replica ()
 clientLoopDiscard clientState socket buf = do
-    let bufferSize = 64
-    logInfo "Waiting for write command"
-    mbs <- liftIO $ recv socket bufferSize
-    bs <- maybe (throwError EmptyBuffer) pure mbs
-    logInfo $ "Received write command" <> show bs
+    let bufferSize = 1024
+    logInfo $ "Waiting for write command. Current buffer - " <> show buf
 
-    let buf' = buf <> bs
-    case decodeMany buf' of
+    case decodeMany buf of
         Left err -> do
             logInfo $ "Error decoding: " <> show err
             throwError (ParsingError err)
         Right (resps, rest) -> do
             logInfo $ "Processing " <> show resps <> " left - " <> show rest
-            mapM_ (processOneDiscard clientState) resps
-            clientLoopDiscard clientState socket rest
+            forM_ resps $ \resp -> do
+                res <- processOne clientState resp
+                case res of
+                    RRepl cr -> case cr of
+                        ReplOk -> pure ()
+                        ReplConfAck _ -> do
+                            let encoded = encode (resultToResp res)
+                            liftIO $ send socket encoded
+                    _ -> pure ()
+
+            mbs <- liftIO $ recv socket bufferSize
+            bs <- maybe (throwError EmptyBuffer) pure mbs
+            logInfo $ "Received write command" <> show bs
+            clientLoopDiscard clientState socket (rest <> bs)
 
 -- helpers
 
 timeout' :: NominalDiffTime -> IO a -> IO (Maybe a)
 timeout' t = timeout (nominalDiffTimeToMicros t)
 
-logInfo :: (MonadReader (Env r) m, MonadIO m, HasLogger r) => String -> m ()
+logInfo :: (MonadReader (Env r) m, MonadIO m, HasLogger r, HasReplication r) => String -> m ()
 logInfo msg = do
     logger <- asks getLogger
-    liftIO $ logger (\t -> toLogStr (show t <> "[INFO] " <> msg <> "\n"))
+    repInfo <- asks getReplication
+    let prefix = case repInfo of
+            MkReplicationMaster _ -> "[ MASTER ]"
+            MkReplicationReplica _ -> "[ REPLICA ]"
+
+    liftIO $ logger (\t -> toLogStr (show t <> prefix <> "[INFO] " <> msg <> "\n"))
 
 logDebug :: (MonadReader (Env r) m, MonadIO m, HasLogger r) => String -> m ()
 logDebug msg = do

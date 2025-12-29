@@ -4,6 +4,7 @@ module CommandResult (
     CommandResult (..),
     CommandError (..),
     TransactionError (..),
+    ReplResult (..),
     resultToResp,
 ) where
 
@@ -27,6 +28,10 @@ data CommandResult
     | RArray [CommandResult]
     | RErr CommandError
     | RCmd Command
+    | RRepl ReplResult
+    deriving (Show, Eq)
+
+data ReplResult = ReplOk | ReplConfAck Int
     deriving (Show, Eq)
 
 data CommandError
@@ -55,6 +60,8 @@ resultToResp (RArrayKeyValues kvs) = arrayMap arrayKeyValsToResp kvs
 resultToResp (RStreamId sid) = streamIdToResp sid
 resultToResp (RErr e) = errorToResp e
 resultToResp (RCmd c) = cmdToResp c
+resultToResp (RRepl ReplOk) = Str "OK"
+resultToResp (RRepl (ReplConfAck n)) = Array 3 [BulkStr "REPLCONF", BulkStr "ACK", BulkStr $ fromString $ show n]
 
 arrayMap :: (a -> Resp) -> [a] -> Resp
 arrayMap f xs = Array (length xs) (map f xs)

@@ -73,6 +73,7 @@ data CmdReplication
     | CmdReplConfCapabilities
     | CmdPSync ByteString Int
     | CmdFullResync ByteString Int
+    | CmdReplConfGetAck
     deriving (Show, Eq)
 
 isWriteCmd :: CmdSTM -> Bool
@@ -154,6 +155,7 @@ respToCmd (Array 1 [BulkStr "DISCARD"]) = pure $ RedTrans Discard
 respToCmd (Array 2 [BulkStr "INFO", BulkStr "replication"]) = pure $ RedInfo (Just IReplication)
 respToCmd (Array 3 [BulkStr "REPLCONF", BulkStr "listening-port", BulkStr port]) = RedRepl . CmdReplConfListen <$> readIntBS port
 respToCmd (Array 3 [BulkStr "REPLCONF", BulkStr "capa", BulkStr "psync2"]) = pure $ RedRepl CmdReplConfCapabilities
+respToCmd (Array 3 [BulkStr "REPLCONF", BulkStr "GETACK", BulkStr "*"]) = pure $ RedRepl CmdReplConfGetAck
 respToCmd (Array 3 [BulkStr "PSYNC", BulkStr sid, BulkStr offset]) = do
     offset' <- readIntBS offset
     pure $ RedRepl $ CmdPSync sid offset'
