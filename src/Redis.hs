@@ -202,11 +202,7 @@ runCmd clientState cmd = do
                 pure $ RSimple "QUEUED"
             RedTrans m -> case m of
                 Multi -> pure $ RErr $ RTxErr RMultiInMulti
-                Exec -> liftIO $ atomically $ do
-                    vals <- mapM (runCmdSTM env now) (reverse cs)
-                    modifyTVar clientState.txState (const NoTx)
-                    mapM_ (runAndReplicate env now) cs
-                    pure $ RArray vals
+                Exec -> liftIO $ atomically $ executeQueuedCmds clientState env now cs
                 Discard -> liftIO $ atomically $ do
                     writeTVar clientState.txState NoTx
                     pure $ RSimple "OK"
@@ -220,19 +216,37 @@ runCmd clientState cmd = do
                 Multi -> liftIO $ atomically $ do
                     modifyTVar clientState.txState (const $ InTx [])
                     pure $ RSimple "OK"
-            RedInfo (Just IReplication) -> pure $ RBulk $ Just $ replicationInfo $ getReplication env
-            RedInfo _ -> error "not handled"
-            RedRepl c -> case c of
-                CmdReplConfCapabilities -> pure $ RSimple "OK"
-                CmdReplConfListen _ -> pure $ RSimple "OK"
-                CmdPSync "?" (-1) -> case getReplication env of
-                    MkReplicationMaster masterState -> do
-                        let rcSocket = clientState.socket
-                            clientId = clientState.clientId
-                        liftIO $ acceptReplica masterState rcSocket clientId
-                    MkReplicationReplica _ -> error "called on replica" -- handle later
-                CmdPSync _ _ -> error "not handled"
-                CmdFullResync _ _ -> error "not handled"
+            RedRepl c -> runReplicationCmds clientState c
+            RedInfo section -> runServerInfoCmds section
+
+runServerInfoCmds :: (MonadReader (Env r) m, HasReplication r) => Maybe SubInfo -> m CommandResult
+runServerInfoCmds cmd = do
+    env <- ask
+    case cmd of
+        Just IReplication -> pure $ RBulk $ Just $ replicationInfo $ getReplication env
+        _ -> error "not handled"
+
+runReplicationCmds :: (MonadReader (Env r1) m, HasReplication r1, MonadIO m) => ClientState -> CmdReplication -> m CommandResult
+runReplicationCmds clientState cmd = do
+    env <- ask
+    case cmd of
+        CmdReplConfCapabilities -> pure $ RSimple "OK"
+        CmdReplConfListen _ -> pure $ RSimple "OK"
+        CmdPSync "?" (-1) -> case getReplication env of
+            MkReplicationMaster masterState -> do
+                let rcSocket = clientState.socket
+                    clientId = clientState.clientId
+                liftIO $ acceptReplica masterState rcSocket clientId
+            MkReplicationReplica _ -> error "called on replica" -- handle later
+        CmdPSync _ _ -> error "not handled"
+        CmdFullResync _ _ -> error "not handled"
+
+executeQueuedCmds :: (HasStores r, HasReplication r) => ClientState -> Env r -> UTCTime -> [CmdSTM] -> STM CommandResult
+executeQueuedCmds clientState env now cmds = do
+    vals <- mapM (runCmdSTM env now) (reverse cmds)
+    modifyTVar clientState.txState (const NoTx)
+    mapM_ (runAndReplicate env now) cmds
+    pure $ RArray vals
 
 runAndReplicate :: (HasReplication r, HasStores r) => Env r -> UTCTime -> CmdSTM -> STM CommandResult
 runAndReplicate env now cmd = do
