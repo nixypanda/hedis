@@ -3,7 +3,7 @@ module Main (main) where
 import Test.Tasty (TestTree, defaultMain, testGroup)
 
 import TestParsers qualified
-import TestResp qualified
+import TestResp.TestCore qualified
 import TestStore.TestStreamStoreParsing qualified
 import TestStoreBackend.TestExpiringMap qualified
 import TestStoreBackend.TestListMap qualified
@@ -17,7 +17,7 @@ tests =
         , TestStoreBackend.TestListMap.tests
         , TestStoreBackend.TestStreamMap.tests
         , TestParsers.tests
-        , TestResp.tests
+        , TestResp.TestCore.tests
         , TestStore.TestStreamStoreParsing.tests
         ]
 

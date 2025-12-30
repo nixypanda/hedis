@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Resp (
+module Resp.Core (
     Resp (..),
     encode,
     decode,

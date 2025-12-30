@@ -1,13 +1,13 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module TestResp where
+module TestResp.TestCore (tests) where
 
 import Data.ByteString qualified as BS
 import Test.Tasty
 import Test.Tasty.HUnit
 import Text.Parsec
 
-import Resp
+import Resp.Core
 
 -- helper
 parseOnly :: Parsec BS.ByteString () a -> BS.ByteString -> Either ParseError a

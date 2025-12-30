@@ -1,4 +1,4 @@
-module RespSession (RespConn, mkRespConn, recvRdb, recvResp, sendResp) where
+module Resp.Client (RespConn, mkRespConn, recvRdb, recvResp, sendResp) where
 
 import Control.Concurrent.STM (TVar, atomically, modifyTVar', newTVarIO, readTVarIO, writeTVar)
 import Control.Exception (Exception, IOException, throwIO)
@@ -8,7 +8,7 @@ import Text.Parsec.ByteString (Parser)
 
 import Parsers (parseWithRemainder)
 import RDB (RDBEncoded, rdbParser)
-import Resp (Resp, encode, resp)
+import Resp.Core (Resp, encode, resp)
 
 data RespError
     = RespEOF
