@@ -208,8 +208,19 @@ runCmdIO cmd = do
 
 runReplication :: Socket -> Redis Replica ()
 runReplication socket = do
-    EnvReplica _ (MkReplicaState{..}) <- ask
+    EnvReplica _ state <- ask
     respConn <- liftIO $ mkRespConn socket
+    doHandshake state respConn
+
+    logInfo $ "Handshake complete. Waiting for RDB" <> show socket
+    _rdb <- liftIO $ recvRdb respConn
+
+    txState <- liftIO $ newTVarIO NoTx
+    let fakeClient = MkClientState{..}
+    receiveMasterUpdates respConn fakeClient
+
+doHandshake :: ReplicaState -> RespConn -> Redis Replica ()
+doHandshake (MkReplicaState{..}) respConn = do
     -- Ping
     let cmd1 = RedSTM CmdPing
     liftIO $ sendResp respConn $ cmdToResp cmd1
@@ -245,13 +256,7 @@ runReplication socket = do
             writeTVar knownMasterRepl sid
             writeTVar replicaOffset 0
         _ -> throwError $ HandshakeError $ InvalidReturn cmd4 "FULLRESYNC <repli_id> 0" (fromString $ show r4)
-
-    logInfo $ "Handshake complete. Waiting for RDB" <> show socket
-    _rdb <- liftIO $ recvRdb respConn
-
-    txState <- liftIO $ newTVarIO NoTx
-    let fakeClient = MkClientState{..}
-    receiveMasterUpdates respConn fakeClient
+    pure ()
 
 receiveMasterUpdates :: RespConn -> ClientState -> Redis Replica ()
 receiveMasterUpdates respConn fakeClient = forever $ do
