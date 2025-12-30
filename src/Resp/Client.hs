@@ -8,7 +8,7 @@ import Text.Parsec.ByteString (Parser)
 
 import Parsers (parseWithRemainder)
 import RDB (RDBEncoded, rdbParser)
-import Resp.Core (Resp, encode, resp)
+import Resp.Core (Resp, encode, respParser)
 
 data RespError
     = RespEOF
@@ -43,7 +43,7 @@ recv' parser conn@RespConn{..} = do
                     recv' parser conn
 
 recvResp :: RespConn -> IO Resp
-recvResp = recv' resp
+recvResp = recv' respParser
 
 recvRdb :: RespConn -> IO RDBEncoded
 recvRdb = recv' rdbParser

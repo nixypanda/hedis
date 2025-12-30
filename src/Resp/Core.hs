@@ -7,7 +7,7 @@ module Resp.Core (
     decodeMany,
     -- testing
     respsWithRemainder,
-    resp,
+    respParser,
     resps,
 ) where
 
@@ -41,10 +41,10 @@ respsWithRemainder = do
     pure (rs, rest)
 
 resps :: Parser [Resp]
-resps = many (try resp)
+resps = many (try respParser)
 
-resp :: Parser Resp
-resp = do
+respParser :: Parser Resp
+respParser = do
     t <- anyChar
     case t of
         '+' -> Str <$> bytes <* crlf
@@ -58,7 +58,7 @@ array :: Parser Resp
 array = do
     n <- signedIntParser <* crlf
     if
-        | n >= 0 -> Array n <$> replicateM n resp
+        | n >= 0 -> Array n <$> replicateM n respParser
         | n == -1 -> pure NullArray
         | otherwise -> fail "negative array length"
 
@@ -71,7 +71,7 @@ bulkString = do
         | otherwise -> fail "negative bulk length"
 
 decode :: ByteString -> Either ParseError Resp
-decode = parse resp ""
+decode = parse respParser ""
 
 decodeMany :: ByteString -> Either ParseError ([Resp], ByteString)
 decodeMany = parse respsWithRemainder "<redis-stream>"
