@@ -28,7 +28,7 @@ import Data.ByteString qualified as BS
 import Data.List (find, singleton)
 import Data.String (fromString)
 import Data.Time (NominalDiffTime, UTCTime, getCurrentTime)
-import Network.Simple.TCP (Socket, recv, send)
+import Network.Simple.TCP (Socket, send)
 import System.Timeout (timeout)
 
 import Command
@@ -41,14 +41,32 @@ import Replication (
     Replication (..),
     replicationInfo,
  )
-import Resp (Resp (..), decodeMany, encode)
+import Resp (Resp (..), encode)
 import RespSession (RespConn, mkRespConn, recvRdb, recvResp, sendResp)
 import Store.ListStore qualified as LS
 import Store.StreamStore qualified as StS
 import Store.StringStore qualified as SS
 import Store.TypeStore qualified as TS
-import System.Log.FastLogger (TimedFastLogger)
 import Time (nominalDiffTimeToMicros)
+
+--- servers
+
+clientLoopWrite :: (HasLogger r, HasStores r, HasReplication r) => ClientState -> Socket -> Redis r ()
+clientLoopWrite clientState socket = do
+    respConn <- liftIO $ mkRespConn socket
+    forever $ do
+        resp <- liftIO $ recvResp respConn
+        result <- processOne clientState resp
+        case result of
+            Just result' -> do
+                let encoded = encode (resultToResp result')
+                liftIO $ send socket encoded
+            Nothing -> pure ()
+
+processOne :: (HasLogger r, HasStores r, HasReplication r) => ClientState -> Resp -> Redis r (Maybe CommandResult)
+processOne clientState resp = do
+    cmd <- liftEither $ first ConversionError $ respToCmd resp
+    runCmd clientState cmd
 
 runCmd :: (HasStores r, HasReplication r, HasLogger r) => ClientState -> Command -> Redis r (Maybe CommandResult)
 runCmd clientState cmd = do
@@ -98,9 +116,9 @@ runReplicationCmds clientState cmd = do
         CmdReplConfCapabilities -> pure $ Just $ RSimple "OK"
         CmdReplConfListen _ -> pure $ Just $ RSimple "OK"
         CmdPSync "?" (-1) -> case getReplication env of
-            MkReplicationMaster masterState -> do
+            MkReplicationMaster _ -> do
                 let rcSocket = clientState.socket
-                Just <$> liftIO (acceptReplica (getLogger env) masterState rcSocket)
+                Just <$> acceptReplica rcSocket
             MkReplicationReplica _ -> error "called on replica" -- handle later
         CmdPSync _ _ -> error "not handled"
         CmdFullResync _ _ -> error "not handled"
@@ -283,37 +301,6 @@ receiveMasterUpdates respConn fakeClient = forever $ do
 
 -- Command execution
 
-processOne :: (HasLogger r, HasStores r, HasReplication r) => ClientState -> Resp -> Redis r (Maybe CommandResult)
-processOne clientState resp = do
-    cmd <- liftEither $ first ConversionError $ respToCmd resp
-    runCmd clientState cmd
-
-processOneWrite :: (HasLogger r, HasStores r, HasReplication r) => ClientState -> Socket -> Resp -> Redis r ()
-processOneWrite clientState socket resp = do
-    result <- processOne clientState resp
-    case result of
-        Just result' -> do
-            let encoded = encode (resultToResp result')
-            liftIO $ send socket encoded
-            pure ()
-        Nothing -> pure ()
-
-clientLoopWrite :: (HasLogger r, HasStores r, HasReplication r) => ClientState -> Socket -> Redis r ()
-clientLoopWrite clientState socket = go mempty
-  where
-    bufferSize = 1024
-
-    go buf = do
-        mbs <- liftIO $ recv socket bufferSize
-        bs <- maybe (throwError EmptyBuffer) pure mbs
-
-        let buf' = buf <> bs
-        case decodeMany buf' of
-            Left err -> throwError (ParsingError err)
-            Right (resps, rest) -> do
-                mapM_ (processOneWrite clientState socket) resps
-                go rest
-
 propagateWrite :: Replication -> CmdSTM -> STM ()
 propagateWrite repli cmd =
     case repli of
@@ -323,41 +310,35 @@ propagateWrite repli cmd =
         MkReplicationReplica _ ->
             pure () -- replicas never propagate
 
-acceptReplica :: TimedFastLogger -> MasterState -> Socket -> IO CommandResult
-acceptReplica envLogger masterState sock = do
-    _ <- initReplica envLogger masterState sock
-    masterReplOffset' <- readTVarIO masterState.masterReplOffset
-    pure $ RRepl $ ResFullResync masterState.masterReplId masterReplOffset'
+acceptReplica :: Socket -> Redis r CommandResult -- fix r to be Master
+acceptReplica sock = do
+    EnvMaster _ (MkMasterState{..}) <- ask
+    _ <- initReplica sock
+    masterReplOffset' <- liftIO $ readTVarIO masterReplOffset
+    pure $ RRepl $ ResFullResync masterReplId masterReplOffset'
 
-initReplica :: TimedFastLogger -> MasterState -> Socket -> IO ()
-initReplica envLogger masterState rcSocket = do
-    rcOffset <- newTVarIO (-1)
-    rcQueue <- newTQueueIO
-    rcAuxCmdOffset <- newTVarIO 0
+initReplica :: Socket -> Redis r ()
+initReplica rcSocket = do
+    EnvMaster _ (MkMasterState{..}) <- ask
+    rcOffset <- liftIO $ newTVarIO (-1)
+    rcQueue <- liftIO newTQueueIO
+    rcAuxCmdOffset <- liftIO $ newTVarIO 0
 
-    rcSender <- async $ replicaSender envLogger rcSocket masterState.rdbFile rcQueue
+    rcSender <- liftIO $ async $ replicaSender rcSocket rdbFile rcQueue
     let rc = MkReplicaConn{..}
-    atomically $ modifyTVar masterState.replicaRegistry (rc :)
-    pure ()
+    liftIO $ atomically $ modifyTVar replicaRegistry (rc :)
 
-replicaSender :: TimedFastLogger -> Socket -> FilePath -> TQueue ByteString -> IO ()
-replicaSender envLogger sock rdbFile q = do
+replicaSender :: Socket -> FilePath -> TQueue ByteString -> IO ()
+replicaSender sock rdbFile q = do
     -- Phase 1: RDB snapshot
-    rdbFileData <- readRdbFile rdbFile
+    rdbFileData <- liftIO $ BS.readFile rdbFile
     let respEncoded = "$" <> fromString (show $ BS.length rdbFileData) <> "\r\n" <> rdbFileData
     send sock respEncoded
 
     -- Phase 2: Write Command Propogation
-    replicaSenderLoop envLogger sock q
-
-replicaSenderLoop :: TimedFastLogger -> Socket -> TQueue ByteString -> IO ()
-replicaSenderLoop envLogger sock q = do
-    resp <- atomically $ readTQueue q
-    send sock resp
-    replicaSenderLoop envLogger sock q
-
-readRdbFile :: FilePath -> IO ByteString
-readRdbFile = BS.readFile
+    forever $ do
+        resp <- liftIO $ atomically $ readTQueue q
+        send sock resp
 
 -- helpers
 
