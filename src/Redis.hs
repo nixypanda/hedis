@@ -334,15 +334,7 @@ runCmdSTM env now cmd = do
             ty <- TS.getTypeSTM tvTypeIndex x
             pure $ maybe (RSimple "none") (RSimple . fromString . show) ty
         -- String Store
-        CmdSet key val mexpiry -> do
-            TS.setIfAvailable tvTypeIndex key VString *> SS.setSTM tvStringMap key val now mexpiry
-            pure $ RSimple "OK"
-        CmdGet key -> do
-            val <- SS.getSTM tvStringMap key now
-            pure $ RBulk val
-        CmdIncr key -> do
-            val <- SS.incrSTM tvStringMap key now
-            pure $ either (const $ RErr RIncrError) RInt val
+        STMString c -> runStringStoreSTM tvTypeIndex tvStringMap now c
         -- List Store
         CmdRPush key xs -> do
             count <- TS.setIfAvailable tvTypeIndex key VList *> LS.rpushSTM tvListMap key xs
@@ -372,6 +364,18 @@ runCmdSTM env now cmd = do
         CmdXRead keys -> do
             vals <- StS.xReadSTM tvStreamMap keys
             pure $ RArrayKeyValues vals
+
+runStringStoreSTM :: TVar TypeIndex -> TVar StringStore -> UTCTime -> StringCmd -> STM CommandResult
+runStringStoreSTM tvTypeIndex tvStringMap now cmd = case cmd of
+    CmdSet key val mexpiry -> do
+        TS.setIfAvailable tvTypeIndex key VString *> SS.setSTM tvStringMap key val now mexpiry
+        pure $ RSimple "OK"
+    CmdGet key -> do
+        val <- SS.getSTM tvStringMap key now
+        pure $ RBulk val
+    CmdIncr key -> do
+        val <- SS.incrSTM tvStringMap key now
+        pure $ either (const $ RErr RIncrError) RInt val
 
 runCmdIO :: (MonadReader (Env r) m, HasStores r, MonadIO m) => CmdIO -> m CommandResult
 runCmdIO cmd = do

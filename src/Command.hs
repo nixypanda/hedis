@@ -8,6 +8,7 @@ module Command (
     Key,
     CmdReplication (..),
     SubInfo (..),
+    StringCmd (..),
     isWriteCmd,
     respToCmd,
     cmdToResp,
@@ -46,9 +47,7 @@ data CmdSTM
     = CmdPing
     | CmdEcho ByteString
     | CmdType Key
-    | CmdSet Key ByteString (Maybe NominalDiffTime)
-    | CmdGet Key
-    | CmdIncr Key
+    | STMString StringCmd
     | CmdRPush Key [ByteString]
     | CmdLPush Key [ByteString]
     | CmdLPop Key (Maybe Int)
@@ -57,6 +56,12 @@ data CmdSTM
     | CmdXAdd Key XAddStreamId [(ByteString, ByteString)]
     | CmdXRange Key XRange
     | CmdXRead [(Key, ConcreteStreamId)]
+    deriving (Show, Eq)
+
+data StringCmd
+    = CmdSet Key ByteString (Maybe NominalDiffTime)
+    | CmdGet Key
+    | CmdIncr Key
     deriving (Show, Eq)
 
 data CmdIO
@@ -86,12 +91,12 @@ data CmdReplication
     deriving (Show, Eq)
 
 isWriteCmd :: CmdSTM -> Bool
-isWriteCmd (CmdSet{}) = True
-isWriteCmd (CmdIncr{}) = True
+isWriteCmd (STMString CmdSet{}) = True
+isWriteCmd (STMString CmdIncr{}) = True
 isWriteCmd (CmdRPush{}) = True
 isWriteCmd (CmdLPush{}) = True
 isWriteCmd (CmdLPop{}) = True
-isWriteCmd (CmdXRange{}) = True
+isWriteCmd (CmdXAdd{}) = True
 -- how to handle blpop?????????
 isWriteCmd _ = False
 
@@ -115,11 +120,11 @@ respToCmd (Array 2 [BulkStr "TYPE", BulkStr key]) = pure $ RedSTM $ CmdType key
 respToCmd (Array 5 [BulkStr "SET", BulkStr key, BulkStr val, BulkStr "PX", BulkStr t]) = do
     expiry <- readIntBS t
     let expiry' = millisToNominalDiffTime expiry
-    pure $ RedSTM $ CmdSet key val (Just expiry')
+    pure $ RedSTM $ STMString $ CmdSet key val (Just expiry')
 respToCmd (Array 3 [BulkStr "SET", BulkStr key, BulkStr val]) =
-    pure $ RedSTM $ CmdSet key val Nothing
-respToCmd (Array 2 [BulkStr "GET", BulkStr key]) = pure $ RedSTM $ CmdGet key
-respToCmd (Array 2 [BulkStr "INCR", BulkStr key]) = pure $ RedSTM $ CmdIncr key
+    pure $ RedSTM $ STMString $ CmdSet key val Nothing
+respToCmd (Array 2 [BulkStr "GET", BulkStr key]) = pure $ RedSTM $ STMString $ CmdGet key
+respToCmd (Array 2 [BulkStr "INCR", BulkStr key]) = pure $ RedSTM $ STMString $ CmdIncr key
 -- List Store
 respToCmd (Array 2 [BulkStr "LLEN", BulkStr key]) = pure $ RedSTM $ CmdLLen key
 respToCmd (Array 2 [BulkStr "LPOP", BulkStr key]) = pure $ RedSTM $ CmdLPop key Nothing
@@ -192,9 +197,7 @@ cmdToResp :: Command -> Resp
 cmdToResp (RedSTM CmdPing) = Array 1 [BulkStr "PING"]
 cmdToResp (RedSTM (CmdEcho xs)) = Array 2 [BulkStr "ECHO", BulkStr xs]
 cmdToResp (RedSTM (CmdType key)) = Array 2 [BulkStr "TYPE", BulkStr key]
-cmdToResp (RedSTM (CmdSet key val (Just t))) = Array 5 [BulkStr "SET", BulkStr key, BulkStr val, BulkStr "PX", BulkStr $ fromString $ show $ nominalDiffTimeToMillis t]
-cmdToResp (RedSTM (CmdSet key val Nothing)) = Array 3 [BulkStr "SET", BulkStr key, BulkStr val]
-cmdToResp (RedSTM (CmdIncr key)) = Array 2 [BulkStr "INCR", BulkStr key]
+cmdToResp (RedSTM (STMString cmd)) = stringStoreCmdToResp cmd
 cmdToResp (RedSTM (CmdRPush key xs)) = Array (length xs + 2) (BulkStr "RPUSH" : BulkStr key : map BulkStr xs)
 cmdToResp (RedSTM (CmdLPush key xs)) = Array (length xs + 2) (BulkStr "LPUSH" : BulkStr key : map BulkStr xs)
 cmdToResp (RedSTM (CmdLPop key Nothing)) = Array 2 [BulkStr "LPOP", BulkStr key]
@@ -206,6 +209,12 @@ cmdToResp (RedRepl (CmdPSync sId s)) = Array 3 [BulkStr "PSYNC", BulkStr sId, Bu
 cmdToResp (RedRepl (CmdFullResync sId s)) = Str $ BS.intercalate " " ["FULLRESYNC", sId, fromString $ show s]
 cmdToResp (RedRepl CmdReplConfGetAck) = Array 3 [BulkStr "REPLCONF", BulkStr "GETACK", BulkStr "*"]
 cmdToResp r = error $ "Not implemented: " <> show r
+
+stringStoreCmdToResp :: StringCmd -> Resp
+stringStoreCmdToResp (CmdSet key val (Just t)) = Array 5 [BulkStr "SET", BulkStr key, BulkStr val, BulkStr "PX", BulkStr $ fromString $ show $ nominalDiffTimeToMillis t]
+stringStoreCmdToResp (CmdSet key val Nothing) = Array 3 [BulkStr "SET", BulkStr key, BulkStr val]
+stringStoreCmdToResp (CmdIncr key) = Array 2 [BulkStr "INCR", BulkStr key]
+stringStoreCmdToResp (CmdGet key) = Array 2 [BulkStr "GET", BulkStr key]
 
 cmdBytes :: Command -> Int
 cmdBytes = respBytes . cmdToResp
