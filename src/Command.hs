@@ -1,7 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-{- HLINT ignore "Use ++" -}
-
 module Command (
     Command (..),
     CmdSTM (..),
@@ -28,19 +26,11 @@ import Data.Time (NominalDiffTime, secondsToNominalDiffTime)
 import Text.Parsec (anyChar, char, manyTill, string)
 import Text.Parsec.ByteString (Parser)
 
-import Parsers (
-    intParser,
-    parseBS,
-    readConcreteStreamId,
-    readFloatBS,
-    readIntBS,
-    readXAddStreamId,
-    readXRange,
-    readXReadStreamId,
- )
+import Parsers (intParser, parseBS, readFloatBS, readIntBS)
 import Resp (Resp (..), encode)
+import Store.StreamStoreParsing (readConcreteStreamId, readXAddStreamId, readXRange, readXReadStreamId, showStreamId, showXRange, showXaddId)
 import StoreBackend.ListMap (Range (..))
-import StoreBackend.StreamMap (ConcreteStreamId, IdSeq (..), XAddStreamId (..), XRange (..), XRangeEnd (..), XRangeStart (..), XReadStreamId (..))
+import StoreBackend.StreamMap (ConcreteStreamId, XAddStreamId (..), XRange (..), XReadStreamId (..))
 import Time (millisToNominalDiffTime, nominalDiffTimeToMillis)
 
 type Key = ByteString
@@ -236,35 +226,15 @@ listStmCmdToResp (CmdLRange start stop) = Array 4 [BulkStr "LRANGE", BulkStr $ f
 
 streamStmCmdToResp :: StreamCmd -> Resp
 streamStmCmdToResp (CmdXAdd key sid kvs) =
-    Array (3 + length kvs * 2) $ BulkStr "XADD" : BulkStr key : BulkStr (xaddIdToBS sid) : concatMap (\(k, v) -> [BulkStr k, BulkStr v]) kvs
+    Array (3 + length kvs * 2) $ BulkStr "XADD" : BulkStr key : BulkStr (showXaddId sid) : concatMap (\(k, v) -> [BulkStr k, BulkStr v]) kvs
 streamStmCmdToResp (CmdXRange key xr) =
-    Array (2 + length args) $ BulkStr "XRANGE" : BulkStr key : map BulkStr args
+    Array 4 $ BulkStr "XRANGE" : BulkStr key : map BulkStr [s, e]
   where
-    args = xRangeToArgs xr
+    (s, e) = showXRange xr
 streamStmCmdToResp (CmdXRead xs) =
-    Array (2 + length keys + length ids) $ BulkStr "XREAD" : BulkStr "streams" : map BulkStr keys ++ map (BulkStr . streamIdToBS) ids
+    Array (2 + length keys + length ids) $ BulkStr "XREAD" : BulkStr "streams" : map BulkStr keys ++ map (BulkStr . showStreamId) ids
   where
     (keys, ids) = unzip xs
-
-xaddIdToBS :: XAddStreamId -> ByteString
-xaddIdToBS AutoId = "*"
-xaddIdToBS (ExplicitId i SeqAuto) = fromString (show i) <> "-"
-xaddIdToBS (ExplicitId i s) = fromString (show i) <> "-" <> fromString (show s)
-
-xRangeToArgs :: XRange -> [ByteString]
-xRangeToArgs (MkXrange start end) = [xRangeStartToStr start, xRangeEndToStr end]
-  where
-    xRangeEndToStr XPlus = "+"
-    xRangeEndToStr (XE sid) = xRangeStreamIdToStr sid
-
-    xRangeStartToStr XMinus = "-"
-    xRangeStartToStr (XS sid) = xRangeStreamIdToStr sid
-
-    xRangeStreamIdToStr (ts, Just ms) = fromString (show ts) <> "-" <> fromString (show ms)
-    xRangeStreamIdToStr (ts, Nothing) = fromString (show ts) <> "-"
-
-streamIdToBS :: ConcreteStreamId -> ByteString
-streamIdToBS (i, s) = fromString (show i) <> "-" <> fromString (show s)
 
 ---
 

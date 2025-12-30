@@ -4,6 +4,7 @@ import Test.Tasty (TestTree, defaultMain, testGroup)
 
 import TestParsers qualified
 import TestResp qualified
+import TestStore.TestStreamStoreParsing qualified
 import TestStoreBackend.TestExpiringMap qualified
 import TestStoreBackend.TestListMap qualified
 import TestStoreBackend.TestStreamMap qualified
@@ -17,6 +18,7 @@ tests =
         , TestStoreBackend.TestStreamMap.tests
         , TestParsers.tests
         , TestResp.tests
+        , TestStore.TestStreamStoreParsing.tests
         ]
 
 main :: IO ()
