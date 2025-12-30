@@ -3,6 +3,7 @@
 
 module Execution (runReplication, clientLoopWrite) where
 
+import Control.Concurrent (threadDelay)
 import Control.Concurrent.STM (
     STM,
     atomically,
@@ -24,7 +25,6 @@ import System.Timeout (timeout)
 
 import Command
 import CommandResult
-import Control.Concurrent (threadDelay)
 import Redis
 import Replication (
     MasterState (..),

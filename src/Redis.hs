@@ -42,7 +42,15 @@ import System.Log.FastLogger (
 import Text.Parsec (ParseError)
 
 import Command (CmdSTM, Command)
-import Replication (MasterConfig, MasterState (..), ReplicaConfig, ReplicaState (..), Replication (..), initMasterState, initReplicaState)
+import Replication (
+    MasterConfig,
+    MasterState (..),
+    ReplicaConfig,
+    ReplicaState (..),
+    Replication (..),
+    initMasterState,
+    initReplicaState,
+ )
 import Store.ListStore (ListStore)
 import Store.ListStore qualified as LS
 import Store.StreamStore (StreamStore)

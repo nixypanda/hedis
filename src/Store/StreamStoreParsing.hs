@@ -14,10 +14,10 @@ import Control.Applicative ((<|>))
 import Control.Monad (join)
 import Data.ByteString (ByteString)
 import Data.Functor (($>))
+import Data.String (fromString)
 import Text.Parsec (char, eof, optionMaybe, spaces)
 import Text.Parsec.ByteString (Parser)
 
-import Data.String (fromString)
 import Parsers (intParser, parseBS)
 import StoreBackend.StreamMap (
     ConcreteStreamId,
@@ -94,8 +94,6 @@ readXReadStreamId = parseBS xReadStreamIdParser
 
 --- TO string
 
--- >>> showXaddId (ExplicitId 0 (Seq 0))
--- "0-Seq 0"
 showXaddId :: XAddStreamId -> ByteString
 showXaddId AutoId = "*"
 showXaddId (ExplicitId i SeqAuto) = fromString (show i) <> "-*"

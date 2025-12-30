@@ -1,9 +1,4 @@
-module Store.ListStore (
-    ListStore,
-    emptySTM,
-    runListStoreSTM,
-    blpopSTM,
-) where
+module Store.ListStore (ListStore, emptySTM, runListStoreSTM, blpopSTM) where
 
 import Control.Concurrent.STM (STM, TVar, newTVar, readTVar, retry, writeTVar)
 import Data.ByteString (ByteString)

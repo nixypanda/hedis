@@ -10,10 +10,10 @@ module CommandResult (
 ) where
 
 import Data.ByteString (ByteString)
+import Data.ByteString qualified as BS
 import Data.String (IsString (fromString))
 
 import Command (Key)
-import Data.ByteString qualified as BS
 import Parsers (readIntBS)
 import Resp (Resp (..))
 import StoreBackend.StreamMap (ConcreteStreamId, StreamMapError (..))

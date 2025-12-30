@@ -28,7 +28,15 @@ import Text.Parsec.ByteString (Parser)
 
 import Parsers (intParser, parseBS, readFloatBS, readIntBS)
 import Resp (Resp (..), encode)
-import Store.StreamStoreParsing (readConcreteStreamId, readXAddStreamId, readXRange, readXReadStreamId, showStreamId, showXRange, showXaddId)
+import Store.StreamStoreParsing (
+    readConcreteStreamId,
+    readXAddStreamId,
+    readXRange,
+    readXReadStreamId,
+    showStreamId,
+    showXRange,
+    showXaddId,
+ )
 import StoreBackend.ListMap (Range (..))
 import StoreBackend.StreamMap (ConcreteStreamId, XAddStreamId (..), XRange (..), XReadStreamId (..))
 import Time (millisToNominalDiffTime, nominalDiffTimeToMillis)

@@ -1,11 +1,11 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module RDB where
+module RDB (RDBEncoded, rdbParser) where
 
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
-import Text.Parsec
-import Text.Parsec.ByteString
+import Text.Parsec (char, crlf, getInput, parserFail, setInput)
+import Text.Parsec.ByteString (Parser)
 
 import Parsers (intParser)
 
