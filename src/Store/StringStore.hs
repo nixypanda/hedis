@@ -3,20 +3,22 @@
 module Store.StringStore (
     StringStore,
     emptySTM,
-    setSTM,
-    getSTM,
-    incrSTM,
+    runStringStoreSTM,
 ) where
 
 import Control.Concurrent.STM (STM, TVar, modifyTVar', newTVar, readTVar, writeTVar)
 import Data.ByteString (ByteString)
+import Data.String (IsString (fromString))
 import Data.Time (NominalDiffTime, UTCTime)
 
-import Command (Key)
-import Data.String (IsString (fromString))
+import Command (Key, StringCmd (..))
+import CommandResult (CommandError (..), CommandResult (..))
 import Parsers (readIntBS)
+import Store.TypeStore (TypeIndex)
+import Store.TypeStore qualified as TS
 import StoreBackend.ExpiringMap (ExpiringMap)
 import StoreBackend.ExpiringMap qualified as EM
+import StoreBackend.TypeIndex (ValueType (..))
 
 type StringStore = ExpiringMap Key ByteString
 
@@ -49,3 +51,15 @@ incrSTM tv key now = do
         Right (n, m') -> do
             writeTVar tv m'
             pure $ Right n
+
+runStringStoreSTM :: TVar TypeIndex -> TVar StringStore -> UTCTime -> StringCmd -> STM CommandResult
+runStringStoreSTM tvTypeIndex tvStringMap now cmd = case cmd of
+    CmdSet key val mexpiry -> do
+        TS.setIfAvailable tvTypeIndex key VString *> setSTM tvStringMap key val now mexpiry
+        pure $ RSimple "OK"
+    CmdGet key -> do
+        val <- getSTM tvStringMap key now
+        pure $ RBulk val
+    CmdIncr key -> do
+        val <- incrSTM tvStringMap key now
+        pure $ either (const $ RErr RIncrError) RInt val
