@@ -13,7 +13,6 @@ module Command (
     StringCmd (..),
     ListCmd (..),
     StreamCmd (..),
-    isWriteCmd,
     respToCmd,
     cmdToResp,
     cmdBytes,
@@ -106,16 +105,6 @@ data ReplicaToMaster
 data MasterToReplica
     = CmdReplConfGetAck
     deriving (Show, Eq)
-
-isWriteCmd :: CmdSTM -> Bool
-isWriteCmd (STMString CmdSet{}) = True
-isWriteCmd (STMString CmdIncr{}) = True
-isWriteCmd (STMList CmdRPush{}) = True
-isWriteCmd (STMList CmdLPush{}) = True
-isWriteCmd (STMList CmdLPop{}) = True
-isWriteCmd (STMStream CmdXAdd{}) = True
--- how to handle blpop?????????
-isWriteCmd _ = False
 
 -- Conversion (from Resp)
 

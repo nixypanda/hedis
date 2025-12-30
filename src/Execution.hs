@@ -18,7 +18,7 @@ import Control.Concurrent.STM (
     writeTQueue,
     writeTVar,
  )
-import Control.Monad (forM_, forever, when)
+import Control.Monad (forM_, forever)
 import Control.Monad.Except (MonadError (throwError), liftEither)
 import Control.Monad.IO.Class (MonadIO (liftIO))
 import Control.Monad.Reader (MonadReader (ask), asks)
@@ -34,6 +34,7 @@ import System.Timeout (timeout)
 import Command
 import CommandResult
 import Redis
+import Replication.Command (replicateIOCmdAs, replicateSTMCmdAs)
 import Replication.Config (
     MasterState (..),
     ReplicaConn (..),
@@ -79,7 +80,7 @@ runCmd clientState command = do
         RedRepl (CmdReplicaToMaster c) -> runReplicaToMasterReplicationCmds clientState.socket c
         RedRepl (CmdMasterToReplica c) -> Just <$> runMasterToReplicaReplicationCmds c
         RedInfo section -> Just <$> runServerInfoCmds section
-        RedIO cmd' -> Just <$> runCmdIO cmd'
+        RedIO cmd' -> Just <$> runAndReplicateIO env cmd'
         CmdWait n tout -> Just <$> sendReplConfs clientState n tout
         cmd -> case txState of
             InTx cs ->
@@ -94,7 +95,7 @@ runCmd clientState command = do
                             writeTVar clientState.txState NoTx
                             pure $ RSimple "OK"
             NoTx -> case cmd of
-                RedSTM cmd' -> Just <$> liftIO (atomically $ runAndReplicate env now cmd')
+                RedSTM cmd' -> Just <$> liftIO (atomically $ runAndReplicateSTM env now cmd')
                 RedTrans txCmd ->
                     Just <$> case txCmd of
                         Exec -> pure $ RErr $ RTxErr RExecWithoutMulti
@@ -155,11 +156,11 @@ runServerInfoCmds cmd = do
 
 executeQueuedCmds :: (HasStores r, HasReplication r) => ClientState -> Env r -> UTCTime -> [CmdSTM] -> STM CommandResult
 executeQueuedCmds clientState env now cmds = do
-    vals <- mapM (runAndReplicate env now) (reverse cmds)
+    vals <- mapM (runAndReplicateSTM env now) (reverse cmds)
     modifyTVar clientState.txState (const NoTx)
     pure $ RArray vals
 
--- Replication
+-- Replication Command handling
 
 runMasterToReplicaReplicationCmds :: (HasReplication r) => MasterToReplica -> Redis r CommandResult
 runMasterToReplicaReplicationCmds cmd = do
@@ -232,13 +233,29 @@ sendReplConfs _clientState n tout = do
         MkReplicationReplica _ ->
             error "WAIT called on replica"
 
-runAndReplicate :: (HasReplication r, HasStores r) => Env r -> UTCTime -> CmdSTM -> STM CommandResult
-runAndReplicate env now cmd = do
+-- Command Execution Replication
+
+runAndReplicateSTM :: (HasReplication r, HasStores r) => Env r -> UTCTime -> CmdSTM -> STM CommandResult
+runAndReplicateSTM env now cmd = do
     res <- runCmdSTM env now cmd
-    when (isWriteCmd cmd) $ do
-        propagateWrite (getReplication env) cmd
-        modifyTVar (getOffset env) (+ cmdSTMBytes cmd)
-    pure res
+    case replicateSTMCmdAs cmd res of
+        Nothing -> pure res
+        Just cmd' -> do
+            propagateWrite (getReplication env) cmd'
+            modifyTVar (getOffset env) (+ cmdSTMBytes cmd')
+            pure res
+
+-- The run and adding to queue is not atomic
+runAndReplicateIO :: (HasStores r, HasReplication r) => Env r -> CmdIO -> Redis r CommandResult
+runAndReplicateIO env cmd = do
+    res <- runCmdIO cmd
+    case replicateIOCmdAs cmd res of
+        Nothing -> pure res
+        Just cmd' -> do
+            liftIO $ atomically $ do
+                propagateWrite (getReplication env) cmd'
+                modifyTVar (getOffset env) (+ cmdSTMBytes cmd')
+            pure res
 
 propagateWrite :: Replication -> CmdSTM -> STM ()
 propagateWrite repli cmd =
@@ -248,6 +265,8 @@ propagateWrite repli cmd =
             mapM_ (\rc -> writeTQueue rc.rcQueue $ encode $ cmdToResp $ RedSTM cmd) registry
         MkReplicationReplica _ ->
             pure () -- replicas never propagate
+
+-- Replica connection with master
 
 runReplication :: Socket -> Redis Replica ()
 runReplication socket = do
@@ -321,7 +340,7 @@ receiveMasterUpdates respConn fakeClient = forever $ do
             liftIO $ atomically $ modifyTVar (getOffset env) (+ respBytes resp)
         _ -> pure ()
 
--- Replication (Master tasks)
+-- Master: setting replica
 
 acceptReplica :: Socket -> Redis r CommandResult -- fix r to be Master
 acceptReplica sock = do
