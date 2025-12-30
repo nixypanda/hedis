@@ -34,7 +34,7 @@ import System.Timeout (timeout)
 import Command
 import CommandResult
 import Redis
-import Replication (
+import Replication.Config (
     MasterState (..),
     ReplicaConn (..),
     ReplicaState (..),

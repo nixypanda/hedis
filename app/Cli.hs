@@ -22,7 +22,7 @@ import Options.Applicative (
     (<**>),
  )
 
-import Replication (ReplicaOf (MkReplicaOf))
+import Replication.Config (ReplicaOf (MkReplicaOf))
 
 data CliOptions = MkCliOptions
     { port :: Int

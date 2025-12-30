@@ -42,7 +42,7 @@ import Text.Parsec (ParseError)
 
 import Command (CmdSTM, Command)
 import CommandResult (CommandResult)
-import Replication (
+import Replication.Config (
     MasterConfig,
     MasterState (..),
     ReplicaConfig,

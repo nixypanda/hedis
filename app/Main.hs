@@ -17,7 +17,7 @@ import System.Log.FastLogger (LogStr, toLogStr)
 import Cli
 import Execution
 import Redis
-import Replication
+import Replication.Config
 
 -- main
 
