@@ -121,7 +121,6 @@ runReplicationCmds clientState cmd = do
                 Just <$> acceptReplica rcSocket
             MkReplicationReplica _ -> error "called on replica" -- handle later
         CmdPSync _ _ -> error "not handled"
-        CmdFullResync _ _ -> error "not handled"
         CmdReplConfGetAck -> do
             offset <- liftIO $ readTVarIO (getOffset env)
             pure $ Just $ RRepl $ ReplConfAck offset
@@ -250,25 +249,28 @@ doHandshake (MkReplicaState{..}) respConn = do
     let cmd1 = RedSTM CmdPing
     liftIO $ sendResp respConn $ cmdToResp cmd1
     r1 <- liftIO $ recvResp respConn
-    case r1 of
-        Str s | s == "PONG" -> pure ()
-        other -> throwError $ HandshakeError $ InvalidReturn cmd1 "PONG" (fromString $ show other)
+    cmdRes1 <- liftEither $ first ConversionError $ respToResult r1
+    case cmdRes1 of
+        ResPong -> pure ()
+        other -> throwError $ HandshakeError $ InvalidReturn cmd1 ResPong other
 
     -- Replconf
     let cmd2 = RedRepl (CmdReplConfListen localPort)
     liftIO $ sendResp respConn $ cmdToResp cmd2
     r2 <- liftIO $ recvResp respConn
-    case r2 of
-        Str s | s == "OK" -> pure ()
-        other -> throwError $ HandshakeError $ InvalidReturn cmd2 "OK" (fromString $ show other)
+    cmdRes2 <- liftEither $ first ConversionError $ respToResult r2
+    case cmdRes2 of
+        ResOk -> pure ()
+        other -> throwError $ HandshakeError $ InvalidReturn cmd2 ResOk other
 
     -- Replconf capabilities
     let cmd3 = RedRepl CmdReplConfCapabilities
     liftIO $ sendResp respConn $ cmdToResp cmd3
     r3 <- liftIO $ recvResp respConn
-    case r3 of
-        Str s | s == "OK" -> pure ()
-        other -> throwError $ HandshakeError $ InvalidReturn cmd3 "OK" (fromString $ show other)
+    cmdRes3 <- liftEither $ first ConversionError $ respToResult r3
+    case cmdRes3 of
+        ResOk -> pure ()
+        other -> throwError $ HandshakeError $ InvalidReturn cmd3 ResOk other
 
     -- Psync
     knownMasterRepl' <- liftIO $ readTVarIO knownMasterRepl
@@ -276,11 +278,12 @@ doHandshake (MkReplicaState{..}) respConn = do
     let cmd4 = RedRepl $ CmdPSync knownMasterRepl' replicaOffset'
     liftIO $ sendResp respConn $ cmdToResp cmd4
     r4 <- liftIO $ recvResp respConn
-    case respToCmd r4 of
-        Right (RedRepl (CmdFullResync sid _)) -> liftIO . atomically $ do
+    cmdRes4 <- liftEither $ first ConversionError $ respToResult r4
+    case cmdRes4 of
+        (RRepl (ResFullResync sid _)) -> liftIO . atomically $ do
             writeTVar knownMasterRepl sid
             writeTVar replicaOffset 0
-        _ -> throwError $ HandshakeError $ InvalidReturn cmd4 "FULLRESYNC <repli_id> 0" (fromString $ show r4)
+        other -> throwError $ HandshakeError $ InvalidReturn cmd4 (RRepl (ResFullResync "" 0)) other
     pure ()
 
 receiveMasterUpdates :: RespConn -> ClientState -> Redis Replica ()

@@ -12,13 +12,15 @@ module CommandResult (
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.String (IsString (fromString))
+import Text.Parsec (anyChar, char, manyTill, string)
+import Text.Parsec.ByteString (Parser)
 
 import Command (Key)
-import Parsers (readIntBS)
+import Parsers (intParser, parseBS, readIntBS)
 import Resp (Resp (..))
 import StoreBackend.StreamMap (ConcreteStreamId, StreamMapError (..))
 import StoreBackend.StreamMap qualified as SM
-import StoreBackend.TypeIndex
+import StoreBackend.TypeIndex (ValueType (..))
 
 data CommandResult
     = RBulk (Maybe ByteString)
@@ -102,9 +104,18 @@ arrayKeyValsToResp (k, vs) = Array 2 [BulkStr k, arrayMap valueToResp vs]
 
 respToResult :: Resp -> Either String CommandResult
 respToResult (Str "PONG") = Right ResPong
-respToResult (Str s) = Right $ RSimple s
+respToResult (Str "OK") = Right ResOk
+respToResult (Str s)
+    | "FULLRESYNC " `BS.isPrefixOf` s = RRepl <$> parseBS fullresyncParser s
+    | otherwise = Right $ RSimple s
 respToResult (Array 3 [BulkStr "REPLCONF", BulkStr "ACK", BulkStr n]) = RRepl . ReplConfAck <$> readIntBS n
 respToResult _ = error "TODO"
+
+fullresyncParser :: Parser ReplResult
+fullresyncParser = do
+    _ <- string "FULLRESYNC "
+    sId <- fromString <$> manyTill anyChar (char ' ')
+    ResFullResync sId <$> intParser
 
 -- error conversions
 

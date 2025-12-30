@@ -23,10 +23,8 @@ import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.String (IsString (fromString))
 import Data.Time (NominalDiffTime, secondsToNominalDiffTime)
-import Text.Parsec (anyChar, char, manyTill, string)
-import Text.Parsec.ByteString (Parser)
 
-import Parsers (intParser, parseBS, readFloatBS, readIntBS)
+import Parsers (readFloatBS, readIntBS)
 import Resp (Resp (..), encode)
 import Store.StreamStoreParsing (
     readConcreteStreamId,
@@ -94,7 +92,6 @@ data CmdReplication
     = CmdReplConfListen Int
     | CmdReplConfCapabilities
     | CmdPSync ByteString Int
-    | CmdFullResync ByteString Int
     | CmdReplConfGetAck
     | CmdWait Int NominalDiffTime
     | CmdReplConfAck Int
@@ -188,18 +185,8 @@ respToCmd (Array 3 [BulkStr "WAIT", BulkStr n, BulkStr t]) = do
     n' <- readIntBS n
     t' <- millisToNominalDiffTime <$> readIntBS t
     pure $ RedRepl $ CmdWait n' t'
--- sh*tty encoding
-respToCmd (Str s)
-    | "FULLRESYNC " `BS.isPrefixOf` s = RedRepl <$> parseBS fullresyncParser s
-    | otherwise = Left $ "Conversion Error: Simple String: " <> show s
 -- Unhandled
 respToCmd r = Left $ "Conversion Error" <> show r
-
-fullresyncParser :: Parser CmdReplication
-fullresyncParser = do
-    _ <- string "FULLRESYNC "
-    sId <- fromString <$> manyTill anyChar (char ' ')
-    CmdFullResync sId <$> intParser
 
 -- Conversion (to Resp)
 
@@ -214,7 +201,6 @@ cmdToResp (RedRepl (CmdReplConfListen port)) =
     Array 3 [BulkStr "REPLCONF", BulkStr "listening-port", BulkStr $ fromString $ show port]
 cmdToResp (RedRepl CmdReplConfCapabilities) = Array 3 [BulkStr "REPLCONF", BulkStr "capa", BulkStr "psync2"]
 cmdToResp (RedRepl (CmdPSync sId s)) = Array 3 [BulkStr "PSYNC", BulkStr sId, BulkStr $ fromString $ show s]
-cmdToResp (RedRepl (CmdFullResync sId s)) = Str $ BS.intercalate " " ["FULLRESYNC", sId, fromString $ show s]
 cmdToResp (RedRepl CmdReplConfGetAck) = Array 3 [BulkStr "REPLCONF", BulkStr "GETACK", BulkStr "*"]
 cmdToResp r = error $ "Not implemented: " <> show r
 
