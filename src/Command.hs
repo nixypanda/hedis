@@ -7,6 +7,8 @@ module Command (
     CmdTransaction (..),
     Key,
     CmdReplication (..),
+    ReplicaToMaster (..),
+    MasterToReplica (..),
     SubInfo (..),
     StringCmd (..),
     ListCmd (..),
@@ -86,15 +88,23 @@ data Command
     | RedTrans CmdTransaction
     | RedInfo (Maybe SubInfo)
     | RedRepl CmdReplication
+    | CmdWait Int NominalDiffTime
     deriving (Show, Eq)
 
 data CmdReplication
+    = CmdReplicaToMaster ReplicaToMaster
+    | CmdMasterToReplica MasterToReplica
+    deriving (Show, Eq)
+
+data ReplicaToMaster
     = CmdReplConfListen Int
     | CmdReplConfCapabilities
     | CmdPSync ByteString Int
-    | CmdReplConfGetAck
-    | CmdWait Int NominalDiffTime
     | CmdReplConfAck Int
+    deriving (Show, Eq)
+
+data MasterToReplica
+    = CmdReplConfGetAck
     deriving (Show, Eq)
 
 isWriteCmd :: CmdSTM -> Bool
@@ -174,17 +184,17 @@ respToCmd (Array 1 [BulkStr "EXEC"]) = pure $ RedTrans Exec
 respToCmd (Array 1 [BulkStr "DISCARD"]) = pure $ RedTrans Discard
 -- Replication
 respToCmd (Array 2 [BulkStr "INFO", BulkStr "replication"]) = pure $ RedInfo (Just IReplication)
-respToCmd (Array 3 [BulkStr "REPLCONF", BulkStr "listening-port", BulkStr port]) = RedRepl . CmdReplConfListen <$> readIntBS port
-respToCmd (Array 3 [BulkStr "REPLCONF", BulkStr "capa", BulkStr "psync2"]) = pure $ RedRepl CmdReplConfCapabilities
-respToCmd (Array 3 [BulkStr "REPLCONF", BulkStr "GETACK", BulkStr "*"]) = pure $ RedRepl CmdReplConfGetAck
-respToCmd (Array 3 [BulkStr "REPLCONF", BulkStr "ACK", BulkStr n]) = RedRepl . CmdReplConfAck <$> readIntBS n
+respToCmd (Array 3 [BulkStr "REPLCONF", BulkStr "listening-port", BulkStr port]) = RedRepl . CmdReplicaToMaster . CmdReplConfListen <$> readIntBS port
+respToCmd (Array 3 [BulkStr "REPLCONF", BulkStr "capa", BulkStr "psync2"]) = pure $ RedRepl $ CmdReplicaToMaster CmdReplConfCapabilities
+respToCmd (Array 3 [BulkStr "REPLCONF", BulkStr "GETACK", BulkStr "*"]) = pure $ RedRepl $ CmdMasterToReplica CmdReplConfGetAck
+respToCmd (Array 3 [BulkStr "REPLCONF", BulkStr "ACK", BulkStr n]) = RedRepl . CmdReplicaToMaster . CmdReplConfAck <$> readIntBS n
 respToCmd (Array 3 [BulkStr "PSYNC", BulkStr sid, BulkStr offset]) = do
     offset' <- readIntBS offset
-    pure $ RedRepl $ CmdPSync sid offset'
+    pure $ RedRepl $ CmdReplicaToMaster $ CmdPSync sid offset'
 respToCmd (Array 3 [BulkStr "WAIT", BulkStr n, BulkStr t]) = do
     n' <- readIntBS n
     t' <- millisToNominalDiffTime <$> readIntBS t
-    pure $ RedRepl $ CmdWait n' t'
+    pure $ CmdWait n' t'
 -- Unhandled
 respToCmd r = Left $ "Conversion Error" <> show r
 
@@ -197,12 +207,15 @@ cmdToResp (RedSTM (CmdType key)) = Array 2 [BulkStr "TYPE", BulkStr key]
 cmdToResp (RedSTM (STMString cmd)) = stringStoreCmdToResp cmd
 cmdToResp (RedSTM (STMList cmd)) = listStmCmdToResp cmd
 cmdToResp (RedSTM (STMStream cmd)) = streamStmCmdToResp cmd
-cmdToResp (RedRepl (CmdReplConfListen port)) =
-    Array 3 [BulkStr "REPLCONF", BulkStr "listening-port", BulkStr $ fromString $ show port]
-cmdToResp (RedRepl CmdReplConfCapabilities) = Array 3 [BulkStr "REPLCONF", BulkStr "capa", BulkStr "psync2"]
-cmdToResp (RedRepl (CmdPSync sId s)) = Array 3 [BulkStr "PSYNC", BulkStr sId, BulkStr $ fromString $ show s]
-cmdToResp (RedRepl CmdReplConfGetAck) = Array 3 [BulkStr "REPLCONF", BulkStr "GETACK", BulkStr "*"]
+cmdToResp (RedRepl cmd) = replicationCmdToResp cmd
 cmdToResp r = error $ "Not implemented: " <> show r
+
+replicationCmdToResp :: CmdReplication -> Resp
+replicationCmdToResp (CmdReplicaToMaster (CmdReplConfListen port)) = Array 3 [BulkStr "REPLCONF", BulkStr "listening-port", BulkStr $ fromString $ show port]
+replicationCmdToResp (CmdReplicaToMaster CmdReplConfCapabilities) = Array 3 [BulkStr "REPLCONF", BulkStr "capa", BulkStr "psync2"]
+replicationCmdToResp (CmdReplicaToMaster (CmdPSync sId s)) = Array 3 [BulkStr "PSYNC", BulkStr sId, BulkStr $ fromString $ show s]
+replicationCmdToResp (CmdReplicaToMaster (CmdReplConfAck n)) = Array 3 [BulkStr "REPLCONF", BulkStr "ACK", BulkStr $ fromString $ show n]
+replicationCmdToResp (CmdMasterToReplica CmdReplConfGetAck) = Array 3 [BulkStr "REPLCONF", BulkStr "GETACK", BulkStr "*"]
 
 stringStoreCmdToResp :: StringCmd -> Resp
 stringStoreCmdToResp (CmdSet key val (Just t)) = Array 5 [BulkStr "SET", BulkStr key, BulkStr val, BulkStr "PX", BulkStr $ fromString $ show $ nominalDiffTimeToMillis t]

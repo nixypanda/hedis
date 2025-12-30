@@ -99,6 +99,7 @@ runCmd clientState cmd = do
                         pure $ RSimple "OK"
             RedRepl c -> runReplicationCmds clientState c
             RedInfo section -> Just <$> runServerInfoCmds section
+            CmdWait n tout -> Just <$> sendReplConfs clientState n tout
 
 runServerInfoCmds :: (HasReplication r) => Maybe SubInfo -> Redis r CommandResult
 runServerInfoCmds cmd = do
@@ -109,8 +110,16 @@ runServerInfoCmds cmd = do
             pure $ RBulk $ Just info
         _ -> error "not handled"
 
-runReplicationCmds :: (HasReplication r, HasLogger r) => ClientState -> CmdReplication -> Redis r (Maybe CommandResult)
-runReplicationCmds clientState cmd = do
+runMasterToReplicaReplicationCmds :: (HasReplication r) => MasterToReplica -> Redis r CommandResult
+runMasterToReplicaReplicationCmds cmd = do
+    env <- ask
+    case cmd of
+        CmdReplConfGetAck -> do
+            offset <- liftIO $ readTVarIO (getOffset env)
+            pure $ RRepl $ ReplConfAck offset
+
+runReplicaToMasterReplicationCmds :: (HasReplication r, HasLogger r) => ClientState -> ReplicaToMaster -> Redis r (Maybe CommandResult)
+runReplicaToMasterReplicationCmds clientState cmd = do
     env <- ask
     case cmd of
         CmdReplConfCapabilities -> pure $ Just $ RSimple "OK"
@@ -121,10 +130,6 @@ runReplicationCmds clientState cmd = do
                 Just <$> acceptReplica rcSocket
             MkReplicationReplica _ -> error "called on replica" -- handle later
         CmdPSync _ _ -> error "not handled"
-        CmdReplConfGetAck -> do
-            offset <- liftIO $ readTVarIO (getOffset env)
-            pure $ Just $ RRepl $ ReplConfAck offset
-        CmdWait n tout -> Just <$> sendReplConfs clientState n tout
         CmdReplConfAck offset -> do
             logInfo $ "ACK offset=" <> show offset
             logInfo $ "received on socket " <> show clientState.socket
@@ -139,8 +144,12 @@ runReplicationCmds clientState cmd = do
                             liftIO $ atomically $ writeTVar r.rcOffset offset
                             pure ()
                 MkReplicationReplica _ -> error "called on replica"
-
             pure Nothing
+
+runReplicationCmds :: (HasReplication r, HasLogger r) => ClientState -> CmdReplication -> Redis r (Maybe CommandResult)
+runReplicationCmds clientState cmd = case cmd of
+    CmdMasterToReplica cmd' -> Just <$> runMasterToReplicaReplicationCmds cmd'
+    CmdReplicaToMaster cmd' -> runReplicaToMasterReplicationCmds clientState cmd'
 
 sendReplConfs :: (HasReplication r) => ClientState -> Int -> NominalDiffTime -> Redis r CommandResult
 sendReplConfs _clientState n tout = do
@@ -154,7 +163,7 @@ sendReplConfs _clientState n tout = do
 
             -- trigger GETACK
             liftIO $ forM_ registry $ \r ->
-                send r.rcSocket (encode $ cmdToResp $ RedRepl CmdReplConfGetAck)
+                send r.rcSocket (encode $ cmdToResp $ RedRepl $ CmdMasterToReplica CmdReplConfGetAck)
 
             -- The main server is already listening for commands so we just poll
             let countAcked :: IO Int
@@ -255,7 +264,7 @@ doHandshake (MkReplicaState{..}) respConn = do
         other -> throwError $ HandshakeError $ InvalidReturn cmd1 ResPong other
 
     -- Replconf
-    let cmd2 = RedRepl (CmdReplConfListen localPort)
+    let cmd2 = RedRepl $ CmdReplicaToMaster $ CmdReplConfListen localPort
     liftIO $ sendResp respConn $ cmdToResp cmd2
     r2 <- liftIO $ recvResp respConn
     cmdRes2 <- liftEither $ first ConversionError $ respToResult r2
@@ -264,7 +273,7 @@ doHandshake (MkReplicaState{..}) respConn = do
         other -> throwError $ HandshakeError $ InvalidReturn cmd2 ResOk other
 
     -- Replconf capabilities
-    let cmd3 = RedRepl CmdReplConfCapabilities
+    let cmd3 = RedRepl $ CmdReplicaToMaster CmdReplConfCapabilities
     liftIO $ sendResp respConn $ cmdToResp cmd3
     r3 <- liftIO $ recvResp respConn
     cmdRes3 <- liftEither $ first ConversionError $ respToResult r3
@@ -275,7 +284,7 @@ doHandshake (MkReplicaState{..}) respConn = do
     -- Psync
     knownMasterRepl' <- liftIO $ readTVarIO knownMasterRepl
     replicaOffset' <- liftIO $ readTVarIO replicaOffset
-    let cmd4 = RedRepl $ CmdPSync knownMasterRepl' replicaOffset'
+    let cmd4 = RedRepl $ CmdReplicaToMaster $ CmdPSync knownMasterRepl' replicaOffset'
     liftIO $ sendResp respConn $ cmdToResp cmd4
     r4 <- liftIO $ recvResp respConn
     cmdRes4 <- liftEither $ first ConversionError $ respToResult r4

@@ -27,7 +27,6 @@ import Control.Exception (Exception)
 import Control.Monad.Except (ExceptT (..), MonadError)
 import Control.Monad.IO.Class (MonadIO (liftIO))
 import Control.Monad.Reader (MonadReader, ReaderT, asks)
-import Data.ByteString (ByteString)
 import Data.Kind (Type)
 import Network.Simple.TCP (Socket)
 import System.Log.FastLogger (
