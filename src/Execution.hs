@@ -67,7 +67,7 @@ runCmd clientState command = do
                         Exec -> liftIO $ atomically $ executeQueuedCmds clientState env now cs
                         Discard -> liftIO $ atomically $ do
                             writeTVar clientState.txState NoTx
-                            pure $ RSimple "OK"
+                            pure ResOk
             NoTx -> case cmd of
                 RedSTM cmd' -> Just <$> liftIO (atomically $ runAndReplicateSTM env now cmd')
                 RedTrans txCmd ->
@@ -76,7 +76,7 @@ runCmd clientState command = do
                         Discard -> pure $ RErr $ RTxErr RDiscardWithoutMulti
                         Multi -> liftIO $ atomically $ do
                             modifyTVar clientState.txState (const $ InTx [])
-                            pure $ RSimple "OK"
+                            pure ResOk
 
 -- Transaction
 

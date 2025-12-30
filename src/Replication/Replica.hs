@@ -67,8 +67,8 @@ runReplicaToMasterReplicationCmds :: (HasReplication r, HasLogger r) => Socket -
 runReplicaToMasterReplicationCmds socket cmd = do
     env <- ask
     case cmd of
-        CmdReplConfCapabilities -> pure $ Just $ RSimple "OK"
-        CmdReplConfListen _ -> pure $ Just $ RSimple "OK"
+        CmdReplConfCapabilities -> pure $ Just ResOk
+        CmdReplConfListen _ -> pure $ Just ResOk
         CmdPSync "?" (-1) -> case getReplication env of
             MkReplicationMaster _ -> do
                 let rcSocket = socket
