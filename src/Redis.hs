@@ -33,7 +33,7 @@ import Control.Concurrent.STM (
     writeTVar,
  )
 import Control.Exception (Exception)
-import Control.Monad (forM_, when)
+import Control.Monad (forM_, forever, when)
 import Control.Monad.Except (ExceptT (..), MonadError (throwError), liftEither)
 import Control.Monad.IO.Class (MonadIO (liftIO))
 import Control.Monad.Reader (MonadReader (ask), ReaderT, asks)
@@ -59,8 +59,6 @@ import Text.Parsec (ParseError)
 import Command
 import CommandResult
 import Control.Concurrent (threadDelay)
-import Parsers (parseWithRemainder)
-import RDB (rdbParser)
 import Replication (
     MasterConfig,
     MasterState (..),
@@ -75,6 +73,7 @@ import Replication (
     replicationInfo,
  )
 import Resp (Resp (..), decodeMany, encode)
+import RespSession (RespConn, mkRespConn, recvRdb, recvResp, sendResp)
 import Store.ListStore (ListStore)
 import Store.ListStore qualified as LS
 import Store.StreamStore (StreamStore)
@@ -153,7 +152,7 @@ data ClientState = MkClientState
     }
 
 newtype Redis r a = MkRedis {runRedis :: ReaderT (Env r) (ExceptT RedisError IO) a}
-    deriving newtype (Functor, Applicative, Monad, MonadError RedisError, MonadIO, MonadReader (Env r))
+    deriving newtype (Functor, Applicative, Monad, MonadError RedisError, MonadIO, MonadReader (Env r), MonadFail)
 
 class HasStores r where
     getStores :: Env r -> Stores
@@ -360,73 +359,66 @@ runCmdIO cmd = do
 
 runReplication :: Socket -> Redis Replica ()
 runReplication socket = do
+    EnvReplica _ (MkReplicaState{..}) <- ask
+    respConn <- liftIO $ mkRespConn socket
+    -- Ping
+    let cmd1 = RedSTM CmdPing
+    liftIO $ sendResp respConn $ cmdToResp cmd1
+    r1 <- liftIO $ recvResp respConn
+    case r1 of
+        Str s | s == "PONG" -> pure ()
+        other -> throwError $ HandshakeError $ InvalidReturn cmd1 "PONG" (fromString $ show other)
+
+    -- Replconf
+    let cmd2 = RedRepl (CmdReplConfListen localPort)
+    liftIO $ sendResp respConn $ cmdToResp cmd2
+    r2 <- liftIO $ recvResp respConn
+    case r2 of
+        Str s | s == "OK" -> pure ()
+        other -> throwError $ HandshakeError $ InvalidReturn cmd2 "OK" (fromString $ show other)
+
+    -- Replconf capabilities
+    let cmd3 = RedRepl CmdReplConfCapabilities
+    liftIO $ sendResp respConn $ cmdToResp cmd3
+    r3 <- liftIO $ recvResp respConn
+    case r3 of
+        Str s | s == "OK" -> pure ()
+        other -> throwError $ HandshakeError $ InvalidReturn cmd3 "OK" (fromString $ show other)
+
+    -- Psync
+    knownMasterRepl' <- liftIO $ readTVarIO knownMasterRepl
+    replicaOffset' <- liftIO $ readTVarIO replicaOffset
+    let cmd4 = RedRepl $ CmdPSync knownMasterRepl' replicaOffset'
+    liftIO $ sendResp respConn $ cmdToResp cmd4
+    r4 <- liftIO $ recvResp respConn
+    case respToCmd r4 of
+        Right (RedRepl (CmdFullResync sid _)) -> liftIO . atomically $ do
+            writeTVar knownMasterRepl sid
+            writeTVar replicaOffset 0
+        _ -> throwError $ HandshakeError $ InvalidReturn cmd4 "FULLRESYNC <repli_id> 0" (fromString $ show r4)
+
+    logInfo $ "Handshake complete. Waiting for RDB" <> show socket
+    _rdb <- liftIO $ recvRdb respConn
+
+    txState <- liftIO $ newTVarIO NoTx
+    let fakeClient = MkClientState{..}
+    receiveMasterUpdates respConn fakeClient
+
+receiveMasterUpdates :: RespConn -> ClientState -> Redis Replica ()
+receiveMasterUpdates respConn fakeClient = forever $ do
     env <- ask
-    case env of
-        EnvReplica _ (MkReplicaState{..}) -> do
-            -- Ping
-            let cmd1 = RedSTM CmdPing
-            liftIO $ send socket $ encode $ cmdToResp cmd1
-            (r1, buf1) <- liftIO $ recvResp1 socket mempty
-            case r1 of
-                Str s | s == "PONG" -> pure ()
-                other -> throwError $ HandshakeError $ InvalidReturn cmd1 "PONG" (fromString $ show other)
-
-            -- Replconf
-            let cmd2 = RedRepl (CmdReplConfListen localPort)
-            liftIO $ send socket $ encode $ cmdToResp cmd2
-            (r2, buf2) <- liftIO $ recvResp1 socket buf1
-            case r2 of
-                Str s | s == "OK" -> pure ()
-                other -> throwError $ HandshakeError $ InvalidReturn cmd2 "OK" (fromString $ show other)
-
-            -- Replconf capabilities
-            let cmd3 = RedRepl CmdReplConfCapabilities
-            liftIO $ send socket $ encode $ cmdToResp cmd3
-            (r3, buf3) <- liftIO $ recvResp1 socket buf2
-            case r3 of
-                Str s | s == "OK" -> pure ()
-                other -> throwError $ HandshakeError $ InvalidReturn cmd3 "OK" (fromString $ show other)
-
-            -- Psync
-            knownMasterRepl' <- liftIO $ readTVarIO knownMasterRepl
-            replicaOffset' <- liftIO $ readTVarIO replicaOffset
-            let cmd4 = RedRepl $ CmdPSync knownMasterRepl' replicaOffset'
-            liftIO $ send socket $ encode $ cmdToResp cmd4
-            (r4, buf4) <- liftIO $ recvResp1 socket buf3
-            case respToCmd r4 of
-                Right (RedRepl (CmdFullResync sid _)) -> liftIO . atomically $ do
-                    writeTVar knownMasterRepl sid
-                    writeTVar replicaOffset 0
-                _ -> throwError $ HandshakeError $ InvalidReturn cmd4 "FULLRESYNC <repli_id> 0" (fromString $ show r4)
-
-            logInfo $ "Handshake complete. Waiting for RDB" <> show socket
-            txState <- liftIO $ newTVarIO NoTx
-
-            let recvMore buf = do
-                    bs <- liftIO (recv socket 4096) >>= maybe (throwError EmptyBuffer) pure
-                    pure (buf <> bs)
-
-                go buf = do
-                    case parseWithRemainder rdbParser buf of
-                        Right (rdb, rest) -> do
-                            logInfo $ "Received RDB : " <> show rdb
-                            clientLoopDiscard MkClientState{..} socket rest
-                        Left _ -> recvMore buf >>= go
-
-            go buf4
-
-recvResp1 :: Socket -> ByteString -> IO (Resp, ByteString)
-recvResp1 sock = go
-  where
-    go acc = do
-        case decodeMany acc of
-            Right (r : _, rest) -> pure (r, rest)
-            Right ([], _) -> recvMore acc
-            Left _ -> recvMore acc
-
-    recvMore acc = do
-        bs <- recv sock 64 >>= maybe (fail "EOF") pure
-        go (acc <> bs)
+    resp <- liftIO $ recvResp respConn
+    result <- processOne fakeClient resp
+    case result of
+        Just r@(RRepl cr) -> case cr of
+            ReplOk -> pure ()
+            ReplConfAck _ -> do
+                liftIO $ atomically $ modifyTVar (getOffset env) (+ respBytes resp)
+                liftIO $ sendResp respConn $ resultToResp r
+            ResFullResync _ _ -> pure ()
+        Just ResPong -> do
+            liftIO $ atomically $ modifyTVar (getOffset env) (+ respBytes resp)
+        _ -> pure ()
 
 -- Command execution
 
