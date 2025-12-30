@@ -1,9 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Resp.Result (
-    resultToResp,
-    respToResult,
-) where
+module Resp.Result (resultToResp, respToResult) where
 
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
@@ -11,7 +8,6 @@ import Data.String (IsString (fromString))
 import Text.Parsec (anyChar, char, manyTill, string)
 import Text.Parsec.ByteString (Parser)
 
-import Command (Key)
 import CommandResult
 import Parsers (intParser, parseBS, readIntBS)
 import Resp.Core (Resp (..))

@@ -18,12 +18,7 @@ module Replication.Config (
 ) where
 
 import Control.Concurrent.Async (Async)
-import Control.Concurrent.STM (
-    TQueue,
-    TVar,
-    newTVarIO,
-    readTVarIO,
- )
+import Control.Concurrent.STM (TQueue, TVar, newTVarIO, readTVarIO)
 import Control.Exception (Exception)
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
