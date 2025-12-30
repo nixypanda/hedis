@@ -15,6 +15,7 @@ import System.IO (BufferMode (NoBuffering), hSetBuffering, stderr, stdout)
 import System.Log.FastLogger (LogStr, toLogStr)
 
 import Cli
+import Execution
 import Redis
 import Replication
 
@@ -65,10 +66,10 @@ runMaster env port = do
 
 runRedisIO :: (HasLogger r) => Env r -> Redis r a -> IO ()
 runRedisIO env act = do
-    let (logInfo, _) = loggingFuncs (getLogger env)
+    let (logInfo', _) = loggingFuncs (getLogger env)
     res <- runExceptT $ runReaderT (runRedis act) env
     case res of
-        Left EmptyBuffer -> logInfo "Client closed connection"
+        Left EmptyBuffer -> logInfo' "Client closed connection"
         Left err -> throwIO err
         Right _ -> pure ()
 
