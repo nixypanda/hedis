@@ -4,12 +4,18 @@
 module Execution (runReplication, clientLoopWrite) where
 
 import Control.Concurrent (threadDelay)
+import Control.Concurrent.Async (async)
 import Control.Concurrent.STM (
     STM,
+    TQueue,
     atomically,
     modifyTVar,
+    newTQueueIO,
     newTVarIO,
+    readTQueue,
+    readTVar,
     readTVarIO,
+    writeTQueue,
     writeTVar,
  )
 import Control.Monad (forM_, forever, when)
@@ -17,6 +23,8 @@ import Control.Monad.Except (MonadError (throwError), liftEither)
 import Control.Monad.IO.Class (MonadIO (liftIO))
 import Control.Monad.Reader (MonadReader (ask), asks)
 import Data.Bifunctor (Bifunctor (first))
+import Data.ByteString (ByteString)
+import Data.ByteString qualified as BS
 import Data.List (find, singleton)
 import Data.String (fromString)
 import Data.Time (NominalDiffTime, UTCTime, getCurrentTime)
@@ -31,8 +39,6 @@ import Replication (
     ReplicaConn (..),
     ReplicaState (..),
     Replication (..),
-    acceptReplica,
-    propagateWrite,
     replicationInfo,
  )
 import Resp (Resp (..), decodeMany, encode)
@@ -41,6 +47,7 @@ import Store.ListStore qualified as LS
 import Store.StreamStore qualified as StS
 import Store.StringStore qualified as SS
 import Store.TypeStore qualified as TS
+import System.Log.FastLogger (TimedFastLogger)
 import Time (nominalDiffTimeToMicros)
 
 runCmd :: (HasStores r, HasReplication r, HasLogger r) => ClientState -> Command -> Redis r (Maybe CommandResult)
@@ -75,7 +82,7 @@ runCmd clientState cmd = do
             RedRepl c -> runReplicationCmds clientState c
             RedInfo section -> Just <$> runServerInfoCmds section
 
-runServerInfoCmds :: (MonadReader (Env r) m, HasReplication r, MonadIO m) => Maybe SubInfo -> m CommandResult
+runServerInfoCmds :: (HasReplication r) => Maybe SubInfo -> Redis r CommandResult
 runServerInfoCmds cmd = do
     env <- ask
     case cmd of
@@ -169,10 +176,10 @@ runAndReplicate env now cmd = do
 
 runCmdSTM :: (HasStores r) => Env r -> UTCTime -> CmdSTM -> STM CommandResult
 runCmdSTM env now cmd = do
-    let tvListMap = (listStore . getStores) env
-        tvStringMap = (stringStore . getStores) env
-        tvTypeIndex = (typeIndex . getStores) env
-        tvStreamMap = (streamStore . getStores) env
+    let tvListMap = getListStore env
+        tvStringMap = getStringStore env
+        tvTypeIndex = getTypeIndex env
+        tvStreamMap = getStreamStore env
     case cmd of
         CmdPing -> pure ResPong
         CmdEcho xs -> pure $ RBulk (Just xs)
@@ -184,10 +191,10 @@ runCmdSTM env now cmd = do
         STMList c -> LS.runListStoreSTM tvTypeIndex tvListMap c
         STMStream c -> StS.runStreamStoreSTM tvTypeIndex tvStreamMap now c
 
-runCmdIO :: (MonadReader (Env r) m, HasStores r, MonadIO m) => CmdIO -> m CommandResult
+runCmdIO :: (HasStores r) => CmdIO -> Redis r CommandResult
 runCmdIO cmd = do
-    tvListMap <- asks (listStore . getStores)
-    tvStreamMap <- asks (streamStore . getStores)
+    tvListMap <- asks getListStore
+    tvStreamMap <- asks getStreamStore
     case cmd of
         -- List Store
         CmdBLPop key 0 -> do
@@ -306,6 +313,51 @@ clientLoopWrite clientState socket = go mempty
             Right (resps, rest) -> do
                 mapM_ (processOneWrite clientState socket) resps
                 go rest
+
+propagateWrite :: Replication -> CmdSTM -> STM ()
+propagateWrite repli cmd =
+    case repli of
+        MkReplicationMaster (MkMasterState{..}) -> do
+            registry <- readTVar replicaRegistry
+            mapM_ (\rc -> writeTQueue rc.rcQueue $ encode $ cmdToResp $ RedSTM cmd) registry
+        MkReplicationReplica _ ->
+            pure () -- replicas never propagate
+
+acceptReplica :: TimedFastLogger -> MasterState -> Socket -> IO CommandResult
+acceptReplica envLogger masterState sock = do
+    _ <- initReplica envLogger masterState sock
+    masterReplOffset' <- readTVarIO masterState.masterReplOffset
+    pure $ RRepl $ ResFullResync masterState.masterReplId masterReplOffset'
+
+initReplica :: TimedFastLogger -> MasterState -> Socket -> IO ()
+initReplica envLogger masterState rcSocket = do
+    rcOffset <- newTVarIO (-1)
+    rcQueue <- newTQueueIO
+    rcAuxCmdOffset <- newTVarIO 0
+
+    rcSender <- async $ replicaSender envLogger rcSocket masterState.rdbFile rcQueue
+    let rc = MkReplicaConn{..}
+    atomically $ modifyTVar masterState.replicaRegistry (rc :)
+    pure ()
+
+replicaSender :: TimedFastLogger -> Socket -> FilePath -> TQueue ByteString -> IO ()
+replicaSender envLogger sock rdbFile q = do
+    -- Phase 1: RDB snapshot
+    rdbFileData <- readRdbFile rdbFile
+    let respEncoded = "$" <> fromString (show $ BS.length rdbFileData) <> "\r\n" <> rdbFileData
+    send sock respEncoded
+
+    -- Phase 2: Write Command Propogation
+    replicaSenderLoop envLogger sock q
+
+replicaSenderLoop :: TimedFastLogger -> Socket -> TQueue ByteString -> IO ()
+replicaSenderLoop envLogger sock q = do
+    resp <- atomically $ readTQueue q
+    send sock resp
+    replicaSenderLoop envLogger sock q
+
+readRdbFile :: FilePath -> IO ByteString
+readRdbFile = BS.readFile
 
 -- helpers
 

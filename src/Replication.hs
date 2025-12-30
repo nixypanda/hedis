@@ -11,39 +11,24 @@ module Replication (
     MasterState (..),
     ReplicaState (..),
     ReplicaConn (..),
+    ReplicaRegistry,
     replicationInfo,
     initMasterState,
     initReplicaState,
-    acceptReplica,
-    cleanupReplicaRegistry,
-    propagateWrite,
 ) where
 
-import Control.Concurrent.Async (Async, async, cancel)
+import Control.Concurrent.Async (Async)
 import Control.Concurrent.STM (
-    STM,
     TQueue,
     TVar,
-    atomically,
-    modifyTVar,
-    newTQueueIO,
     newTVarIO,
-    readTQueue,
-    readTVar,
     readTVarIO,
-    writeTQueue,
-    writeTVar,
  )
 import Control.Exception (Exception)
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.String (fromString)
-import Network.Simple.TCP (Socket, send)
-
-import Command (CmdSTM, Command (..), cmdToResp)
-import CommandResult (CommandResult (..), ReplResult (ResFullResync))
-import Resp (encode)
-import System.Log.FastLogger (LogStr, TimedFastLogger, ToLogStr (toLogStr))
+import Network.Simple.TCP (Socket)
 
 -- CLI flags ──▶ ReplicationConfig
 --                 │
@@ -133,61 +118,3 @@ replicationInfo (MkReplicationMaster (MkMasterState{..})) = do
             , "master_repl_offset:" <> fromString (show offset)
             ]
 replicationInfo (MkReplicationReplica (MkReplicaState{})) = pure "role:slave"
-
-propagateWrite :: Replication -> CmdSTM -> STM ()
-propagateWrite repli cmd =
-    case repli of
-        MkReplicationMaster (MkMasterState{..}) -> do
-            registry <- readTVar replicaRegistry
-            mapM_ (\rc -> writeTQueue rc.rcQueue $ encode $ cmdToResp $ RedSTM cmd) registry
-        MkReplicationReplica _ ->
-            pure () -- replicas never propagate
-
-acceptReplica :: TimedFastLogger -> MasterState -> Socket -> IO CommandResult
-acceptReplica envLogger masterState sock = do
-    _ <- initReplica envLogger masterState sock
-    masterReplOffset' <- readTVarIO masterState.masterReplOffset
-    pure $ RRepl $ ResFullResync masterState.masterReplId masterReplOffset'
-
-initReplica :: TimedFastLogger -> MasterState -> Socket -> IO ()
-initReplica envLogger masterState rcSocket = do
-    rcOffset <- newTVarIO (-1)
-    rcQueue <- newTQueueIO
-    rcAuxCmdOffset <- newTVarIO 0
-
-    rcSender <- async $ replicaSender envLogger rcSocket masterState.rdbFile rcQueue
-    let rc = MkReplicaConn{..}
-    atomically $ modifyTVar masterState.replicaRegistry (rc :)
-    pure ()
-
-cleanupReplicaRegistry :: ReplicaRegistry -> IO ()
-cleanupReplicaRegistry reg = do
-    replicas <- readTVarIO reg
-    mapM_ (cancel . (.rcSender)) replicas
-    atomically $ writeTVar reg []
-
-replicaSender :: TimedFastLogger -> Socket -> FilePath -> TQueue ByteString -> IO ()
-replicaSender envLogger sock rdbFile q = do
-    -- Phase 1: RDB snapshot
-    rdbFileData <- readRdbFile rdbFile
-    let respEncoded = "$" <> fromString (show $ BS.length rdbFileData) <> "\r\n" <> rdbFileData
-    send sock respEncoded
-
-    -- Phase 2: Write Command Propogation
-    replicaSenderLoop envLogger sock q
-
-replicaSenderLoop :: TimedFastLogger -> Socket -> TQueue ByteString -> IO ()
-replicaSenderLoop envLogger sock q = do
-    resp <- atomically $ readTQueue q
-    send sock resp
-    replicaSenderLoop envLogger sock q
-
-readRdbFile :: FilePath -> IO ByteString
-readRdbFile = BS.readFile
-
----------------
-loggingFuncs :: (Show a) => ((a -> LogStr) -> t) -> (String -> t, String -> t)
-loggingFuncs envLogger =
-    let logInfo' msg = envLogger (\t -> toLogStr (show t <> "[REPLICATION][INFO] " <> msg <> "\n"))
-        logError' msg = envLogger (\t -> toLogStr (show t <> "[REPLICATION][ERROR] " <> msg <> "\n"))
-     in (logInfo', logError')

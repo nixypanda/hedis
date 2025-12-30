@@ -133,6 +133,18 @@ newtype Redis r a = MkRedis {runRedis :: ReaderT (Env r) (ExceptT RedisError IO)
 class HasStores r where
     getStores :: Env r -> Stores
 
+    getListStore :: Env r -> TVar ListStore
+    getListStore = listStore . getStores
+
+    getTypeIndex :: Env r -> TVar TypeIndex
+    getTypeIndex = typeIndex . getStores
+
+    getStringStore :: Env r -> TVar StringStore
+    getStringStore = stringStore . getStores
+
+    getStreamStore :: Env r -> TVar StreamStore
+    getStreamStore = streamStore . getStores
+
 instance HasStores Master where
     getStores :: Env Master -> Stores
     getStores (EnvMaster c _) = c.stores
