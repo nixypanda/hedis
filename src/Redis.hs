@@ -19,7 +19,6 @@ module Redis (
     mkReplicaEnv,
     runReplication,
     TxState (..),
-    clientLoopDiscard,
     clientLoopWrite,
 ) where
 
@@ -452,34 +451,6 @@ clientLoopWrite clientState socket = go mempty
             Right (resps, rest) -> do
                 mapM_ (processOneWrite clientState socket) resps
                 go rest
-
-clientLoopDiscard :: ClientState -> Socket -> ByteString -> Redis Replica ()
-clientLoopDiscard clientState socket buf = do
-    env <- ask
-    let bufferSize = 1024
-    logInfo $ "Waiting for write command. Current buffer - " <> show buf
-
-    case decodeMany buf of
-        Left err -> do
-            throwError (ParsingError err)
-        Right (resps, rest) -> do
-            forM_ resps $ \resp -> do
-                res <- processOne clientState resp
-                case res of
-                    Just r@(RRepl cr) -> case cr of
-                        ReplOk -> pure ()
-                        ReplConfAck _ -> do
-                            liftIO $ atomically $ modifyTVar (getOffset env) (+ respBytes resp)
-                            let encoded = encode (resultToResp r)
-                            liftIO $ send socket encoded
-                        ResFullResync _ _ -> pure ()
-                    Just ResPong -> do
-                        liftIO $ atomically $ modifyTVar (getOffset env) (+ respBytes resp)
-                    _ -> pure ()
-
-            mbs <- liftIO $ recv socket bufferSize
-            bs <- maybe (throwError EmptyBuffer) pure mbs
-            clientLoopDiscard clientState socket (rest <> bs)
 
 -- helpers
 
