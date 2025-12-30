@@ -1,21 +1,20 @@
 module Store.ListStore (
     ListStore,
     emptySTM,
-    rpushSTM,
-    lpushSTM,
-    lpopSTM,
-    lpopsSTM,
+    runListStoreSTM,
     blpopSTM,
-    lrangeSTM,
-    llenSTM,
 ) where
 
 import Control.Concurrent.STM (STM, TVar, newTVar, readTVar, retry, writeTVar)
 import Data.ByteString (ByteString)
 
-import Command (Key)
+import Command (Key, ListCmd (..))
+import CommandResult (CommandResult (..))
+import Store.TypeStore (TypeIndex)
+import Store.TypeStore qualified as TS
 import StoreBackend.ListMap (ListMap, Range)
 import StoreBackend.ListMap qualified as LM
+import StoreBackend.TypeIndex (ValueType (..))
 
 type ListStore = ListMap Key ByteString
 
@@ -72,3 +71,24 @@ llenSTM :: TVar ListStore -> Key -> STM Int
 llenSTM tv key = do
     m <- readTVar tv
     pure (LM.lookupCount key m)
+
+runListStoreSTM :: TVar TypeIndex -> TVar ListStore -> ListCmd -> STM CommandResult
+runListStoreSTM tvTypeIndex tvListMap cmd = case cmd of
+    CmdRPush key xs -> do
+        count <- TS.setIfAvailable tvTypeIndex key VList *> rpushSTM tvListMap key xs
+        pure $ RInt count
+    CmdLPush key xs -> do
+        count <- TS.setIfAvailable tvTypeIndex key VList *> lpushSTM tvListMap key xs
+        pure $ RInt count
+    CmdLPop key Nothing -> do
+        val <- lpopSTM tvListMap key
+        pure $ RBulk val
+    CmdLPop key (Just mLen) -> do
+        vals <- lpopsSTM tvListMap key mLen
+        pure $ RArraySimple vals
+    CmdLRange key range -> do
+        vals <- lrangeSTM tvListMap key range
+        pure $ RArraySimple vals
+    CmdLLen key -> do
+        len <- llenSTM tvListMap key
+        pure $ RInt len

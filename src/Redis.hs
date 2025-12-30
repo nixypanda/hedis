@@ -335,25 +335,7 @@ runCmdSTM env now cmd = do
             pure $ maybe (RSimple "none") (RSimple . fromString . show) ty
         -- String Store
         STMString c -> SS.runStringStoreSTM tvTypeIndex tvStringMap now c
-        -- List Store
-        CmdRPush key xs -> do
-            count <- TS.setIfAvailable tvTypeIndex key VList *> LS.rpushSTM tvListMap key xs
-            pure $ RInt count
-        CmdLPush key xs -> do
-            count <- TS.setIfAvailable tvTypeIndex key VList *> LS.lpushSTM tvListMap key xs
-            pure $ RInt count
-        CmdLPop key Nothing -> do
-            val <- LS.lpopSTM tvListMap key
-            pure $ RBulk val
-        CmdLPop key (Just mLen) -> do
-            vals <- LS.lpopsSTM tvListMap key mLen
-            pure $ RArraySimple vals
-        CmdLRange key range -> do
-            vals <- LS.lrangeSTM tvListMap key range
-            pure $ RArraySimple vals
-        CmdLLen key -> do
-            len <- LS.llenSTM tvListMap key
-            pure $ RInt len
+        STMList c -> LS.runListStoreSTM tvTypeIndex tvListMap c
         -- Stream Store
         CmdXAdd key sId ks -> do
             val <- TS.setIfAvailable tvTypeIndex key VStream *> StS.xAddSTM tvStreamMap key sId ks now

@@ -9,6 +9,7 @@ module Command (
     CmdReplication (..),
     SubInfo (..),
     StringCmd (..),
+    ListCmd (..),
     isWriteCmd,
     respToCmd,
     cmdToResp,
@@ -48,11 +49,7 @@ data CmdSTM
     | CmdEcho ByteString
     | CmdType Key
     | STMString StringCmd
-    | CmdRPush Key [ByteString]
-    | CmdLPush Key [ByteString]
-    | CmdLPop Key (Maybe Int)
-    | CmdLRange Key Range
-    | CmdLLen Key
+    | STMList ListCmd
     | CmdXAdd Key XAddStreamId [(ByteString, ByteString)]
     | CmdXRange Key XRange
     | CmdXRead [(Key, ConcreteStreamId)]
@@ -62,6 +59,14 @@ data StringCmd
     = CmdSet Key ByteString (Maybe NominalDiffTime)
     | CmdGet Key
     | CmdIncr Key
+    deriving (Show, Eq)
+
+data ListCmd
+    = CmdRPush Key [ByteString]
+    | CmdLPush Key [ByteString]
+    | CmdLPop Key (Maybe Int)
+    | CmdLRange Key Range
+    | CmdLLen Key
     deriving (Show, Eq)
 
 data CmdIO
@@ -93,9 +98,9 @@ data CmdReplication
 isWriteCmd :: CmdSTM -> Bool
 isWriteCmd (STMString CmdSet{}) = True
 isWriteCmd (STMString CmdIncr{}) = True
-isWriteCmd (CmdRPush{}) = True
-isWriteCmd (CmdLPush{}) = True
-isWriteCmd (CmdLPop{}) = True
+isWriteCmd (STMList CmdRPush{}) = True
+isWriteCmd (STMList CmdLPush{}) = True
+isWriteCmd (STMList CmdLPop{}) = True
 isWriteCmd (CmdXAdd{}) = True
 -- how to handle blpop?????????
 isWriteCmd _ = False
@@ -126,20 +131,20 @@ respToCmd (Array 3 [BulkStr "SET", BulkStr key, BulkStr val]) =
 respToCmd (Array 2 [BulkStr "GET", BulkStr key]) = pure $ RedSTM $ STMString $ CmdGet key
 respToCmd (Array 2 [BulkStr "INCR", BulkStr key]) = pure $ RedSTM $ STMString $ CmdIncr key
 -- List Store
-respToCmd (Array 2 [BulkStr "LLEN", BulkStr key]) = pure $ RedSTM $ CmdLLen key
-respToCmd (Array 2 [BulkStr "LPOP", BulkStr key]) = pure $ RedSTM $ CmdLPop key Nothing
+respToCmd (Array 2 [BulkStr "LLEN", BulkStr key]) = pure $ RedSTM $ STMList $ CmdLLen key
+respToCmd (Array 2 [BulkStr "LPOP", BulkStr key]) = pure $ RedSTM $ STMList $ CmdLPop key Nothing
 respToCmd (Array 3 [BulkStr "LPOP", BulkStr key, BulkStr len]) =
-    RedSTM . CmdLPop key . Just <$> readIntBS len
+    RedSTM . STMList . CmdLPop key . Just <$> readIntBS len
 respToCmd (Array 4 [BulkStr "LRANGE", BulkStr key, BulkStr st, BulkStr stop]) = do
     start <- readIntBS st
     end <- readIntBS stop
-    pure $ RedSTM $ CmdLRange key (MkRange{..})
+    pure $ RedSTM $ STMList $ CmdLRange key (MkRange{..})
 respToCmd (Array 3 [BulkStr "BLPOP", BulkStr key, BulkStr tout]) =
     RedIO . CmdBLPop key . secondsToNominalDiffTime . realToFrac <$> readFloatBS tout
 respToCmd (Array _ ((BulkStr "RPUSH") : (BulkStr key) : vals)) =
-    RedSTM . CmdRPush key <$> mapM extractBulk vals
+    RedSTM . STMList . CmdRPush key <$> mapM extractBulk vals
 respToCmd (Array _ ((BulkStr "LPUSH") : (BulkStr key) : vals)) =
-    RedSTM . CmdLPush key <$> mapM extractBulk vals
+    RedSTM . STMList . CmdLPush key <$> mapM extractBulk vals
 -- Stream Store
 respToCmd (Array _ ((BulkStr "XADD") : (BulkStr key) : (BulkStr sId) : vals)) = do
     vals' <- mapM extractBulk vals
@@ -198,10 +203,7 @@ cmdToResp (RedSTM CmdPing) = Array 1 [BulkStr "PING"]
 cmdToResp (RedSTM (CmdEcho xs)) = Array 2 [BulkStr "ECHO", BulkStr xs]
 cmdToResp (RedSTM (CmdType key)) = Array 2 [BulkStr "TYPE", BulkStr key]
 cmdToResp (RedSTM (STMString cmd)) = stringStoreCmdToResp cmd
-cmdToResp (RedSTM (CmdRPush key xs)) = Array (length xs + 2) (BulkStr "RPUSH" : BulkStr key : map BulkStr xs)
-cmdToResp (RedSTM (CmdLPush key xs)) = Array (length xs + 2) (BulkStr "LPUSH" : BulkStr key : map BulkStr xs)
-cmdToResp (RedSTM (CmdLPop key Nothing)) = Array 2 [BulkStr "LPOP", BulkStr key]
-cmdToResp (RedSTM (CmdLPop key (Just len))) = Array 3 [BulkStr "LPOP", BulkStr key, BulkStr $ fromString $ show len]
+cmdToResp (RedSTM (STMList cmd)) = listStmCmdToResp cmd
 cmdToResp (RedRepl (CmdReplConfListen port)) =
     Array 3 [BulkStr "REPLCONF", BulkStr "listening-port", BulkStr $ fromString $ show port]
 cmdToResp (RedRepl CmdReplConfCapabilities) = Array 3 [BulkStr "REPLCONF", BulkStr "capa", BulkStr "psync2"]
@@ -215,6 +217,14 @@ stringStoreCmdToResp (CmdSet key val (Just t)) = Array 5 [BulkStr "SET", BulkStr
 stringStoreCmdToResp (CmdSet key val Nothing) = Array 3 [BulkStr "SET", BulkStr key, BulkStr val]
 stringStoreCmdToResp (CmdIncr key) = Array 2 [BulkStr "INCR", BulkStr key]
 stringStoreCmdToResp (CmdGet key) = Array 2 [BulkStr "GET", BulkStr key]
+
+listStmCmdToResp :: ListCmd -> Resp
+listStmCmdToResp (CmdRPush key xs) = Array (length xs + 2) (BulkStr "RPUSH" : BulkStr key : map BulkStr xs)
+listStmCmdToResp (CmdLPush key xs) = Array (length xs + 2) (BulkStr "LPUSH" : BulkStr key : map BulkStr xs)
+listStmCmdToResp (CmdLPop key Nothing) = Array 2 [BulkStr "LPOP", BulkStr key]
+listStmCmdToResp (CmdLPop key (Just len)) = Array 3 [BulkStr "LPOP", BulkStr key, BulkStr $ fromString $ show len]
+listStmCmdToResp (CmdLLen key) = Array 2 [BulkStr "LLEN", BulkStr key]
+listStmCmdToResp (CmdLRange start stop) = Array 4 [BulkStr "LRANGE", BulkStr $ fromString $ show start, BulkStr $ fromString $ show stop]
 
 cmdBytes :: Command -> Int
 cmdBytes = respBytes . cmdToResp
