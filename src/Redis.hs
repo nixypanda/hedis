@@ -326,12 +326,12 @@ runCmdSTM env now cmd = do
         tvTypeIndex = (typeIndex . getStores) env
         tvStreamMap = (streamStore . getStores) env
     case cmd of
-        CmdPing -> pure $ RSimple "PONG"
+        CmdPing -> pure ResPong
         CmdEcho xs -> pure $ RBulk (Just xs)
         -- type index
         CmdType x -> do
             ty <- TS.getTypeSTM tvTypeIndex x
-            pure $ maybe (RSimple "none") (RSimple . fromString . show) ty
+            pure $ ResType ty
         STMString c -> SS.runStringStoreSTM tvTypeIndex tvStringMap now c
         STMList c -> LS.runListStoreSTM tvTypeIndex tvListMap c
         STMStream c -> StS.runStreamStoreSTM tvTypeIndex tvStreamMap now c
@@ -480,7 +480,8 @@ clientLoopDiscard clientState socket buf = do
                             liftIO $ atomically $ modifyTVar (getOffset env) (+ respBytes resp)
                             let encoded = encode (resultToResp r)
                             liftIO $ send socket encoded
-                    Just (RSimple "PONG") -> do
+                        ResFullResync _ _ -> pure ()
+                    Just ResPong -> do
                         liftIO $ atomically $ modifyTVar (getOffset env) (+ respBytes resp)
                     _ -> pure ()
 

@@ -56,7 +56,7 @@ runStringStoreSTM :: TVar TypeIndex -> TVar StringStore -> UTCTime -> StringCmd 
 runStringStoreSTM tvTypeIndex tvStringMap now cmd = case cmd of
     CmdSet key val mexpiry -> do
         TS.setIfAvailable tvTypeIndex key VString *> setSTM tvStringMap key val now mexpiry
-        pure $ RSimple "OK"
+        pure ResOk
     CmdGet key -> do
         val <- getSTM tvStringMap key now
         pure $ RBulk val

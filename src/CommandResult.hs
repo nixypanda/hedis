@@ -12,15 +12,16 @@ module CommandResult (
 import Data.ByteString (ByteString)
 import Data.String (IsString (fromString))
 
-import Command (Command, Key, cmdToResp)
+import Command (Key)
+import Data.ByteString qualified as BS
 import Parsers (readIntBS)
 import Resp (Resp (..))
 import StoreBackend.StreamMap (ConcreteStreamId, StreamMapError (..))
 import StoreBackend.StreamMap qualified as SM
+import StoreBackend.TypeIndex
 
 data CommandResult
-    = RSimple ByteString
-    | RBulk (Maybe ByteString)
+    = RBulk (Maybe ByteString)
     | RInt Int
     | RArrayNull
     | RArraySimple [ByteString]
@@ -28,12 +29,19 @@ data CommandResult
     | RStreamId ConcreteStreamId
     | RArrayStreamValues [SM.Value ByteString ByteString]
     | RArray [CommandResult]
-    | RErr CommandError
-    | RCmd Command
     | RRepl ReplResult
+    | ResPong
+    | ResOk
+    | RSimple ByteString
+    | ResType (Maybe ValueType)
+    | -- wtf
+      RErr CommandError
     deriving (Show, Eq)
 
-data ReplResult = ReplOk | ReplConfAck Int
+data ReplResult
+    = ReplOk
+    | ReplConfAck Int
+    | ResFullResync ByteString Int
     deriving (Show, Eq)
 
 data CommandError
@@ -50,6 +58,10 @@ data TransactionError
     deriving (Show, Eq)
 
 resultToResp :: CommandResult -> Resp
+resultToResp ResPong = Str "PONG"
+resultToResp ResOk = Str "OK"
+resultToResp (ResType Nothing) = Str "none"
+resultToResp (ResType (Just t)) = valueTypeToResp t
 resultToResp (RSimple s) = Str s
 resultToResp (RBulk Nothing) = NullBulk
 resultToResp (RBulk (Just b)) = BulkStr b
@@ -61,9 +73,17 @@ resultToResp (RArrayStreamValues vals) = arrayMap valueToResp vals
 resultToResp (RArrayKeyValues kvs) = arrayMap arrayKeyValsToResp kvs
 resultToResp (RStreamId sid) = streamIdToResp sid
 resultToResp (RErr e) = errorToResp e
-resultToResp (RCmd c) = cmdToResp c
-resultToResp (RRepl ReplOk) = Str "OK"
-resultToResp (RRepl (ReplConfAck n)) = Array 3 [BulkStr "REPLCONF", BulkStr "ACK", BulkStr $ fromString $ show n]
+resultToResp (RRepl r) = replResultToResp r
+
+replResultToResp :: ReplResult -> Resp
+replResultToResp ReplOk = Str "OK"
+replResultToResp (ReplConfAck n) = Array 3 [BulkStr "REPLCONF", BulkStr "ACK", BulkStr $ fromString $ show n]
+replResultToResp (ResFullResync sId s) = Str $ BS.intercalate " " ["FULLRESYNC", sId, fromString $ show s]
+
+valueTypeToResp :: ValueType -> Resp
+valueTypeToResp VString = Str "string"
+valueTypeToResp VList = Str "list"
+valueTypeToResp VStream = Str "stream"
 
 arrayMap :: (a -> Resp) -> [a] -> Resp
 arrayMap f xs = Array (length xs) (map f xs)
@@ -81,6 +101,7 @@ arrayKeyValsToResp :: (ByteString, [SM.Value ByteString ByteString]) -> Resp
 arrayKeyValsToResp (k, vs) = Array 2 [BulkStr k, arrayMap valueToResp vs]
 
 respToResult :: Resp -> Either String CommandResult
+respToResult (Str "PONG") = Right ResPong
 respToResult (Str s) = Right $ RSimple s
 respToResult (Array 3 [BulkStr "REPLCONF", BulkStr "ACK", BulkStr n]) = RRepl . ReplConfAck <$> readIntBS n
 respToResult _ = error "TODO"

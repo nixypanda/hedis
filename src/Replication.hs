@@ -40,8 +40,8 @@ import Data.ByteString qualified as BS
 import Data.String (fromString)
 import Network.Simple.TCP (Socket, send)
 
-import Command (CmdReplication (CmdFullResync), CmdSTM, Command (..), cmdToResp)
-import CommandResult (CommandResult (..))
+import Command (CmdSTM, Command (..), cmdToResp)
+import CommandResult (CommandResult (..), ReplResult (ResFullResync))
 import Resp (encode)
 import System.Log.FastLogger (LogStr, TimedFastLogger, ToLogStr (toLogStr))
 
@@ -147,7 +147,7 @@ acceptReplica :: TimedFastLogger -> MasterState -> Socket -> IO CommandResult
 acceptReplica envLogger masterState sock = do
     _ <- initReplica envLogger masterState sock
     masterReplOffset' <- readTVarIO masterState.masterReplOffset
-    pure $ RCmd $ RedRepl $ CmdFullResync masterState.masterReplId masterReplOffset'
+    pure $ RRepl $ ResFullResync masterState.masterReplId masterReplOffset'
 
 initReplica :: TimedFastLogger -> MasterState -> Socket -> IO ()
 initReplica envLogger masterState rcSocket = do
