@@ -36,7 +36,7 @@ revPrependTests =
         "revPrepend"
         [ testCase "revPrepend to missing key inserts list" $ do
             let m = LM.revPrepend "k" [1 :: Int, 2] LM.empty
-            LM.lookup "k" m @?= Just [1, 2]
+            LM.lookup "k" m @?= Just [2, 1]
         , testCase "revPrepend reverses input and prepends" $ do
             let m0 = LM.append "k" [3 :: Int, 4] LM.empty
                 m1 = LM.revPrepend "k" [1, 2] m0

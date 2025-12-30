@@ -1,4 +1,16 @@
-module Store.ListStore (ListStore, emptySTM, runListStoreSTM, blpopSTM) where
+module Store.ListStore (
+    ListStore,
+    emptySTM,
+    runListStoreSTM,
+    blpopSTM,
+    -- testing
+    rpushSTM,
+    lpushSTM,
+    lpopSTM,
+    lpopsSTM,
+    lrangeSTM,
+    llenSTM,
+) where
 
 import Control.Concurrent.STM (STM, TVar, newTVar, readTVar, retry, writeTVar)
 import Data.ByteString (ByteString)
@@ -36,7 +48,7 @@ lpopSTM :: TVar ListStore -> Key -> STM (Maybe ByteString)
 lpopSTM tv key = do
     m <- readTVar tv
     case LM.leftPop key m of
-        Nothing -> undefined
+        Nothing -> pure Nothing
         Just (x, m') -> do
             writeTVar tv m'
             pure $ Just x

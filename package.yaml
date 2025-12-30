@@ -67,3 +67,5 @@ tests:
       - hedgehog
       - bytestring
       - parsec
+      - async
+      - stm

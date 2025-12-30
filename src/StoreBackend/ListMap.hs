@@ -32,7 +32,7 @@ append k vals lMap = case M.lookup k lMap of
 
 revPrepend :: (Ord k) => k -> [v] -> ListMap k v -> ListMap k v
 revPrepend k vals lMap = case M.lookup k lMap of
-    Nothing -> M.insert k vals lMap
+    Nothing -> M.insert k (reverse vals) lMap
     Just xs -> M.insert k (reverse vals ++ xs) lMap
 
 lookup :: (Ord k) => k -> ListMap k v -> Maybe [v]

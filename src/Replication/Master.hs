@@ -92,9 +92,7 @@ sendReplConfs _clientState n tout = do
                 poll :: IO Int
                 poll = do
                     acked <- countAcked
-                    if acked >= n
-                        then pure acked
-                        else threadDelay 1000 >> poll
+                    if acked >= n then pure acked else threadDelay 1000 >> poll
 
             mres <- liftIO $ timeout' tout poll
             acked <- liftIO $ maybe countAcked pure mres
