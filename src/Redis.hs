@@ -83,7 +83,6 @@ import Store.StringStore (StringStore)
 import Store.StringStore qualified as SS
 import Store.TypeStore (IncorrectType, TypeIndex)
 import Store.TypeStore qualified as TS
-import StoreBackend.TypeIndex (ValueType (..))
 import Time (nominalDiffTimeToMicros)
 
 -- Types
@@ -333,19 +332,9 @@ runCmdSTM env now cmd = do
         CmdType x -> do
             ty <- TS.getTypeSTM tvTypeIndex x
             pure $ maybe (RSimple "none") (RSimple . fromString . show) ty
-        -- String Store
         STMString c -> SS.runStringStoreSTM tvTypeIndex tvStringMap now c
         STMList c -> LS.runListStoreSTM tvTypeIndex tvListMap c
-        -- Stream Store
-        CmdXAdd key sId ks -> do
-            val <- TS.setIfAvailable tvTypeIndex key VStream *> StS.xAddSTM tvStreamMap key sId ks now
-            pure $ either (RErr . RStreamError) RStreamId val
-        CmdXRange key range -> do
-            vals <- StS.xRangeSTM tvStreamMap key range
-            pure $ RArrayStreamValues vals
-        CmdXRead keys -> do
-            vals <- StS.xReadSTM tvStreamMap keys
-            pure $ RArrayKeyValues vals
+        STMStream c -> StS.runStreamStoreSTM tvTypeIndex tvStreamMap now c
 
 runCmdIO :: (MonadReader (Env r) m, HasStores r, MonadIO m) => CmdIO -> m CommandResult
 runCmdIO cmd = do

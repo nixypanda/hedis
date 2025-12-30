@@ -1,5 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 
+{- HLINT ignore "Use ++" -}
+
 module Command (
     Command (..),
     CmdSTM (..),
@@ -10,6 +12,7 @@ module Command (
     SubInfo (..),
     StringCmd (..),
     ListCmd (..),
+    StreamCmd (..),
     isWriteCmd,
     respToCmd,
     cmdToResp,
@@ -37,7 +40,7 @@ import Parsers (
  )
 import Resp (Resp (..), encode)
 import StoreBackend.ListMap (Range (..))
-import StoreBackend.StreamMap (ConcreteStreamId, XAddStreamId, XRange, XReadStreamId (..))
+import StoreBackend.StreamMap (ConcreteStreamId, IdSeq (..), XAddStreamId (..), XRange (..), XRangeEnd (..), XRangeStart (..), XReadStreamId (..))
 import Time (millisToNominalDiffTime, nominalDiffTimeToMillis)
 
 type Key = ByteString
@@ -50,9 +53,7 @@ data CmdSTM
     | CmdType Key
     | STMString StringCmd
     | STMList ListCmd
-    | CmdXAdd Key XAddStreamId [(ByteString, ByteString)]
-    | CmdXRange Key XRange
-    | CmdXRead [(Key, ConcreteStreamId)]
+    | STMStream StreamCmd
     deriving (Show, Eq)
 
 data StringCmd
@@ -67,6 +68,12 @@ data ListCmd
     | CmdLPop Key (Maybe Int)
     | CmdLRange Key Range
     | CmdLLen Key
+    deriving (Show, Eq)
+
+data StreamCmd
+    = CmdXAdd Key XAddStreamId [(ByteString, ByteString)]
+    | CmdXRange Key XRange
+    | CmdXRead [(Key, ConcreteStreamId)]
     deriving (Show, Eq)
 
 data CmdIO
@@ -101,7 +108,7 @@ isWriteCmd (STMString CmdIncr{}) = True
 isWriteCmd (STMList CmdRPush{}) = True
 isWriteCmd (STMList CmdLPush{}) = True
 isWriteCmd (STMList CmdLPop{}) = True
-isWriteCmd (CmdXAdd{}) = True
+isWriteCmd (STMStream CmdXAdd{}) = True
 -- how to handle blpop?????????
 isWriteCmd _ = False
 
@@ -150,14 +157,14 @@ respToCmd (Array _ ((BulkStr "XADD") : (BulkStr key) : (BulkStr sId) : vals)) = 
     vals' <- mapM extractBulk vals
     chunked <- chunksOf2 vals'
     sId' <- readXAddStreamId sId
-    pure $ RedSTM $ CmdXAdd key sId' chunked
+    pure $ RedSTM $ STMStream $ CmdXAdd key sId' chunked
 respToCmd (Array 4 [BulkStr "XRANGE", BulkStr key, BulkStr s, BulkStr e]) =
-    RedSTM . CmdXRange key <$> readXRange s e
+    RedSTM . STMStream . CmdXRange key <$> readXRange s e
 respToCmd (Array _ (BulkStr "XREAD" : BulkStr "streams" : vals)) = do
     vals' <- mapM extractBulk vals
     let (keys, ids) = splitAt (length vals' `div` 2) vals'
     ids' <- mapM readConcreteStreamId ids
-    pure $ RedSTM $ CmdXRead $ zip keys ids'
+    pure $ RedSTM $ STMStream $ CmdXRead $ zip keys ids'
 respToCmd
     ( Array
             6
@@ -204,6 +211,7 @@ cmdToResp (RedSTM (CmdEcho xs)) = Array 2 [BulkStr "ECHO", BulkStr xs]
 cmdToResp (RedSTM (CmdType key)) = Array 2 [BulkStr "TYPE", BulkStr key]
 cmdToResp (RedSTM (STMString cmd)) = stringStoreCmdToResp cmd
 cmdToResp (RedSTM (STMList cmd)) = listStmCmdToResp cmd
+cmdToResp (RedSTM (STMStream cmd)) = streamStmCmdToResp cmd
 cmdToResp (RedRepl (CmdReplConfListen port)) =
     Array 3 [BulkStr "REPLCONF", BulkStr "listening-port", BulkStr $ fromString $ show port]
 cmdToResp (RedRepl CmdReplConfCapabilities) = Array 3 [BulkStr "REPLCONF", BulkStr "capa", BulkStr "psync2"]
@@ -225,6 +233,40 @@ listStmCmdToResp (CmdLPop key Nothing) = Array 2 [BulkStr "LPOP", BulkStr key]
 listStmCmdToResp (CmdLPop key (Just len)) = Array 3 [BulkStr "LPOP", BulkStr key, BulkStr $ fromString $ show len]
 listStmCmdToResp (CmdLLen key) = Array 2 [BulkStr "LLEN", BulkStr key]
 listStmCmdToResp (CmdLRange start stop) = Array 4 [BulkStr "LRANGE", BulkStr $ fromString $ show start, BulkStr $ fromString $ show stop]
+
+streamStmCmdToResp :: StreamCmd -> Resp
+streamStmCmdToResp (CmdXAdd key sid kvs) =
+    Array (3 + length kvs * 2) $ BulkStr "XADD" : BulkStr key : BulkStr (xaddIdToBS sid) : concatMap (\(k, v) -> [BulkStr k, BulkStr v]) kvs
+streamStmCmdToResp (CmdXRange key xr) =
+    Array (2 + length args) $ BulkStr "XRANGE" : BulkStr key : map BulkStr args
+  where
+    args = xRangeToArgs xr
+streamStmCmdToResp (CmdXRead xs) =
+    Array (2 + length keys + length ids) $ BulkStr "XREAD" : BulkStr "streams" : map BulkStr keys ++ map (BulkStr . streamIdToBS) ids
+  where
+    (keys, ids) = unzip xs
+
+xaddIdToBS :: XAddStreamId -> ByteString
+xaddIdToBS AutoId = "*"
+xaddIdToBS (ExplicitId i SeqAuto) = fromString (show i) <> "-"
+xaddIdToBS (ExplicitId i s) = fromString (show i) <> "-" <> fromString (show s)
+
+xRangeToArgs :: XRange -> [ByteString]
+xRangeToArgs (MkXrange start end) = [xRangeStartToStr start, xRangeEndToStr end]
+  where
+    xRangeEndToStr XPlus = "+"
+    xRangeEndToStr (XE sid) = xRangeStreamIdToStr sid
+
+    xRangeStartToStr XMinus = "-"
+    xRangeStartToStr (XS sid) = xRangeStreamIdToStr sid
+
+    xRangeStreamIdToStr (ts, Just ms) = fromString (show ts) <> "-" <> fromString (show ms)
+    xRangeStreamIdToStr (ts, Nothing) = fromString (show ts) <> "-"
+
+streamIdToBS :: ConcreteStreamId -> ByteString
+streamIdToBS (i, s) = fromString (show i) <> "-" <> fromString (show s)
+
+---
 
 cmdBytes :: Command -> Int
 cmdBytes = respBytes . cmdToResp

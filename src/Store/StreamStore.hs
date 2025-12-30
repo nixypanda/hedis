@@ -1,18 +1,19 @@
 module Store.StreamStore (
     StreamStore,
     emptySTM,
-    xAddSTM,
-    xRangeSTM,
-    xReadSTM,
+    runStreamStoreSTM,
     xResolveStreamIdSTM,
     xReadBlockSTM,
 ) where
 
 import Control.Concurrent.STM (STM, TVar, newTVar, readTVar, retry, writeTVar)
-
-import Command (Key)
 import Data.ByteString (ByteString)
 import Data.Time (UTCTime)
+
+import Command (Key, StreamCmd (..))
+import CommandResult (CommandError (..), CommandResult (..))
+import Store.TypeStore (TypeIndex)
+import Store.TypeStore qualified as TS
 import StoreBackend.StreamMap (
     ConcreteStreamId,
     StreamMap,
@@ -21,6 +22,7 @@ import StoreBackend.StreamMap (
     XReadStreamId (..),
  )
 import StoreBackend.StreamMap qualified as SM
+import StoreBackend.TypeIndex (ValueType (..))
 
 type StreamStore = StreamMap Key ByteString ByteString
 type SKey = ByteString
@@ -64,3 +66,15 @@ xReadBlockSTM tv key sid = do
     case SM.queryEx key sid mInner of
         [] -> retry
         xs -> pure (key, xs)
+
+runStreamStoreSTM :: TVar TypeIndex -> TVar StreamStore -> UTCTime -> StreamCmd -> STM CommandResult
+runStreamStoreSTM tvTypeIndex tvStreamMap now cmd = case cmd of
+    CmdXAdd key sId ks -> do
+        val <- TS.setIfAvailable tvTypeIndex key VStream *> xAddSTM tvStreamMap key sId ks now
+        pure $ either (RErr . RStreamError) RStreamId val
+    CmdXRange key range -> do
+        vals <- xRangeSTM tvStreamMap key range
+        pure $ RArrayStreamValues vals
+    CmdXRead keys -> do
+        vals <- xReadSTM tvStreamMap keys
+        pure $ RArrayKeyValues vals
