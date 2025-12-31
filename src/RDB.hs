@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module RDB (RDBEncoded, rdbParser) where
+module RDB (RespEncodedRdb, respEncodeRdbParser) where
 
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
@@ -9,14 +9,14 @@ import Text.Parsec.ByteString (Parser)
 
 import Parsers (intParser)
 
-data RDBEncoded = MkRDBEncoded
+data RespEncodedRdb = MkRespEncodedRdb
     { len :: !Int
     , payload :: !ByteString
     }
     deriving (Show, Eq)
 
-rdbParser :: Parser RDBEncoded
-rdbParser = do
+respEncodeRdbParser :: Parser RespEncodedRdb
+respEncodeRdbParser = do
     _ <- char '$'
     len <- intParser
     _ <- crlf
@@ -26,7 +26,7 @@ rdbParser = do
         _ -> fail "Invalid RDB magic"
 
     pure $
-        MkRDBEncoded{..}
+        MkRespEncodedRdb{..}
 
 takeBytes :: Int -> Parser BS.ByteString
 takeBytes n = do

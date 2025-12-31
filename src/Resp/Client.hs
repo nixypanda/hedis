@@ -7,7 +7,7 @@ import Network.Simple.TCP (Socket, recv, send)
 import Text.Parsec.ByteString (Parser)
 
 import Parsers (parseWithRemainder)
-import RDB (RDBEncoded, rdbParser)
+import RDB (RespEncodedRdb, respEncodeRdbParser)
 import Resp.Core (Resp, encode, respParser)
 
 data RespError
@@ -45,8 +45,8 @@ recv' parser conn@RespConn{..} = do
 recvResp :: RespConn -> IO Resp
 recvResp = recv' respParser
 
-recvRdb :: RespConn -> IO RDBEncoded
-recvRdb = recv' rdbParser
+recvRdb :: RespConn -> IO RespEncodedRdb
+recvRdb = recv' respEncodeRdbParser
 
 mkRespConn :: Socket -> IO RespConn
 mkRespConn sock = do
