@@ -15,8 +15,8 @@ module Store.ListStore (
 import Control.Concurrent.STM (STM, TVar, newTVar, readTVar, retry, writeTVar)
 import Data.ByteString (ByteString)
 
-import Command (Key, ListCmd (..))
-import CommandResult (CommandResult (..))
+import Protocol.Command (Key, ListCmd (..))
+import Protocol.Result (CommandResult (..))
 import Store.TypeStore (TypeIndex)
 import Store.TypeStore qualified as TS
 import StoreBackend.ListMap (ListMap, Range)

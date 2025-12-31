@@ -16,7 +16,7 @@ import Control.Monad (unless)
 import Data.Map (Map)
 import Data.Map qualified as M
 
-import Command (Key)
+import Protocol.Command (Key)
 import StoreBackend.TypeIndex (RequiredType (..), ValueType, checkAvailable)
 
 type TypeIndex = Map Key ValueType

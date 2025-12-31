@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Resp.Command (
+module Wire.Client.Command (
     respToCmd,
     cmdToResp,
     cmdBytes,
@@ -8,13 +8,12 @@ module Resp.Command (
     respBytes,
 ) where
 
-import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.String (IsString (fromString))
 import Data.Time (nominalDiffTimeToSeconds, secondsToNominalDiffTime)
 
-import Command
 import Parsers (readFloatBS, readIntBS)
+import Protocol.Command
 import Resp.Core (Resp (..), encode)
 import Resp.Utils
 import Store.StreamStoreParsing (

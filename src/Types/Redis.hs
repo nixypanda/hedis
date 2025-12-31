@@ -4,7 +4,7 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE KindSignatures #-}
 
-module Redis (
+module Types.Redis (
     HasReplication (..),
     HasLogger (..),
     HasStores (..),
@@ -40,8 +40,8 @@ import System.Log.FastLogger (
  )
 import Text.Parsec (ParseError)
 
-import Command (CmdSTM, Command)
-import CommandResult (CommandResult, Result)
+import Protocol.Command (CmdSTM, Command)
+import Protocol.Result (CommandResult, Result)
 import Replication.Config (
     MasterConfig,
     MasterState (..),

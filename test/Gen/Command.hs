@@ -8,7 +8,7 @@ import Data.ByteString (ByteString)
 import Data.ByteString.Char8 qualified as BS
 import Data.Time (NominalDiffTime)
 
-import Command
+import Protocol.Command
 import Data.String (fromString)
 import Gen.Stream (genConcreteStreamId, genXAddStreamId, genXRange, genXReadStreamId)
 import StoreBackend.ListMap qualified as LM

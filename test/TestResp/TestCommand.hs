@@ -7,7 +7,7 @@ import Test.Tasty
 import Test.Tasty.Hedgehog
 
 import Gen.Command (genCommand)
-import Resp.Command
+import Wire.Client.Command
 
 --------------------------------------------------------------------------------
 -- Tasty entry

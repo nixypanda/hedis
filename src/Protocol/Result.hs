@@ -1,4 +1,4 @@
-module CommandResult (
+module Protocol.Result (
     CommandResult (..),
     CommandError (..),
     TransactionError (..),
@@ -10,7 +10,7 @@ module CommandResult (
 
 import Data.ByteString (ByteString)
 
-import Command (Key)
+import Protocol.Command (Key)
 import StoreBackend.StreamMap (ConcreteStreamId, StreamMapError (..))
 import StoreBackend.StreamMap qualified as SM
 import StoreBackend.TypeIndex (ValueType (..))

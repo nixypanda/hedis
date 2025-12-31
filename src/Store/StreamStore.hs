@@ -10,9 +10,9 @@ import Control.Concurrent.STM (STM, TVar, newTVar, readTVar, retry, writeTVar)
 import Data.ByteString (ByteString)
 import Data.Time (UTCTime)
 
-import Command (Key, StreamCmd (..))
-import CommandResult (CommandError (..), CommandResult (..))
 import Data.Bifunctor (Bifunctor (bimap))
+import Protocol.Command (Key, StreamCmd (..))
+import Protocol.Result (CommandError (..), CommandResult (..))
 import Store.TypeStore (TypeIndex)
 import Store.TypeStore qualified as TS
 import StoreBackend.StreamMap (

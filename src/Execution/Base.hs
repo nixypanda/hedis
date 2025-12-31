@@ -9,15 +9,15 @@ import Control.Monad.Reader (MonadReader (ask), asks)
 import Data.List (singleton)
 import Data.Time (UTCTime)
 
-import Command
-import CommandResult
-import Redis
+import Protocol.Command
+import Protocol.Result
 import Replication.Config (replicationInfo)
 import Store.ListStore qualified as LS
 import Store.StreamStore qualified as StS
 import Store.StringStore qualified as SS
 import Store.TypeStore qualified as TS
 import Time (timeout')
+import Types.Redis
 
 runCmdSTM :: (HasStores r) => Env r -> UTCTime -> CmdSTM -> STM (Either CommandError CommandResult)
 runCmdSTM env now cmd = do

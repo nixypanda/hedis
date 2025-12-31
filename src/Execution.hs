@@ -12,17 +12,18 @@ import Data.Bifunctor (Bifunctor (first))
 import Data.Time (UTCTime, getCurrentTime)
 import Network.Simple.TCP (Socket, send)
 
-import Command
-import CommandResult
 import Execution.Base (runCmdSTM, runServerInfoCmds)
-import Redis
-import Replication.Command (MasterCommand (..), propogationCmdToCmdSTM, respToMasterCmd, runAndReplicateIO, runAndReplicateSTM)
-import Replication.Master (runMasterToReplicaReplicationCmds, sendReplConfs)
+import Protocol.Command
+import Protocol.MasterCmd (MasterCommand (..), propogationCmdToCmdSTM)
+import Protocol.Result
+import Replication.Master (runAndReplicateIO, runAndReplicateSTM, runMasterToReplicaReplicationCmds, sendReplConfs)
 import Replication.Replica (doHandshake, runReplicaToMasterReplicationCmds)
 import Resp.Client (RespConn, mkRespConn, recvRdb, recvResp, sendResp)
-import Resp.Command (respBytes, respToCmd)
 import Resp.Core (encode)
-import Resp.Result (cmdResultToResp, resultToResp)
+import Types.Redis
+import Wire.Client.Command (respBytes, respToCmd)
+import Wire.Client.Result (cmdResultToResp, resultToResp)
+import Wire.MasterCmd (respToMasterCmd)
 
 --- client server
 

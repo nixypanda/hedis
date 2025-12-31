@@ -11,10 +11,10 @@ import Data.ByteString (ByteString)
 import Data.String (IsString (fromString))
 import Data.Time (NominalDiffTime, UTCTime)
 
-import Command (Key, StringCmd (..))
-import CommandResult (CommandError (..), CommandResult (..))
 import Data.Bifunctor (Bifunctor (bimap))
 import Parsers (readIntBS)
+import Protocol.Command (Key, StringCmd (..))
+import Protocol.Result (CommandError (..), CommandResult (..))
 import Store.TypeStore (TypeIndex)
 import Store.TypeStore qualified as TS
 import StoreBackend.ExpiringMap (ExpiringMap)

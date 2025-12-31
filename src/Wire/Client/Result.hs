@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Resp.Result (cmdResultToResp, respToResult, errorToResp, resultToResp) where
+module Wire.Client.Result (cmdResultToResp, respToResult, errorToResp, resultToResp) where
 
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
@@ -8,8 +8,8 @@ import Data.String (IsString (fromString))
 import Text.Parsec (anyChar, char, manyTill, string)
 import Text.Parsec.ByteString (Parser)
 
-import CommandResult
 import Parsers (intParser, parseBS, readIntBS)
+import Protocol.Result
 import Resp.Core (Resp (..))
 import StoreBackend.StreamMap (ConcreteStreamId, StreamMapError (..))
 import StoreBackend.StreamMap qualified as SM

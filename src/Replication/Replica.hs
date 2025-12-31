@@ -11,14 +11,14 @@ import Data.Bifunctor (Bifunctor (first))
 import Data.List (find)
 import Network.Simple.TCP (Socket)
 
-import Command
-import CommandResult
-import Redis
+import Protocol.Command
+import Protocol.Result
 import Replication.Config (MasterState (..), ReplicaConn (..), ReplicaState (..), Replication (..))
 import Replication.Master (acceptReplica)
 import Resp.Client (RespConn, recvResp, sendResp)
-import Resp.Command (cmdToResp)
-import Resp.Result (respToResult)
+import Types.Redis
+import Wire.Client.Command (cmdToResp)
+import Wire.Client.Result (respToResult)
 
 doHandshake :: ReplicaState -> RespConn -> Redis Replica ()
 doHandshake (MkReplicaState{..}) respConn = do
