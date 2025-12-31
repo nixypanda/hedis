@@ -1,7 +1,7 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-module Execution (runReplication, clientLoopWrite) where
+module Server.ClientLoop (clientLoopWrite) where
 
 import Control.Concurrent.STM (STM, atomically, modifyTVar, readTVarIO, writeTVar)
 import Control.Monad (forever)
@@ -12,13 +12,12 @@ import Data.Bifunctor (Bifunctor (first))
 import Data.Time (UTCTime, getCurrentTime)
 import Network.Simple.TCP (Socket, send)
 
-import Execution.Base (runCmdSTM, runServerInfoCmds)
+import Execution.Base (runServerInfoCmds)
 import Protocol.Command
-import Protocol.MasterCmd (MasterCommand (..), propogationCmdToCmdSTM)
 import Protocol.Result
 import Replication.Master (runAndReplicateIO, runAndReplicateSTM, runMasterToReplicaReplicationCmds, sendReplConfs)
-import Replication.Replica (doHandshake, runReplicaToMasterReplicationCmds)
-import Resp.Client (RespConn, mkRespConn, recvRdb, recvResp, sendResp)
+import Replication.Replica (runReplicaToMasterReplicationCmds)
+import Resp.Client (mkRespConn, recvResp)
 import Resp.Core (encode)
 import Types.Redis
 import Wire.Class (FromResp (..), ToResp (..))
@@ -80,38 +79,3 @@ executeQueuedCmds clientState env now cmds = do
     vals <- mapM (runAndReplicateSTM env now) (reverse cmds)
     modifyTVar clientState.txState (const NoTx)
     pure vals
-
--- replica master update receive
-
-runReplication :: Socket -> Redis Replica ()
-runReplication socket = do
-    EnvReplica _ state <- ask
-    respConn <- liftIO $ mkRespConn socket
-    doHandshake state respConn
-
-    logInfo $ "Handshake complete. Waiting for RDB" <> show socket
-    _rdb <- liftIO $ recvRdb respConn
-
-    receiveMasterUpdates respConn
-
-receiveMasterUpdates :: RespConn -> Redis Replica ()
-receiveMasterUpdates respConn = do
-    forever $ do
-        env <- ask
-        resp <- liftIO $ recvResp respConn
-        liftIO $ print $ "received " <> show resp
-        command <- liftEither $ first ConversionError $ fromResp resp
-        now <- liftIO getCurrentTime
-        liftIO $ print $ "processing " <> show command
-        let offsetIncr = modifyTVar (getOffset env) (+ respBytes command)
-        case command of
-            PropogationCmd c -> liftIO $ atomically $ do
-                _ <- runCmdSTM env now . propogationCmdToCmdSTM $ c
-                offsetIncr
-            ReplicationCommand c -> do
-                liftIO $ atomically $ do
-                    _ <- runMasterToReplicaReplicationCmds env c
-                    offsetIncr
-                liftIO $ sendResp respConn $ toResp command
-            MasterPing -> do
-                liftIO $ atomically offsetIncr

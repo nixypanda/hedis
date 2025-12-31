@@ -15,9 +15,10 @@ import System.IO (BufferMode (NoBuffering), hSetBuffering, stderr, stdout)
 import System.Log.FastLogger (LogStr, toLogStr)
 
 import Cli
-import Execution
-import Types.Redis
 import Replication.Config
+import Server.ClientLoop
+import Server.ReplicationLoop
+import Types.Redis
 
 -- main
 
