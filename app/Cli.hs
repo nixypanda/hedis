@@ -18,19 +18,47 @@ import Options.Applicative (
     optional,
     progDesc,
     showDefault,
+    strOption,
     value,
     (<**>),
  )
 
-import Replication.Config (ReplicaOf (MkReplicaOf))
+import Replication.Config (RdbConfig (..), ReplicaOf (MkReplicaOf))
 
 data CliOptions = MkCliOptions
     { port :: Int
     , replicaOf :: Maybe ReplicaOf
+    , rdbConfig :: RdbConfig
     }
 
+cliArgsParser :: ParserInfo CliOptions
+cliArgsParser = info (optsParser <**> helper) (fullDesc <> progDesc "Hedis (A Redis toy-clone)")
+
 optsParser :: Parser CliOptions
-optsParser = MkCliOptions <$> portParser <*> replicaOfParser
+optsParser = MkCliOptions <$> portParser <*> replicaOfParser <*> rdbConfigParser
+
+rdbConfigParser :: Parser RdbConfig
+rdbConfigParser = MkRdbConfig <$> dirParser <*> dbFilenameParser
+
+dirParser :: Parser FilePath
+dirParser =
+    strOption
+        ( long "dir"
+            <> metavar "DIR"
+            <> value "."
+            <> showDefault
+            <> help "Directory for persistence files"
+        )
+
+dbFilenameParser :: Parser FilePath
+dbFilenameParser =
+    strOption
+        ( long "dbfilename"
+            <> metavar "FILENAME"
+            <> value "dump.rdb"
+            <> showDefault
+            <> help "RDB filename"
+        )
 
 portParser :: Parser Int
 portParser =
@@ -61,6 +89,3 @@ parseReplicaOf s =
                 [(port, "")] -> Right (MkReplicaOf host port)
                 _ -> Left "Invalid master port"
         _ -> Left "Expected \"<host> <port>\""
-
-cliArgsParser :: ParserInfo CliOptions
-cliArgsParser = info (optsParser <**> helper) (fullDesc <> progDesc "Hedis (A Redis toy-clone)")

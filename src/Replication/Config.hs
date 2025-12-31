@@ -6,12 +6,14 @@ module Replication.Config (
     Replication (..),
     ReplicaOf (..),
     ReplicationConfig (..),
-    MasterConfig,
+    MasterConfig (..),
     ReplicaConfig (..),
     MasterState (..),
     ReplicaState (..),
     ReplicaConn (..),
+    RdbConfig (..),
     ReplicaRegistry,
+    HasRdbConfig (..),
     replicationInfo,
     initMasterState,
     initReplicaState,
@@ -41,12 +43,32 @@ data ReplicaOf = MkReplicaOf
     }
     deriving (Show, Eq)
 
+data RdbConfig = MkRdbConfig
+    { dir :: String
+    , dbfilename :: String
+    }
+    deriving (Show, Eq)
+
+class HasRdbConfig a where
+    rdbFilePath :: a -> FilePath
+
+instance HasRdbConfig MasterState where
+    rdbFilePath a = _rdbFilePath a.rdbConfig
+
+instance HasRdbConfig ReplicaState where
+    rdbFilePath a = _rdbFilePath a.rdbConfig
+
+_rdbFilePath :: RdbConfig -> FilePath
+_rdbFilePath MkRdbConfig{..} = dir <> "/" <> dbfilename
+
 -- ReplicationConfig is stuff read from CLI
 data ReplicationConfig = RCMaster MasterConfig | RCReplica ReplicaConfig
     deriving (Show)
 
-type MasterConfig = ()
-data ReplicaConfig = MkReplicaConfig {masterInfo :: ReplicaOf, localPort :: Int}
+newtype MasterConfig = MkMasterConfig {rdbConfig :: RdbConfig}
+    deriving (Show)
+
+data ReplicaConfig = MkReplicaConfig {masterInfo :: ReplicaOf, localPort :: Int, rdbConfig :: RdbConfig}
     deriving (Show)
 
 -- Replication is what we store in the Env
@@ -58,7 +80,7 @@ data MasterState = MkMasterState
     { masterReplId :: ByteString
     , masterReplOffset :: TVar Int
     , replicaRegistry :: ReplicaRegistry
-    , rdbFile :: FilePath
+    , rdbConfig :: RdbConfig
     }
 
 data ReplicaState = MkReplicaState
@@ -66,6 +88,7 @@ data ReplicaState = MkReplicaState
     , knownMasterRepl :: TVar ByteString
     , replicaOffset :: TVar Int
     , localPort :: Int
+    , rdbConfig :: RdbConfig
     }
 
 data ReplicaConn = MkReplicaConn
@@ -85,7 +108,7 @@ data ReplicationError = ReplicaDisconnected
 type ReplicaRegistry = TVar [ReplicaConn]
 
 initMasterState :: MasterConfig -> STM MasterState
-initMasterState _ = do
+initMasterState MkMasterConfig{..} = do
     replicaRegistry <- newTVar []
     masterReplOffset' <- newTVar 0
     pure $
@@ -93,7 +116,7 @@ initMasterState _ = do
             { masterReplId = "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb"
             , masterReplOffset = masterReplOffset'
             , replicaRegistry = replicaRegistry
-            , rdbFile = "./master.rdb"
+            , rdbConfig = rdbConfig
             }
 
 initReplicaState :: ReplicaConfig -> STM ReplicaState

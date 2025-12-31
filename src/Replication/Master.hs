@@ -25,7 +25,7 @@ import Execution.Base (runCmdIO, runCmdSTM)
 import Protocol.Command
 import Protocol.MasterCmd
 import Protocol.Result
-import Replication.Config (MasterState (..), ReplicaConn (..), Replication (..))
+import Replication.Config (HasRdbConfig (rdbFilePath), MasterState (..), ReplicaConn (..), Replication (..))
 import Resp.Core (encode)
 import Time (timeout')
 import Types.Redis
@@ -40,10 +40,11 @@ acceptReplica sock = do
 
 initReplica :: Socket -> Redis r ()
 initReplica rcSocket = do
-    EnvMaster _ (MkMasterState{..}) <- ask
+    EnvMaster _ ms@(MkMasterState{..}) <- ask
     rcOffset <- liftIO $ newTVarIO (-1)
     rcQueue <- liftIO newTQueueIO
     rcAuxCmdOffset <- liftIO $ newTVarIO 0
+    let rdbFile = rdbFilePath ms
 
     rcSender <- liftIO $ async $ replicaSender rcSocket rdbFile rcQueue
     let rc = MkReplicaConn{..}

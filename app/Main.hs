@@ -28,10 +28,10 @@ main = do
     cli <- execParser cliArgsParser
     case cli.replicaOf of
         Nothing -> do
-            env <- mkMasterEnv ()
+            env <- mkMasterEnv $ MkMasterConfig cli.rdbConfig
             runMaster env cli.port
         Just r -> do
-            env <- mkReplicaEnv $ MkReplicaConfig r cli.port
+            env <- mkReplicaEnv $ MkReplicaConfig r cli.port cli.rdbConfig
             runReplica env cli.port r
 
 runReplica :: Env Replica -> Int -> ReplicaOf -> IO ()
