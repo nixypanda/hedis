@@ -5,13 +5,12 @@ module TestStoreBackend.TestStreamMap (tests) where
 import Data.List (sort)
 import Data.Time (UTCTime)
 import Data.Time.Clock.POSIX (posixSecondsToUTCTime)
-import Hedgehog (Gen, Property, forAll, property, (===))
-import Hedgehog.Gen qualified as Gen
-import Hedgehog.Range qualified as Range
+import Hedgehog (Property, forAll, property, (===))
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (Assertion, assertFailure, testCase, (@?=))
 import Test.Tasty.Hedgehog (testProperty)
 
+import Gen.Stream (genInsertSeq)
 import StoreBackend.StreamMap
 
 val :: ConcreteStreamId -> [(Int, Int)] -> Value Int Int
@@ -138,17 +137,6 @@ testsInsert =
 
 fullRange :: XRange
 fullRange = MkXrange XMinus XPlus
-
--- Generator
-
-genInsertSeq :: Gen [XAddStreamId]
-genInsertSeq = Gen.list (Range.linear 100 200) genStreamId
-
-genStreamId :: Gen XAddStreamId
-genStreamId = ExplicitId <$> Gen.int (Range.linear 1 1_000_000) <*> genIdSeq
-
-genIdSeq :: Gen IdSeq
-genIdSeq = Seq <$> Gen.int (Range.linear 0 10)
 
 -- Property
 

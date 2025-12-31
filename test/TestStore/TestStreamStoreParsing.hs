@@ -1,15 +1,14 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module TestStore.TestStreamStoreParsing where
+module TestStore.TestStreamStoreParsing (tests) where
 
-import Hedgehog (Gen, Property, annotate, failure, forAll, property, (===))
-import Hedgehog.Gen qualified as Gen
-import Hedgehog.Range qualified as Range
+import Hedgehog (Property, annotate, failure, forAll, property, (===))
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.Hedgehog (testProperty)
 
 import Test.Tasty.HUnit (testCase, (@?=))
 
+import Gen.Stream (genConcreteStreamId, genXAddStreamId, genXRange)
 import Store.StreamStoreParsing
 import StoreBackend.StreamMap
 
@@ -33,37 +32,6 @@ streamIdTests =
         , testCase "1-*" $ readXAddStreamId "1-*" @?= Right (ExplicitId 1 SeqAuto)
         , testCase "1526919030474-*" $ readXAddStreamId "1526919030474-*" @?= Right (ExplicitId 1526919030474 SeqAuto)
         ]
-
-genXAddStreamId :: Gen XAddStreamId
-genXAddStreamId =
-    Gen.choice
-        [ pure AutoId
-        , ExplicitId <$> genTs <*> genSeq
-        ]
-  where
-    genTs = Gen.int (Range.linear 0 10_000_000)
-    genSeq =
-        Gen.choice
-            [ pure SeqAuto
-            , Seq <$> Gen.int (Range.linear 0 10_000_000)
-            ]
-
-genConcreteStreamId :: Gen ConcreteStreamId
-genConcreteStreamId = (,) <$> Gen.int (Range.linear 0 10_000_000) <*> Gen.int (Range.linear 0 10_000_000)
-
-genXReadStreamId :: Gen XReadStreamId
-genXReadStreamId = Gen.choice [pure Dollar, Concrete <$> genConcreteStreamId]
-
-genXRange :: Gen XRange
-genXRange = do
-    start <- Gen.choice [pure XMinus, XS <$> genStreamId]
-    end <- Gen.choice [pure XPlus, XE <$> genStreamId]
-    pure (MkXrange start end)
-  where
-    genStreamId =
-        (,)
-            <$> Gen.int (Range.linear 0 10_000_000)
-            <*> Gen.choice [pure Nothing, Just <$> Gen.int (Range.linear 0 10_000_000)]
 
 prop_XAddRoundtrip :: Property
 prop_XAddRoundtrip = property $ do

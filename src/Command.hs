@@ -23,6 +23,15 @@ type Key = ByteString
 
 data SubInfo = IReplication deriving (Show, Eq)
 
+data Command
+    = RedSTM CmdSTM
+    | RedIO CmdIO
+    | RedTrans CmdTransaction
+    | RedInfo (Maybe SubInfo)
+    | RedRepl CmdReplication
+    | CmdWait Int NominalDiffTime
+    deriving (Show, Eq)
+
 data CmdSTM
     = CmdPing
     | CmdEcho ByteString
@@ -58,15 +67,6 @@ data CmdIO
     deriving (Show, Eq)
 
 data CmdTransaction = Multi | Exec | Discard
-    deriving (Show, Eq)
-
-data Command
-    = RedSTM CmdSTM
-    | RedIO CmdIO
-    | RedTrans CmdTransaction
-    | RedInfo (Maybe SubInfo)
-    | RedRepl CmdReplication
-    | CmdWait Int NominalDiffTime
     deriving (Show, Eq)
 
 data CmdReplication

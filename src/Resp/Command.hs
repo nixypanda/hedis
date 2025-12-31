@@ -11,7 +11,7 @@ module Resp.Command (
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.String (IsString (fromString))
-import Data.Time (secondsToNominalDiffTime)
+import Data.Time (nominalDiffTimeToSeconds, secondsToNominalDiffTime)
 
 import Command
 import Parsers (readFloatBS, readIntBS)
@@ -23,6 +23,7 @@ import Store.StreamStoreParsing (
     readXReadStreamId,
     showStreamId,
     showXRange,
+    showXReadStreamId,
     showXaddId,
  )
 import StoreBackend.ListMap (Range (..))
@@ -95,6 +96,7 @@ respToCmd (Array 1 [BulkStr "EXEC"]) = pure $ RedTrans Exec
 respToCmd (Array 1 [BulkStr "DISCARD"]) = pure $ RedTrans Discard
 -- Replication
 respToCmd (Array 2 [BulkStr "INFO", BulkStr "replication"]) = pure $ RedInfo (Just IReplication)
+respToCmd (Array 1 [BulkStr "INFO"]) = pure $ RedInfo Nothing
 respToCmd (Array 3 [BulkStr "REPLCONF", BulkStr "listening-port", BulkStr port]) = RedRepl . CmdReplicaToMaster . CmdReplConfListen <$> readIntBS port
 respToCmd (Array 3 [BulkStr "REPLCONF", BulkStr "capa", BulkStr "psync2"]) = pure $ RedRepl $ CmdReplicaToMaster CmdReplConfCapabilities
 respToCmd (Array 3 [BulkStr "REPLCONF", BulkStr "GETACK", BulkStr "*"]) = pure $ RedRepl $ CmdMasterToReplica CmdReplConfGetAck
@@ -112,14 +114,16 @@ respToCmd r = Left $ "Conversion Error" <> show r
 -- Conversion (to Resp)
 
 cmdToResp :: Command -> Resp
-cmdToResp (RedSTM CmdPing) = Array 1 [BulkStr "PING"]
-cmdToResp (RedSTM (CmdEcho xs)) = Array 2 [BulkStr "ECHO", BulkStr xs]
-cmdToResp (RedSTM (CmdType key)) = Array 2 [BulkStr "TYPE", BulkStr key]
-cmdToResp (RedSTM (STMString cmd)) = stringStoreCmdToResp cmd
-cmdToResp (RedSTM (STMList cmd)) = listStmCmdToResp cmd
-cmdToResp (RedSTM (STMStream cmd)) = streamStmCmdToResp cmd
+cmdToResp (RedSTM cmd) = stmCmdToResp cmd
+cmdToResp (RedTrans cmd) = txCmdToResp cmd
 cmdToResp (RedRepl cmd) = replicationCmdToResp cmd
-cmdToResp r = error $ "Not implemented: " <> show r
+cmdToResp (RedIO cmd) = ioCmdToResp cmd
+cmdToResp (RedInfo cmd) = infoCmdToResp cmd
+cmdToResp (CmdWait n t) = Array 3 [BulkStr "WAIT", BulkStr $ fromString $ show n, BulkStr $ fromString $ show $ nominalDiffTimeToMillis t]
+
+ioCmdToResp :: CmdIO -> Resp
+ioCmdToResp (CmdBLPop key t) = Array 3 [BulkStr "BLPOP", BulkStr key, BulkStr $ fromString $ show $ nominalDiffTimeToSeconds t]
+ioCmdToResp (CmdXReadBlock key sid t) = Array 6 [BulkStr "XREAD", BulkStr "block", BulkStr $ fromString $ show $ nominalDiffTimeToMillis t, BulkStr "streams", BulkStr key, BulkStr $ showXReadStreamId sid]
 
 replicationCmdToResp :: CmdReplication -> Resp
 replicationCmdToResp (CmdReplicaToMaster (CmdReplConfListen port)) = Array 3 [BulkStr "REPLCONF", BulkStr "listening-port", BulkStr $ fromString $ show port]
@@ -127,6 +131,19 @@ replicationCmdToResp (CmdReplicaToMaster CmdReplConfCapabilities) = Array 3 [Bul
 replicationCmdToResp (CmdReplicaToMaster (CmdPSync sId s)) = Array 3 [BulkStr "PSYNC", BulkStr sId, BulkStr $ fromString $ show s]
 replicationCmdToResp (CmdReplicaToMaster (CmdReplConfAck n)) = Array 3 [BulkStr "REPLCONF", BulkStr "ACK", BulkStr $ fromString $ show n]
 replicationCmdToResp (CmdMasterToReplica CmdReplConfGetAck) = Array 3 [BulkStr "REPLCONF", BulkStr "GETACK", BulkStr "*"]
+
+stmCmdToResp :: CmdSTM -> Resp
+stmCmdToResp CmdPing = Array 1 [BulkStr "PING"]
+stmCmdToResp (CmdEcho xs) = Array 2 [BulkStr "ECHO", BulkStr xs]
+stmCmdToResp (CmdType key) = Array 2 [BulkStr "TYPE", BulkStr key]
+stmCmdToResp (STMString cmd) = stringStoreCmdToResp cmd
+stmCmdToResp (STMList cmd) = listStmCmdToResp cmd
+stmCmdToResp (STMStream cmd) = streamStmCmdToResp cmd
+
+txCmdToResp :: CmdTransaction -> Resp
+txCmdToResp Multi = Array 1 [BulkStr "MULTI"]
+txCmdToResp Exec = Array 1 [BulkStr "EXEC"]
+txCmdToResp Discard = Array 1 [BulkStr "DISCARD"]
 
 stringStoreCmdToResp :: StringCmd -> Resp
 stringStoreCmdToResp (CmdSet key val (Just t)) = Array 5 [BulkStr "SET", BulkStr key, BulkStr val, BulkStr "PX", BulkStr $ fromString $ show $ nominalDiffTimeToMillis t]
@@ -140,7 +157,7 @@ listStmCmdToResp (CmdLPush key xs) = Array (length xs + 2) (BulkStr "LPUSH" : Bu
 listStmCmdToResp (CmdLPop key Nothing) = Array 2 [BulkStr "LPOP", BulkStr key]
 listStmCmdToResp (CmdLPop key (Just len)) = Array 3 [BulkStr "LPOP", BulkStr key, BulkStr $ fromString $ show len]
 listStmCmdToResp (CmdLLen key) = Array 2 [BulkStr "LLEN", BulkStr key]
-listStmCmdToResp (CmdLRange start stop) = Array 4 [BulkStr "LRANGE", BulkStr $ fromString $ show start, BulkStr $ fromString $ show stop]
+listStmCmdToResp (CmdLRange key (MkRange start stop)) = Array 4 [BulkStr "LRANGE", BulkStr key, BulkStr $ fromString $ show start, BulkStr $ fromString $ show stop]
 
 streamStmCmdToResp :: StreamCmd -> Resp
 streamStmCmdToResp (CmdXAdd key sid kvs) =
@@ -153,6 +170,10 @@ streamStmCmdToResp (CmdXRead xs) =
     Array (2 + length keys + length ids) $ BulkStr "XREAD" : BulkStr "streams" : map BulkStr keys ++ map (BulkStr . showStreamId) ids
   where
     (keys, ids) = unzip xs
+
+infoCmdToResp :: Maybe SubInfo -> Resp
+infoCmdToResp (Just IReplication) = Array 2 [BulkStr "INFO", BulkStr "replication"]
+infoCmdToResp Nothing = Array 1 [BulkStr "INFO"]
 
 ---
 

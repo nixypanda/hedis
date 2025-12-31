@@ -8,6 +8,7 @@ module Store.StreamStoreParsing (
     showXRange,
     showXaddId,
     showStreamId,
+    showXReadStreamId,
 ) where
 
 import Control.Applicative ((<|>))
@@ -113,3 +114,7 @@ showXRange (MkXrange start end) = (xRangeStartToStr start, xRangeEndToStr end)
 
 showStreamId :: ConcreteStreamId -> ByteString
 showStreamId (i, s) = fromString (show i) <> "-" <> fromString (show s)
+
+showXReadStreamId :: XReadStreamId -> ByteString
+showXReadStreamId Dollar = "$"
+showXReadStreamId (Concrete sid) = showStreamId sid
