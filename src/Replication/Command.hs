@@ -45,18 +45,17 @@ replicateStringCmd :: StringCmd -> CommandResult -> Maybe StringCmd
 replicateStringCmd c@(CmdSet{}) _ = Just c
 replicateStringCmd (CmdGet{}) _ = Nothing
 replicateStringCmd (CmdIncr k) (RInt v) = Just $ CmdSet k (fromString $ show v) Nothing
-replicateStringCmd (CmdIncr _) (RErr _) = Nothing
 replicateStringCmd c@(CmdIncr _) cr = error $ "Incorrect combination: Command - " <> show c <> ", result - " <> show cr
 
-runAndReplicateSTM :: (HasReplication r, HasStores r) => Env r -> UTCTime -> CmdSTM -> STM CommandResult
+runAndReplicateSTM :: (HasReplication r, HasStores r) => Env r -> UTCTime -> CmdSTM -> STM (Either CommandError CommandResult)
 runAndReplicateSTM env now cmd = do
     res <- runCmdSTM env now cmd
-    case replicateSTMCmdAs cmd res of
-        Nothing -> pure res
-        Just cmd' -> do
+    case replicateSTMCmdAs cmd <$> res of
+        Right (Just cmd') -> do
             propagateWrite (getReplication env) cmd'
             modifyTVar (getOffset env) (+ cmdSTMBytes cmd')
             pure res
+        _ -> pure res
 
 -- The run and adding to queue is not atomic
 runAndReplicateIO :: (HasStores r, HasReplication r) => Env r -> CmdIO -> Redis r CommandResult

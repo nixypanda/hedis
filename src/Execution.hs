@@ -22,7 +22,7 @@ import Replication.Replica (doHandshake, runReplicaToMasterReplicationCmds)
 import Resp.Client (RespConn, mkRespConn, recvRdb, recvResp, sendResp)
 import Resp.Command (respBytes, respToCmd)
 import Resp.Core (Resp (..), encode)
-import Resp.Result (resultToResp)
+import Resp.Result (cmdResultToResp, resultToResp)
 
 --- client server
 
@@ -33,58 +33,58 @@ clientLoopWrite clientState socket = do
         resp <- liftIO $ recvResp respConn
         result <- processOne clientState resp
         case result of
-            Just result' -> do
-                let encoded = encode (resultToResp result')
+            ResNothing -> pure ()
+            res -> do
+                let encoded = encode $ resultToResp res
                 liftIO $ send socket encoded
-            Nothing -> pure ()
 
-processOne :: (HasLogger r, HasStores r, HasReplication r) => ClientState -> Resp -> Redis r (Maybe CommandResult)
+processOne :: (HasLogger r, HasStores r, HasReplication r) => ClientState -> Resp -> Redis r Result
 processOne clientState resp = do
     cmd <- liftEither $ first ConversionError $ respToCmd resp
     runCmd clientState cmd
 
 -- Common Command Execution
 
-runCmd :: (HasStores r, HasReplication r, HasLogger r) => ClientState -> Command -> Redis r (Maybe CommandResult)
+runCmd :: (HasStores r, HasReplication r, HasLogger r) => ClientState -> Command -> Redis r Result
 runCmd clientState command = do
     env <- ask
     now <- liftIO getCurrentTime
     txState <- liftIO $ readTVarIO clientState.txState
     case command of
-        RedRepl (CmdReplicaToMaster c) -> runReplicaToMasterReplicationCmds clientState.socket c
-        RedRepl (CmdMasterToReplica c) -> Just <$> runMasterToReplicaReplicationCmds c
-        RedInfo section -> Just <$> runServerInfoCmds section
-        RedIO cmd' -> Just <$> runAndReplicateIO env cmd'
-        CmdWait n tout -> Just <$> sendReplConfs clientState n tout
+        RedRepl (CmdReplicaToMaster c) -> resFromMaybe <$> runReplicaToMasterReplicationCmds clientState.socket c
+        RedRepl (CmdMasterToReplica c) -> ResNormal <$> runMasterToReplicaReplicationCmds c
+        RedInfo section -> ResNormal <$> runServerInfoCmds section
+        RedIO cmd' -> ResNormal <$> runAndReplicateIO env cmd'
+        CmdWait n tout -> ResNormal <$> sendReplConfs clientState n tout
         cmd -> case txState of
             InTx cs ->
-                Just <$> case cmd of
+                case cmd of
                     RedSTM c -> liftIO $ atomically $ do
                         writeTVar clientState.txState (InTx $ c : cs)
-                        pure $ RSimple "QUEUED"
+                        pure . ResNormal $ RSimple "QUEUED"
                     RedTrans m -> case m of
-                        Multi -> pure $ RErr $ RTxErr RMultiInMulti
-                        Exec -> liftIO $ atomically $ executeQueuedCmds clientState env now cs
+                        Multi -> pure . ResError $ RTxErr RMultiInMulti
+                        Exec -> ResCombined <$> liftIO (atomically $ executeQueuedCmds clientState env now cs)
                         Discard -> liftIO $ atomically $ do
                             writeTVar clientState.txState NoTx
-                            pure ResOk
+                            pure . ResNormal $ ResOk
             NoTx -> case cmd of
-                RedSTM cmd' -> Just <$> liftIO (atomically $ runAndReplicateSTM env now cmd')
+                RedSTM cmd' -> resFromEither <$> liftIO (atomically $ runAndReplicateSTM env now cmd')
                 RedTrans txCmd ->
-                    Just <$> case txCmd of
-                        Exec -> pure $ RErr $ RTxErr RExecWithoutMulti
-                        Discard -> pure $ RErr $ RTxErr RDiscardWithoutMulti
+                    case txCmd of
+                        Exec -> pure . ResError $ RTxErr RExecWithoutMulti
+                        Discard -> pure . ResError $ RTxErr RDiscardWithoutMulti
                         Multi -> liftIO $ atomically $ do
                             modifyTVar clientState.txState (const $ InTx [])
-                            pure ResOk
+                            pure . ResNormal $ ResOk
 
 -- Transaction
 
-executeQueuedCmds :: (HasStores r, HasReplication r) => ClientState -> Env r -> UTCTime -> [CmdSTM] -> STM CommandResult
+executeQueuedCmds :: (HasStores r, HasReplication r) => ClientState -> Env r -> UTCTime -> [CmdSTM] -> STM [Either CommandError CommandResult]
 executeQueuedCmds clientState env now cmds = do
     vals <- mapM (runAndReplicateSTM env now) (reverse cmds)
     modifyTVar clientState.txState (const NoTx)
-    pure $ RArray vals
+    pure vals
 
 -- replica master update receive
 
@@ -107,12 +107,12 @@ receiveMasterUpdates respConn fakeClient = forever $ do
     resp <- liftIO $ recvResp respConn
     result <- processOne fakeClient resp
     case result of
-        Just r@(RRepl cr) -> case cr of
+        ResNormal r@(RRepl cr) -> case cr of
             ReplOk -> pure ()
             ReplConfAck _ -> do
                 liftIO $ atomically $ modifyTVar (getOffset env) (+ respBytes resp)
-                liftIO $ sendResp respConn $ resultToResp r
+                liftIO $ sendResp respConn $ cmdResultToResp r
             ResFullResync _ _ -> pure ()
-        Just ResPong -> do
+        ResNormal ResPong -> do
             liftIO $ atomically $ modifyTVar (getOffset env) (+ respBytes resp)
         _ -> pure ()

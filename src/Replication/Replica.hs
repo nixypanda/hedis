@@ -28,7 +28,7 @@ doHandshake (MkReplicaState{..}) respConn = do
     r1 <- liftIO $ recvResp respConn
     cmdRes1 <- liftEither $ first ConversionError $ respToResult r1
     case cmdRes1 of
-        ResPong -> pure ()
+        (ResNormal ResPong) -> pure ()
         other -> throwError $ HandshakeError $ InvalidReturn cmd1 ResPong other
 
     -- Replconf
@@ -37,7 +37,7 @@ doHandshake (MkReplicaState{..}) respConn = do
     r2 <- liftIO $ recvResp respConn
     cmdRes2 <- liftEither $ first ConversionError $ respToResult r2
     case cmdRes2 of
-        ResOk -> pure ()
+        (ResNormal ResOk) -> pure ()
         other -> throwError $ HandshakeError $ InvalidReturn cmd2 ResOk other
 
     -- Replconf capabilities
@@ -46,7 +46,7 @@ doHandshake (MkReplicaState{..}) respConn = do
     r3 <- liftIO $ recvResp respConn
     cmdRes3 <- liftEither $ first ConversionError $ respToResult r3
     case cmdRes3 of
-        ResOk -> pure ()
+        (ResNormal ResOk) -> pure ()
         other -> throwError $ HandshakeError $ InvalidReturn cmd3 ResOk other
 
     -- Psync
@@ -57,7 +57,7 @@ doHandshake (MkReplicaState{..}) respConn = do
     r4 <- liftIO $ recvResp respConn
     cmdRes4 <- liftEither $ first ConversionError $ respToResult r4
     case cmdRes4 of
-        (RRepl (ResFullResync sid _)) -> liftIO . atomically $ do
+        (ResNormal (RRepl (ResFullResync sid _))) -> liftIO . atomically $ do
             writeTVar knownMasterRepl sid
             writeTVar replicaOffset 0
         other -> throwError $ HandshakeError $ InvalidReturn cmd4 (RRepl (ResFullResync "" 0)) other

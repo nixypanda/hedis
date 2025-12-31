@@ -41,7 +41,7 @@ import System.Log.FastLogger (
 import Text.Parsec (ParseError)
 
 import Command (CmdSTM, Command)
-import CommandResult (CommandResult)
+import CommandResult (CommandResult, Result)
 import Replication.Config (
     MasterConfig,
     MasterState (..),
@@ -74,7 +74,7 @@ data RedisError
     deriving (Show, Exception)
 
 data HandshakeError
-    = InvalidReturn Command CommandResult CommandResult
+    = InvalidReturn Command CommandResult Result
     deriving (Show, Eq)
 
 -- Transactions

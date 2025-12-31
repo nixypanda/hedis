@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Resp.Result (resultToResp, respToResult) where
+module Resp.Result (cmdResultToResp, respToResult, errorToResp, resultToResp) where
 
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
@@ -15,23 +15,27 @@ import StoreBackend.StreamMap (ConcreteStreamId, StreamMapError (..))
 import StoreBackend.StreamMap qualified as SM
 import StoreBackend.TypeIndex (ValueType (..))
 
-resultToResp :: CommandResult -> Resp
-resultToResp ResPong = Str "PONG"
-resultToResp ResOk = Str "OK"
-resultToResp (ResType Nothing) = Str "none"
-resultToResp (ResType (Just t)) = valueTypeToResp t
-resultToResp (RSimple s) = Str s
-resultToResp (RBulk Nothing) = NullBulk
-resultToResp (RBulk (Just b)) = BulkStr b
-resultToResp (RInt n) = Int n
-resultToResp RArrayNull = NullArray
-resultToResp (RArray ar) = arrayMap resultToResp ar
-resultToResp (RArraySimple xs) = arrayMap BulkStr xs
-resultToResp (RArrayStreamValues vals) = arrayMap valueToResp vals
-resultToResp (RArrayKeyValues kvs) = arrayMap arrayKeyValsToResp kvs
-resultToResp (RStreamId sid) = streamIdToResp sid
-resultToResp (RErr e) = errorToResp e
-resultToResp (RRepl r) = replResultToResp r
+resultToResp :: Result -> Resp
+resultToResp (ResNormal r) = cmdResultToResp r
+resultToResp (ResError e) = errorToResp e
+resultToResp (ResCombined er) = Array (length er) (map (either errorToResp cmdResultToResp) er)
+resultToResp ResNothing = error "Nothing can't be converted to resp"
+
+cmdResultToResp :: CommandResult -> Resp
+cmdResultToResp ResPong = Str "PONG"
+cmdResultToResp ResOk = Str "OK"
+cmdResultToResp (ResType Nothing) = Str "none"
+cmdResultToResp (ResType (Just t)) = valueTypeToResp t
+cmdResultToResp (RSimple s) = Str s
+cmdResultToResp (RBulk Nothing) = NullBulk
+cmdResultToResp (RBulk (Just b)) = BulkStr b
+cmdResultToResp (RInt n) = Int n
+cmdResultToResp RArrayNull = NullArray
+cmdResultToResp (RArraySimple xs) = arrayMap BulkStr xs
+cmdResultToResp (RArrayStreamValues vals) = arrayMap valueToResp vals
+cmdResultToResp (RArrayKeyValues kvs) = arrayMap arrayKeyValsToResp kvs
+cmdResultToResp (RStreamId sid) = streamIdToResp sid
+cmdResultToResp (RRepl r) = replResultToResp r
 
 replResultToResp :: ReplResult -> Resp
 replResultToResp ReplOk = Str "OK"
@@ -58,14 +62,21 @@ valueToResp v = Array 2 [streamIdToResp v.streamId, arrayMap BulkStr $ vals v.va
 arrayKeyValsToResp :: (ByteString, [SM.Value ByteString ByteString]) -> Resp
 arrayKeyValsToResp (k, vs) = Array 2 [BulkStr k, arrayMap valueToResp vs]
 
-respToResult :: Resp -> Either String CommandResult
-respToResult (Str "PONG") = Right ResPong
-respToResult (Str "OK") = Right ResOk
+----
+
+respToResult :: Resp -> Either String Result
+respToResult (Str "PONG") = Right $ ResNormal ResPong
+respToResult (Str "OK") = Right $ ResNormal ResOk
 respToResult (Str s)
-    | "FULLRESYNC " `BS.isPrefixOf` s = RRepl <$> parseBS fullresyncParser s
-    | otherwise = Right $ RSimple s
-respToResult (Array 3 [BulkStr "REPLCONF", BulkStr "ACK", BulkStr n]) = RRepl . ReplConfAck <$> readIntBS n
-respToResult _ = error "TODO"
+    | "FULLRESYNC " `BS.isPrefixOf` s = ResNormal . RRepl <$> parseBS fullresyncParser s
+    | otherwise = Right $ ResNormal $ RSimple s
+respToResult (Int i) = Right $ ResNormal $ RInt i
+respToResult (Array 3 [BulkStr "REPLCONF", BulkStr "ACK", BulkStr n]) = ResNormal . RRepl . ReplConfAck <$> readIntBS n
+respToResult (StrErr s) = respToErr s
+respToResult NullArray = Right $ ResNormal RArrayNull
+respToResult NullBulk = Right $ ResNormal $ RBulk Nothing
+respToResult (BulkStr s) = Right $ ResNormal $ RBulk $ Just s
+respToResult r = error $ "TODO: " <> show r
 
 fullresyncParser :: Parser ReplResult
 fullresyncParser = do
@@ -75,19 +86,37 @@ fullresyncParser = do
 
 -- error conversions
 
+strStreamErrBaseStreamId, strStreamErrNotLargerId, strRExecWithoutMulti, strRNotSupportedInTx, strRMultiInMulti, strRDiscardWithoutMulti, strIncrError :: ByteString
+strStreamErrBaseStreamId = "ERR The ID specified in XADD must be greater than 0-0"
+strStreamErrNotLargerId = "ERR The ID specified in XADD is equal or smaller than the target stream top item"
+strRExecWithoutMulti = "ERR EXEC without MULTI"
+strRNotSupportedInTx = "ERR command not supported in transaction"
+strRMultiInMulti = "ERR MULTI inside MULTI"
+strRDiscardWithoutMulti = "ERR DISCARD without MULTI"
+strIncrError = "ERR value is not an integer or out of range"
+
 errorToResp :: CommandError -> Resp
 errorToResp (RStreamError e) = streamMapErrorToResp e
-errorToResp RIncrError = StrErr "ERR value is not an integer or out of range"
+errorToResp RIncrError = StrErr strIncrError
 errorToResp (RTxErr txErr) = txErrorToResp txErr
 
 txErrorToResp :: TransactionError -> Resp
-txErrorToResp RExecWithoutMulti = StrErr "ERR EXEC without MULTI"
-txErrorToResp RNotSupportedInTx = StrErr "ERR command not supported in transaction"
-txErrorToResp RMultiInMulti = StrErr "ERR MULTI inside MULTI"
-txErrorToResp RDiscardWithoutMulti = StrErr "ERR DISCARD without MULTI"
+txErrorToResp RExecWithoutMulti = StrErr strRExecWithoutMulti
+txErrorToResp RNotSupportedInTx = StrErr strRNotSupportedInTx
+txErrorToResp RMultiInMulti = StrErr strRMultiInMulti
+txErrorToResp RDiscardWithoutMulti = StrErr strRDiscardWithoutMulti
 
 streamMapErrorToResp :: StreamMapError -> Resp
-streamMapErrorToResp BaseStreamId =
-    StrErr "ERR The ID specified in XADD must be greater than 0-0"
-streamMapErrorToResp NotLargerId =
-    StrErr "ERR The ID specified in XADD is equal or smaller than the target stream top item"
+streamMapErrorToResp BaseStreamId = StrErr strStreamErrBaseStreamId
+streamMapErrorToResp NotLargerId = StrErr strStreamErrNotLargerId
+
+respToErr :: ByteString -> Either String Result
+respToErr s
+    | s == strStreamErrBaseStreamId = Right $ ResError $ RStreamError BaseStreamId
+    | s == strStreamErrNotLargerId = Right $ ResError $ RStreamError NotLargerId
+    | s == strRExecWithoutMulti = Right $ ResError $ RTxErr RExecWithoutMulti
+    | s == strRNotSupportedInTx = Right $ ResError $ RTxErr RNotSupportedInTx
+    | s == strRMultiInMulti = Right $ ResError $ RTxErr RMultiInMulti
+    | s == strRDiscardWithoutMulti = Right $ ResError $ RTxErr RDiscardWithoutMulti
+    | s == strIncrError = Right $ ResError RIncrError
+    | otherwise = Left $ "unknown error: " <> show s

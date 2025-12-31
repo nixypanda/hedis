@@ -19,21 +19,21 @@ import Store.StringStore qualified as SS
 import Store.TypeStore qualified as TS
 import Time (timeout')
 
-runCmdSTM :: (HasStores r) => Env r -> UTCTime -> CmdSTM -> STM CommandResult
+runCmdSTM :: (HasStores r) => Env r -> UTCTime -> CmdSTM -> STM (Either CommandError CommandResult)
 runCmdSTM env now cmd = do
     let tvListMap = getListStore env
         tvStringMap = getStringStore env
         tvTypeIndex = getTypeIndex env
         tvStreamMap = getStreamStore env
     case cmd of
-        CmdPing -> pure ResPong
-        CmdEcho xs -> pure $ RBulk (Just xs)
+        CmdPing -> pure $ Right ResPong
+        CmdEcho xs -> pure $ Right $ RBulk (Just xs)
         -- type index
         CmdType x -> do
             ty <- TS.getTypeSTM tvTypeIndex x
-            pure $ ResType ty
+            pure $ Right $ ResType ty
         STMString c -> SS.runStringStoreSTM tvTypeIndex tvStringMap now c
-        STMList c -> LS.runListStoreSTM tvTypeIndex tvListMap c
+        STMList c -> Right <$> LS.runListStoreSTM tvTypeIndex tvListMap c
         STMStream c -> StS.runStreamStoreSTM tvTypeIndex tvStreamMap now c
 
 runCmdIO :: (HasStores r) => CmdIO -> Redis r CommandResult

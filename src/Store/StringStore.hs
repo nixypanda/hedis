@@ -13,6 +13,7 @@ import Data.Time (NominalDiffTime, UTCTime)
 
 import Command (Key, StringCmd (..))
 import CommandResult (CommandError (..), CommandResult (..))
+import Data.Bifunctor (Bifunctor (bimap))
 import Parsers (readIntBS)
 import Store.TypeStore (TypeIndex)
 import Store.TypeStore qualified as TS
@@ -52,14 +53,14 @@ incrSTM tv key now = do
             writeTVar tv m'
             pure $ Right n
 
-runStringStoreSTM :: TVar TypeIndex -> TVar StringStore -> UTCTime -> StringCmd -> STM CommandResult
+runStringStoreSTM :: TVar TypeIndex -> TVar StringStore -> UTCTime -> StringCmd -> STM (Either CommandError CommandResult)
 runStringStoreSTM tvTypeIndex tvStringMap now cmd = case cmd of
     CmdSet key val mexpiry -> do
         TS.setIfAvailable tvTypeIndex key VString *> setSTM tvStringMap key val now mexpiry
-        pure ResOk
+        pure $ Right ResOk
     CmdGet key -> do
         val <- getSTM tvStringMap key now
-        pure $ RBulk val
+        pure $ Right $ RBulk val
     CmdIncr key -> do
         val <- incrSTM tvStringMap key now
-        pure $ either (const $ RErr RIncrError) RInt val
+        pure $ bimap (const RIncrError) RInt val
