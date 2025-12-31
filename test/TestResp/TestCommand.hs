@@ -7,7 +7,7 @@ import Test.Tasty
 import Test.Tasty.Hedgehog
 
 import Gen.Command (genCommand)
-import Wire.Client.Command
+import Wire.Class
 
 --------------------------------------------------------------------------------
 -- Tasty entry
@@ -30,7 +30,7 @@ prop_cmd_resp_dual :: Property
 prop_cmd_resp_dual = property $ do
     cmd <- forAll genCommand
 
-    let resp = cmdToResp cmd
-    decoded <- evalEither (respToCmd resp)
+    let resp = toResp cmd
+    decoded <- evalEither (fromResp resp)
 
     decoded === cmd

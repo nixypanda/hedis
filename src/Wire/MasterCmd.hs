@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Wire.MasterCmd where
+module Wire.MasterCmd (masterCmdToResp, respToMasterCmd, propogationCmdToResp) where
 
 import Data.String (fromString)
 
@@ -11,7 +11,11 @@ import Resp.Core (Resp (..))
 import Resp.Utils
 import Store.StreamStoreParsing (readXAddStreamId, showXaddId)
 import Time (millisToNominalDiffTime, nominalDiffTimeToMillis)
-import Wire.Client.Command (respBytes)
+
+masterCmdToResp :: MasterCommand -> Resp
+masterCmdToResp MasterPing = Array 1 [BulkStr "PING"]
+masterCmdToResp (ReplicationCommand CmdReplConfGetAck) = Array 3 [BulkStr "REPLCONF", BulkStr "GETACK", BulkStr "*"]
+masterCmdToResp (PropogationCmd cmd) = propogationCmdToResp cmd
 
 propogationCmdToResp :: PropogationCmd -> Resp
 propogationCmdToResp (RCmdSet key val (Just t)) = Array 5 [BulkStr "SET", BulkStr key, BulkStr val, BulkStr "PX", BulkStr $ fromString $ show $ nominalDiffTimeToMillis t]
@@ -45,6 +49,3 @@ respToMasterCmd (Array _ ((BulkStr "XADD") : (BulkStr key) : (BulkStr sId) : val
     sId' <- readXAddStreamId sId
     pure $ PropogationCmd $ RCmdXAdd key sId' chunked
 respToMasterCmd c = Left $ "Invalid Propogation Command: -> " <> show c
-
-propogationCmdBytes :: PropogationCmd -> Int
-propogationCmdBytes = respBytes . propogationCmdToResp

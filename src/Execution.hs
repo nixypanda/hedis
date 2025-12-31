@@ -21,9 +21,7 @@ import Replication.Replica (doHandshake, runReplicaToMasterReplicationCmds)
 import Resp.Client (RespConn, mkRespConn, recvRdb, recvResp, sendResp)
 import Resp.Core (encode)
 import Types.Redis
-import Wire.Client.Command (respBytes, respToCmd)
-import Wire.Client.Result (cmdResultToResp, resultToResp)
-import Wire.MasterCmd (respToMasterCmd)
+import Wire.Class (FromResp (..), ToResp (..))
 
 --- client server
 
@@ -32,12 +30,12 @@ clientLoopWrite clientState socket = do
     respConn <- liftIO $ mkRespConn socket
     forever $ do
         resp <- liftIO $ recvResp respConn
-        cmd <- liftEither $ first ConversionError $ respToCmd resp
+        cmd <- liftEither $ first ConversionError $ fromResp resp
         result <- runCmd clientState cmd
         case result of
             ResNothing -> pure ()
             res -> do
-                let encoded = encode $ resultToResp res
+                let encoded = encode $ toResp res
                 liftIO $ send socket encoded
 
 -- Common Command Execution
@@ -102,18 +100,18 @@ receiveMasterUpdates respConn = do
         env <- ask
         resp <- liftIO $ recvResp respConn
         liftIO $ print $ "received " <> show resp
-        command <- liftEither $ first ConversionError $ respToMasterCmd resp
+        command <- liftEither $ first ConversionError $ fromResp resp
         now <- liftIO getCurrentTime
         liftIO $ print $ "processing " <> show command
+        let offsetIncr = modifyTVar (getOffset env) (+ respBytes command)
         case command of
             PropogationCmd c -> liftIO $ atomically $ do
                 _ <- runCmdSTM env now . propogationCmdToCmdSTM $ c
-                modifyTVar (getOffset env) (+ respBytes resp)
+                offsetIncr
             ReplicationCommand c -> do
-                res <- liftIO $ atomically $ do
-                    res <- runMasterToReplicaReplicationCmds env c
-                    modifyTVar (getOffset env) (+ respBytes resp)
-                    pure res
-                liftIO $ sendResp respConn $ cmdResultToResp res
+                liftIO $ atomically $ do
+                    _ <- runMasterToReplicaReplicationCmds env c
+                    offsetIncr
+                liftIO $ sendResp respConn $ toResp command
             MasterPing -> do
-                liftIO $ atomically $ modifyTVar (getOffset env) (+ respBytes resp)
+                liftIO $ atomically offsetIncr

@@ -29,8 +29,7 @@ import Replication.Config (MasterState (..), ReplicaConn (..), Replication (..))
 import Resp.Core (encode)
 import Time (timeout')
 import Types.Redis
-import Wire.Client.Command (cmdToResp)
-import Wire.MasterCmd (propogationCmdBytes, propogationCmdToResp)
+import Wire.Class (ToResp (..))
 
 acceptReplica :: Socket -> Redis r CommandResult -- fix r to be Master
 acceptReplica sock = do
@@ -81,7 +80,7 @@ sendReplConfs _clientState n tout = do
 
             -- trigger GETACK
             liftIO $ forM_ registry $ \r ->
-                send r.rcSocket (encode $ cmdToResp $ RedRepl $ CmdMasterToReplica CmdReplConfGetAck)
+                send r.rcSocket (encode $ toResp $ RedRepl $ CmdMasterToReplica CmdReplConfGetAck)
 
             -- The main server is already listening for commands so we just poll
             let countAcked :: IO Int
@@ -106,7 +105,7 @@ runAndReplicateSTM env now cmd = do
     case replicateSTMCmdAs cmd <$> res of
         Right (Just cmd') -> do
             propagateWrite (getReplication env) cmd'
-            modifyTVar (getOffset env) (+ propogationCmdBytes cmd')
+            modifyTVar (getOffset env) (+ respBytes cmd')
             pure res
         _ -> pure res
 
@@ -119,7 +118,7 @@ runAndReplicateIO env cmd = do
         Just cmd' -> do
             liftIO $ atomically $ do
                 propagateWrite (getReplication env) cmd'
-                modifyTVar (getOffset env) (+ propogationCmdBytes cmd')
+                modifyTVar (getOffset env) (+ respBytes cmd')
             pure res
 
 propagateWrite :: Replication -> PropogationCmd -> STM ()
@@ -127,6 +126,6 @@ propagateWrite repli cmd =
     case repli of
         MkReplicationMaster (MkMasterState{..}) -> do
             registry <- readTVar replicaRegistry
-            mapM_ (\rc -> writeTQueue rc.rcQueue $ encode $ propogationCmdToResp cmd) registry
+            mapM_ (\rc -> writeTQueue rc.rcQueue $ encode $ toResp cmd) registry
         MkReplicationReplica _ ->
             pure () -- replicas never propagate

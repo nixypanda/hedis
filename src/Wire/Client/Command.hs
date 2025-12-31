@@ -1,20 +1,13 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Wire.Client.Command (
-    respToCmd,
-    cmdToResp,
-    cmdBytes,
-    cmdSTMBytes,
-    respBytes,
-) where
+module Wire.Client.Command (respToCmd, cmdToResp) where
 
-import Data.ByteString qualified as BS
 import Data.String (IsString (fromString))
 import Data.Time (nominalDiffTimeToSeconds, secondsToNominalDiffTime)
 
 import Parsers (readFloatBS, readIntBS)
 import Protocol.Command
-import Resp.Core (Resp (..), encode)
+import Resp.Core (Resp (..))
 import Resp.Utils
 import Store.StreamStoreParsing (
     readConcreteStreamId,
@@ -30,7 +23,6 @@ import StoreBackend.ListMap (Range (..))
 import Time (millisToNominalDiffTime, nominalDiffTimeToMillis)
 
 -- Conversion (from Resp)
-
 respToCmd :: Resp -> Either String Command
 respToCmd (Array 1 [BulkStr "PING"]) = pure $ RedSTM CmdPing
 respToCmd (Array 2 [BulkStr "ECHO", BulkStr xs]) = pure $ RedSTM $ CmdEcho xs
@@ -165,14 +157,3 @@ streamStmCmdToResp (CmdXRead xs) =
 infoCmdToResp :: Maybe SubInfo -> Resp
 infoCmdToResp (Just IReplication) = Array 2 [BulkStr "INFO", BulkStr "replication"]
 infoCmdToResp Nothing = Array 1 [BulkStr "INFO"]
-
----
-
-cmdBytes :: Command -> Int
-cmdBytes = respBytes . cmdToResp
-
-cmdSTMBytes :: CmdSTM -> Int
-cmdSTMBytes = respBytes . cmdToResp . RedSTM
-
-respBytes :: Resp -> Int
-respBytes = BS.length . encode

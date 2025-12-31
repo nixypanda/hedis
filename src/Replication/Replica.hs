@@ -17,34 +17,33 @@ import Replication.Config (MasterState (..), ReplicaConn (..), ReplicaState (..)
 import Replication.Master (acceptReplica)
 import Resp.Client (RespConn, recvResp, sendResp)
 import Types.Redis
-import Wire.Client.Command (cmdToResp)
-import Wire.Client.Result (respToResult)
+import Wire.Class (FromResp (..), ToResp (..))
 
 doHandshake :: ReplicaState -> RespConn -> Redis Replica ()
 doHandshake (MkReplicaState{..}) respConn = do
     -- Ping
     let cmd1 = RedSTM CmdPing
-    liftIO $ sendResp respConn $ cmdToResp cmd1
+    liftIO $ sendResp respConn $ toResp cmd1
     r1 <- liftIO $ recvResp respConn
-    cmdRes1 <- liftEither $ first ConversionError $ respToResult r1
+    cmdRes1 <- liftEither $ first ConversionError $ fromResp r1
     case cmdRes1 of
         (ResNormal ResPong) -> pure ()
         other -> throwError $ HandshakeError $ InvalidReturn cmd1 ResPong other
 
     -- Replconf
     let cmd2 = RedRepl $ CmdReplicaToMaster $ CmdReplConfListen localPort
-    liftIO $ sendResp respConn $ cmdToResp cmd2
+    liftIO $ sendResp respConn $ toResp cmd2
     r2 <- liftIO $ recvResp respConn
-    cmdRes2 <- liftEither $ first ConversionError $ respToResult r2
+    cmdRes2 <- liftEither $ first ConversionError $ fromResp r2
     case cmdRes2 of
         (ResNormal ResOk) -> pure ()
         other -> throwError $ HandshakeError $ InvalidReturn cmd2 ResOk other
 
     -- Replconf capabilities
     let cmd3 = RedRepl $ CmdReplicaToMaster CmdReplConfCapabilities
-    liftIO $ sendResp respConn $ cmdToResp cmd3
+    liftIO $ sendResp respConn $ toResp cmd3
     r3 <- liftIO $ recvResp respConn
-    cmdRes3 <- liftEither $ first ConversionError $ respToResult r3
+    cmdRes3 <- liftEither $ first ConversionError $ fromResp r3
     case cmdRes3 of
         (ResNormal ResOk) -> pure ()
         other -> throwError $ HandshakeError $ InvalidReturn cmd3 ResOk other
@@ -53,9 +52,9 @@ doHandshake (MkReplicaState{..}) respConn = do
     knownMasterRepl' <- liftIO $ readTVarIO knownMasterRepl
     replicaOffset' <- liftIO $ readTVarIO replicaOffset
     let cmd4 = RedRepl $ CmdReplicaToMaster $ CmdPSync knownMasterRepl' replicaOffset'
-    liftIO $ sendResp respConn $ cmdToResp cmd4
+    liftIO $ sendResp respConn $ toResp cmd4
     r4 <- liftIO $ recvResp respConn
-    cmdRes4 <- liftEither $ first ConversionError $ respToResult r4
+    cmdRes4 <- liftEither $ first ConversionError $ fromResp r4
     case cmdRes4 of
         (ResNormal (RRepl (ResFullResync sid _))) -> liftIO . atomically $ do
             writeTVar knownMasterRepl sid
