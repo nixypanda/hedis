@@ -58,11 +58,10 @@ runCmdIO cmd = do
             vals <- liftIO (timeout' tout (atomically (StS.xReadBlockSTM tvStreamMap key sid')))
             pure $ maybe RArrayNull (RArrayKeyValues . singleton) vals
 
-runServerInfoCmds :: (HasReplication r) => Maybe SubInfo -> Redis r CommandResult
-runServerInfoCmds cmd = do
-    env <- ask
+runServerInfoCmds :: (HasReplication r) => Env r -> Maybe SubInfo -> STM CommandResult
+runServerInfoCmds env cmd = do
     case cmd of
         Just IReplication -> do
-            info <- liftIO $ replicationInfo $ getReplication env
+            info <- replicationInfo $ getReplication env
             pure $ RBulk $ Just info
         _ -> error "not handled"

@@ -73,8 +73,10 @@ sendReplConfs _clientState n tout = do
     env <- ask
     case getReplication env of
         MkReplicationMaster masterState -> do
-            registry <- liftIO $ readTVarIO masterState.replicaRegistry
-            targetOffset <- liftIO $ readTVarIO masterState.masterReplOffset
+            (registry, targetOffset) <- liftIO $ atomically $ do
+                r <- readTVar masterState.replicaRegistry
+                t <- readTVar masterState.masterReplOffset
+                pure (r, t)
 
             liftIO $ print $ "WAIT targetOffset=" <> show targetOffset <> " replicas=" <> show n <> " timeout=" <> show tout
 
@@ -83,18 +85,18 @@ sendReplConfs _clientState n tout = do
                 send r.rcSocket (encode $ toResp $ RedRepl $ CmdMasterToReplica CmdReplConfGetAck)
 
             -- The main server is already listening for commands so we just poll
-            let countAcked :: IO Int
+            let countAcked :: STM Int
                 countAcked = do
-                    offsets <- mapM (readTVarIO . rcOffset) registry
+                    offsets <- mapM (readTVar . rcOffset) registry
                     pure $ length (filter (>= targetOffset) offsets)
 
                 poll :: IO Int
                 poll = do
-                    acked <- countAcked
+                    acked <- liftIO $ atomically countAcked
                     if acked >= n then pure acked else threadDelay 1000 >> poll
 
             mres <- liftIO $ timeout' tout poll
-            acked <- liftIO $ maybe countAcked pure mres
+            acked <- liftIO $ maybe (liftIO $ atomically countAcked) pure mres
             pure $ RInt $ if targetOffset > 0 then acked else length registry
         MkReplicationReplica _ ->
             error "WAIT called on replica"

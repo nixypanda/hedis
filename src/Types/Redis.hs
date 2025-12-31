@@ -122,10 +122,10 @@ mkCommonEnv = do
     pure $ MkCommonEnv stores envLogger
 
 mkMasterEnv :: MasterConfig -> IO (Env Master)
-mkMasterEnv mc = EnvMaster <$> mkCommonEnv <*> initMasterState mc
+mkMasterEnv mc = EnvMaster <$> mkCommonEnv <*> atomically (initMasterState mc)
 
 mkReplicaEnv :: ReplicaConfig -> IO (Env Replica)
-mkReplicaEnv rc = EnvReplica <$> mkCommonEnv <*> initReplicaState rc
+mkReplicaEnv rc = EnvReplica <$> mkCommonEnv <*> atomically (initReplicaState rc)
 
 data ClientState = MkClientState
     { txState :: TVar TxState

@@ -46,8 +46,8 @@ runCmd clientState command = do
     txState <- liftIO $ readTVarIO clientState.txState
     case command of
         RedRepl (CmdReplicaToMaster c) -> resFromMaybe <$> runReplicaToMasterReplicationCmds clientState.socket c
-        RedRepl (CmdMasterToReplica c) -> ResNormal <$> liftIO (atomically $ runMasterToReplicaReplicationCmds env c)
-        RedInfo section -> ResNormal <$> runServerInfoCmds section
+        RedRepl (CmdMasterToReplica c) -> liftIO . atomically $ ResNormal <$> runMasterToReplicaReplicationCmds env c
+        RedInfo section -> liftIO . atomically $ ResNormal <$> runServerInfoCmds env section
         RedIO cmd' -> ResNormal <$> runAndReplicateIO env cmd'
         CmdWait n tout -> ResNormal <$> sendReplConfs clientState n tout
         cmd -> case txState of

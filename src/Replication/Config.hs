@@ -18,7 +18,7 @@ module Replication.Config (
 ) where
 
 import Control.Concurrent.Async (Async)
-import Control.Concurrent.STM (TQueue, TVar, newTVarIO, readTVarIO)
+import Control.Concurrent.STM (STM, TQueue, TVar, newTVar, readTVar)
 import Control.Exception (Exception)
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
@@ -84,10 +84,10 @@ data ReplicationError = ReplicaDisconnected
 
 type ReplicaRegistry = TVar [ReplicaConn]
 
-initMasterState :: MasterConfig -> IO MasterState
+initMasterState :: MasterConfig -> STM MasterState
 initMasterState _ = do
-    replicaRegistry <- newTVarIO []
-    masterReplOffset' <- newTVarIO 0
+    replicaRegistry <- newTVar []
+    masterReplOffset' <- newTVar 0
     pure $
         MkMasterState
             { masterReplId = "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb"
@@ -96,15 +96,15 @@ initMasterState _ = do
             , rdbFile = "./master.rdb"
             }
 
-initReplicaState :: ReplicaConfig -> IO ReplicaState
+initReplicaState :: ReplicaConfig -> STM ReplicaState
 initReplicaState MkReplicaConfig{..} = do
-    replicaOffset <- newTVarIO (-1)
-    knownMasterRepl <- newTVarIO "?"
+    replicaOffset <- newTVar (-1)
+    knownMasterRepl <- newTVar "?"
     pure $ MkReplicaState{..}
 
-replicationInfo :: Replication -> IO ByteString
+replicationInfo :: Replication -> STM ByteString
 replicationInfo (MkReplicationMaster (MkMasterState{..})) = do
-    offset <- readTVarIO masterReplOffset
+    offset <- readTVar masterReplOffset
     pure $
         BS.intercalate
             "\r\n"
