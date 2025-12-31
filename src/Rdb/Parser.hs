@@ -95,8 +95,29 @@ dbEntry :: Parser (Maybe RdbDatabase)
 dbEntry = do
     opcode <- peekWord8
     case opcode of
+        Just 0xFE -> do
+            _ <- anyWord8
+            identifier <- rdbLenOnly
+            _ <- word8 0xfb
+            size <- rdbLenOnly
+            expirySize <- rdbLenOnly
+            kv <- kvEntry
+            let table = [kv]
+            pure $ Just $ MkRdbHashTable $ MkHashTable{..}
         Just 0xFF -> pure Nothing
         _ -> fail "unsupported db entry type"
+
+kvEntry :: Parser (ByteString, ByteString)
+kvEntry = do
+    opcode <- peekWord8
+    _ <- anyWord8
+    case opcode of
+        Just 0x00 -> do
+            k_len <- rdbLenOnly
+            k <- take k_len
+            v_len <- rdbLenOnly
+            v <- take v_len
+            pure (k, v)
 
 crc64Parser :: Parser Word64
 crc64Parser = do
@@ -107,6 +128,17 @@ crc64Parser = do
 --
 -- >>> shiftR 0x09 6
 -- 0
+
+rdbLenOnly :: Parser Int
+rdbLenOnly = do
+    b <- anyWord8
+    case b `shiftR` 6 of
+        0b00 -> pure $ fromIntegral (b .&. 0x3F)
+        0b01 -> do
+            b2 <- anyWord8
+            pure $ (fromIntegral (b .&. 0x3F) `shiftL` 8) .|. fromIntegral b2
+        0b10 -> getInt32Be
+        _ -> fail $ "special encoding not supported: " <> show b
 
 rdbLen :: Parser (Either MetaVal Int)
 rdbLen = do

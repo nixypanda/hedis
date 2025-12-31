@@ -55,7 +55,7 @@ tests :: TestTree
 tests =
     testGroup
         "RDB parser"
-        [ testCase "parses header and AUX metadata from dump.rdb" $ do
+        [ testCase "parse empty db file" $ do
             bs <- BS.readFile "test/data/empty.rdb"
 
             case parseOnly rdbParser bs of
@@ -64,6 +64,15 @@ tests =
                 Right rdb -> do
                     print rdb
                     rdb.header.version @?= "0011"
+        , testCase "parse db file with one entry" $ do
+            bs <- BS.readFile "test/data/one-kv.rdb"
+
+            case parseOnly rdbParser bs of
+                Left err ->
+                    assertFailure ("RDB parse failed: " <> err)
+                Right rdb -> do
+                    print rdb
+                    rdb.header.version @?= "0012"
         , testCase "rdb header parsing" $ case parseOnly headerParser headerBS of
             Left err -> assertFailure ("Header parse failed: " <> err)
             Right hdr -> hdr.version @?= "0011"

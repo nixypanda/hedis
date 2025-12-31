@@ -29,5 +29,13 @@ data MetaVal = MVInt Int | MVString ByteString
 data RdbMetadata = MkMetaAux MetaVal MetaVal
     deriving (Show, Eq)
 
-newtype RdbDatabase = MkRdbDatabase [String]
+newtype RdbDatabase = MkRdbHashTable HashTable
+    deriving (Show, Eq)
+
+data HashTable = MkHashTable
+    { size :: Int
+    , identifier :: Int
+    , expirySize :: Int
+    , table :: [(ByteString, ByteString)]
+    }
     deriving (Show, Eq)
