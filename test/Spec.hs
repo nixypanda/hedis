@@ -3,13 +3,13 @@ module Main (main) where
 import Test.Tasty (TestTree, defaultMain, testGroup)
 
 import TestParsers qualified
-import TestResp.TestCommand qualified
 import TestResp.TestCore qualified
 import TestStore.TestListStore qualified
 import TestStore.TestStreamStoreParsing qualified
 import TestStoreBackend.TestExpiringMap qualified
 import TestStoreBackend.TestListMap qualified
 import TestStoreBackend.TestStreamMap qualified
+import TestWire.TestClient.TestCommand qualified
 
 tests :: TestTree
 tests =
@@ -22,7 +22,7 @@ tests =
         , TestResp.TestCore.tests
         , TestStore.TestStreamStoreParsing.tests
         , TestStore.TestListStore.tests
-        , TestResp.TestCommand.tests
+        , TestWire.TestClient.TestCommand.tests
         ]
 
 main :: IO ()

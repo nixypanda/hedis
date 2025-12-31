@@ -1,11 +1,10 @@
-{-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Execution.Base (runCmdSTM, runCmdIO, runServerInfoCmds) where
 
 import Control.Concurrent.STM (STM, atomically)
 import Control.Monad.IO.Class (MonadIO (liftIO))
-import Control.Monad.Reader (MonadReader (ask), asks)
+import Control.Monad.Reader (asks)
 import Data.List (singleton)
 import Data.Time (UTCTime)
 

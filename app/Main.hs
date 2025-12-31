@@ -1,5 +1,3 @@
-{-# LANGUAGE ApplicativeDo #-}
-{-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Main (main) where

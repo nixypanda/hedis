@@ -1,4 +1,3 @@
-{-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Replication.Replica (doHandshake, runReplicaToMasterReplicationCmds) where

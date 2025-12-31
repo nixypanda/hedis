@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module TestResp.TestCommand (tests) where
+module TestWire.TestClient.TestCommand (tests) where
 
 import Hedgehog (Property, evalEither, forAll, property, (===))
 import Test.Tasty

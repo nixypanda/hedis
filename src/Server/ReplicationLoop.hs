@@ -34,8 +34,8 @@ runReplication socket = do
 
 receiveMasterUpdates :: RespConn -> Redis Replica ()
 receiveMasterUpdates respConn = do
+    env <- ask
     forever $ do
-        env <- ask
         resp <- liftIO $ recvResp respConn
         command <- liftEither $ first ConversionError $ fromResp resp
         now <- liftIO getCurrentTime

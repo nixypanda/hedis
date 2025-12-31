@@ -1,9 +1,15 @@
-module Protocol.MasterCmd (MasterCommand (..), PropogationCmd (..), propogationCmdToCmdSTM, replicateIOCmdAs, replicateSTMCmdAs) where
+module Protocol.MasterCmd (
+    MasterCommand (..),
+    PropogationCmd (..),
+    propogationCmdToCmdSTM,
+    replicateIOCmdAs,
+    replicateSTMCmdAs,
+) where
 
+import Data.ByteString (ByteString)
 import Data.String (fromString)
 import Data.Time (NominalDiffTime)
 
-import Data.ByteString (ByteString)
 import Protocol.Command
 import Protocol.Result
 import StoreBackend.StreamMap (XAddStreamId)
