@@ -2,17 +2,18 @@
 
 module TestResp.TestCore (tests) where
 
-import Data.ByteString (ByteString)
-import Data.ByteString qualified as BS
 import Hedgehog
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import Test.Tasty
 import Test.Tasty.HUnit
 import Test.Tasty.Hedgehog (testProperty)
+
+import Data.ByteString (ByteString)
+import Data.ByteString qualified as BS
+import Data.String (fromString)
 import Text.Parsec
 
-import Data.String (fromString)
 import Resp.Core
 
 -- helper

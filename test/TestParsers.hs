@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module TestParsers where
+module TestParsers (tests) where
 
 import Hedgehog (Property, forAll, property, (===))
 import Hedgehog.Gen qualified as Gen

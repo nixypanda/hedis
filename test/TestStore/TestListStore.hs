@@ -2,16 +2,17 @@
 
 module TestStore.TestListStore (tests) where
 
+import Hedgehog
+import Hedgehog.Gen qualified as Gen
+import Hedgehog.Range qualified as Range
+import Test.Tasty (TestTree, testGroup)
+import Test.Tasty.Hedgehog (testProperty)
+
 import Control.Concurrent.Async
 import Control.Concurrent.STM
 import Data.ByteString (ByteString)
 import Data.ByteString.Char8 qualified as BS
-import Hedgehog
-import Hedgehog.Gen qualified as Gen
-import Hedgehog.Range qualified as Range
 import System.Timeout (timeout)
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.Hedgehog (testProperty)
 
 import Data.Maybe (listToMaybe)
 import Store.ListStore

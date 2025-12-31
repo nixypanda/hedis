@@ -2,13 +2,14 @@
 
 module TestStoreBackend.TestStreamMap (tests) where
 
-import Data.List (sort)
-import Data.Time (UTCTime)
-import Data.Time.Clock.POSIX (posixSecondsToUTCTime)
 import Hedgehog (Property, forAll, property, (===))
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (Assertion, assertFailure, testCase, (@?=))
 import Test.Tasty.Hedgehog (testProperty)
+
+import Data.List (sort)
+import Data.Time (UTCTime)
+import Data.Time.Clock.POSIX (posixSecondsToUTCTime)
 
 import Gen.Stream (genInsertSeq)
 import StoreBackend.StreamMap

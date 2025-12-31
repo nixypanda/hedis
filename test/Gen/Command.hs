@@ -1,11 +1,12 @@
 module Gen.Command (genCommand) where
 
-import Data.ByteString (ByteString)
-import Data.ByteString.Char8 qualified as BS
-import Data.Time (NominalDiffTime)
 import Hedgehog (Gen)
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
+
+import Data.ByteString (ByteString)
+import Data.ByteString.Char8 qualified as BS
+import Data.Time (NominalDiffTime)
 
 import Command
 import Data.String (fromString)

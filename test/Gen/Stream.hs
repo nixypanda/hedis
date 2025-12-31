@@ -1,4 +1,10 @@
-module Gen.Stream where
+module Gen.Stream (
+    genConcreteStreamId,
+    genXAddStreamId,
+    genXRange,
+    genXReadStreamId,
+    genInsertSeq,
+) where
 
 import Hedgehog (Gen)
 import Hedgehog.Gen qualified as Gen
