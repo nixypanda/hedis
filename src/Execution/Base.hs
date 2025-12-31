@@ -1,6 +1,7 @@
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-module Execution.Base (runCmdSTM, runCmdIO, runServerInfoCmds) where
+module Execution.Base (runCmdSTM, runCmdIO, runServerInfoCmds, runConfigInfoCmds) where
 
 import Control.Concurrent.STM (STM, atomically)
 import Control.Monad.IO.Class (MonadIO (liftIO))
@@ -8,9 +9,10 @@ import Control.Monad.Reader (asks)
 import Data.List (singleton)
 import Data.Time (UTCTime)
 
+import Data.String (IsString (..))
 import Protocol.Command
 import Protocol.Result
-import Replication.Config (replicationInfo)
+import Replication.Config (HasRdbConfig (..), replicationInfo)
 import Store.ListStore qualified as LS
 import Store.StreamStore qualified as StS
 import Store.StringStore qualified as SS
@@ -64,3 +66,13 @@ runServerInfoCmds env cmd = do
             info <- replicationInfo $ getReplication env
             pure $ RBulk $ Just info
         _ -> error "not handled"
+
+runConfigInfoCmds :: Env r -> SubConfig -> CommandResult
+runConfigInfoCmds env cmd = case env of
+    EnvMaster _ ms -> f ms
+    EnvReplica _ rs -> f rs
+  where
+    f :: (HasRdbConfig r) => r -> CommandResult
+    f s = case cmd of
+        ConfigDir -> RArraySimple ["dir", fromString $ rdbDir s]
+        ConfigDbFilename -> RArraySimple ["dbfilename", fromString $ rdbFilename s]

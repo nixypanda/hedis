@@ -91,6 +91,9 @@ respToCmd (Array 3 [BulkStr "WAIT", BulkStr n, BulkStr t]) = do
     n' <- readIntBS n
     t' <- millisToNominalDiffTime <$> readIntBS t
     pure $ CmdWait n' t'
+-- CONFIG
+respToCmd (Array 3 [BulkStr "CONFIG", BulkStr "GET", BulkStr "dir"]) = pure $ RedConfig ConfigDir
+respToCmd (Array 3 [BulkStr "CONFIG", BulkStr "GET", BulkStr "dbfilename"]) = pure $ RedConfig ConfigDbFilename
 -- Unhandled
 respToCmd r = Left $ "Conversion Error" <> show r
 
@@ -102,7 +105,12 @@ cmdToResp (RedTrans cmd) = txCmdToResp cmd
 cmdToResp (RedRepl cmd) = replicationCmdToResp cmd
 cmdToResp (RedIO cmd) = ioCmdToResp cmd
 cmdToResp (RedInfo cmd) = infoCmdToResp cmd
+cmdToResp (RedConfig cmd) = configCmdToResp cmd
 cmdToResp (CmdWait n t) = Array 3 [BulkStr "WAIT", BulkStr $ fromString $ show n, BulkStr $ fromString $ show $ nominalDiffTimeToMillis t]
+
+configCmdToResp :: SubConfig -> Resp
+configCmdToResp ConfigDir = Array 3 [BulkStr "CONFIG", BulkStr "GET", BulkStr "dir"]
+configCmdToResp ConfigDbFilename = Array 3 [BulkStr "CONFIG", BulkStr "GET", BulkStr "dbfilename"]
 
 ioCmdToResp :: CmdIO -> Resp
 ioCmdToResp (CmdBLPop key t) = Array 3 [BulkStr "BLPOP", BulkStr key, BulkStr $ fromString $ show $ nominalDiffTimeToSeconds t]

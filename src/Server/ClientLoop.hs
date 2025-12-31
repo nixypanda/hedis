@@ -11,7 +11,7 @@ import Data.Bifunctor (Bifunctor (first))
 import Data.Time (UTCTime, getCurrentTime)
 import Network.Simple.TCP (Socket, send)
 
-import Execution.Base (runServerInfoCmds)
+import Execution.Base (runConfigInfoCmds, runServerInfoCmds)
 import Protocol.Command
 import Protocol.Result
 import Replication.Master (runAndReplicateIO, runAndReplicateSTM, runMasterToReplicaReplicationCmds, sendReplConfs)
@@ -47,6 +47,7 @@ runCmd clientState command = do
         RedRepl (CmdReplicaToMaster c) -> resFromMaybe <$> runReplicaToMasterReplicationCmds clientState.socket c
         RedRepl (CmdMasterToReplica c) -> liftIO . atomically $ ResNormal <$> runMasterToReplicaReplicationCmds env c
         RedInfo section -> liftIO . atomically $ ResNormal <$> runServerInfoCmds env section
+        RedConfig section -> pure . ResNormal $ runConfigInfoCmds env section
         RedIO cmd' -> ResNormal <$> runAndReplicateIO env cmd'
         CmdWait n tout -> ResNormal <$> sendReplConfs clientState n tout
         cmd -> case txState of

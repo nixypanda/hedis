@@ -55,7 +55,7 @@ dbFilenameParser =
     strOption
         ( long "dbfilename"
             <> metavar "FILENAME"
-            <> value "dump.rdb"
+            <> value "master.rdb"
             <> showDefault
             <> help "RDB filename"
         )

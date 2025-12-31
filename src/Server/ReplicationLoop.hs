@@ -25,10 +25,13 @@ runReplication :: Socket -> Redis Replica ()
 runReplication socket = do
     EnvReplica _ state <- ask
     respConn <- liftIO $ mkRespConn socket
-    doHandshake state respConn
 
+    doHandshake state respConn
     logInfo $ "Handshake complete. Waiting for RDB" <> show socket
+
     _rdb <- liftIO $ recvRdb respConn
+    liftIO $ print _rdb
+    logInfo $ "RDB received, starting master listening loop" <> show socket
 
     receiveMasterUpdates respConn
 

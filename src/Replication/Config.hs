@@ -51,12 +51,18 @@ data RdbConfig = MkRdbConfig
 
 class HasRdbConfig a where
     rdbFilePath :: a -> FilePath
+    rdbDir :: a -> FilePath
+    rdbFilename :: a -> FilePath
 
 instance HasRdbConfig MasterState where
     rdbFilePath a = _rdbFilePath a.rdbConfig
+    rdbDir a = a.rdbConfig.dir
+    rdbFilename a = a.rdbConfig.dbfilename
 
 instance HasRdbConfig ReplicaState where
     rdbFilePath a = _rdbFilePath a.rdbConfig
+    rdbDir a = a.rdbConfig.dir
+    rdbFilename a = a.rdbConfig.dbfilename
 
 _rdbFilePath :: RdbConfig -> FilePath
 _rdbFilePath MkRdbConfig{..} = dir <> "/" <> dbfilename

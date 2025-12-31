@@ -11,6 +11,7 @@ module Protocol.Command (
     StringCmd (..),
     ListCmd (..),
     StreamCmd (..),
+    SubConfig (..),
 ) where
 
 import Data.ByteString (ByteString)
@@ -22,12 +23,14 @@ import StoreBackend.StreamMap (ConcreteStreamId, XAddStreamId (..), XRange (..),
 type Key = ByteString
 
 data SubInfo = IReplication deriving (Show, Eq)
+data SubConfig = ConfigDir | ConfigDbFilename deriving (Show, Eq)
 
 data Command
     = RedSTM CmdSTM
     | RedIO CmdIO
     | RedTrans CmdTransaction
     | RedInfo (Maybe SubInfo)
+    | RedConfig SubConfig
     | RedRepl CmdReplication
     | CmdWait Int NominalDiffTime
     deriving (Show, Eq)
