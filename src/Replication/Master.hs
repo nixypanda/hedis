@@ -5,12 +5,14 @@ module Replication.Master (acceptReplica, runMasterToReplicaReplicationCmds, sen
 
 import Control.Concurrent.Async (async)
 import Control.Concurrent.STM (
+    STM,
     TQueue,
     atomically,
     modifyTVar,
     newTQueueIO,
     newTVarIO,
     readTQueue,
+    readTVar,
     readTVarIO,
  )
 import Control.Monad (forM_, forever)
@@ -61,12 +63,11 @@ replicaSender sock rdbFile q = do
         resp <- liftIO $ atomically $ readTQueue q
         send sock resp
 
-runMasterToReplicaReplicationCmds :: (HasReplication r) => MasterToReplica -> Redis r CommandResult
-runMasterToReplicaReplicationCmds cmd = do
-    env <- ask
+runMasterToReplicaReplicationCmds :: (HasReplication r) => Env r -> MasterToReplica -> STM CommandResult
+runMasterToReplicaReplicationCmds env cmd = do
     case cmd of
         CmdReplConfGetAck -> do
-            offset <- liftIO $ readTVarIO (getOffset env)
+            offset <- readTVar (getOffset env)
             pure $ RRepl $ ReplConfAck offset
 
 sendReplConfs :: (HasReplication r) => ClientState -> Int -> NominalDiffTime -> Redis r CommandResult

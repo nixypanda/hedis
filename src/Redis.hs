@@ -71,7 +71,12 @@ data RedisError
     | InvalidCommand String
     | WrongType IncorrectType
     | HandshakeError HandshakeError
+    | ProtocolError ProtocolError
     deriving (Show, Exception)
+
+newtype ProtocolError
+    = InvalidCommadnFromMaster Command
+    deriving (Show, Eq)
 
 data HandshakeError
     = InvalidReturn Command CommandResult Result

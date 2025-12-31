@@ -3,7 +3,7 @@
 
 module Execution (runReplication, clientLoopWrite) where
 
-import Control.Concurrent.STM (STM, atomically, modifyTVar, newTVarIO, readTVarIO, writeTVar)
+import Control.Concurrent.STM (STM, atomically, modifyTVar, readTVarIO, writeTVar)
 import Control.Monad (forever)
 import Control.Monad.Except (liftEither)
 import Control.Monad.IO.Class (MonadIO (liftIO))
@@ -14,14 +14,14 @@ import Network.Simple.TCP (Socket, send)
 
 import Command
 import CommandResult
-import Execution.Base (runServerInfoCmds)
+import Execution.Base (runCmdSTM, runServerInfoCmds)
 import Redis
-import Replication.Command (runAndReplicateIO, runAndReplicateSTM)
+import Replication.Command (MasterCommand (..), propogationCmdToCmdSTM, respToMasterCmd, runAndReplicateIO, runAndReplicateSTM)
 import Replication.Master (runMasterToReplicaReplicationCmds, sendReplConfs)
 import Replication.Replica (doHandshake, runReplicaToMasterReplicationCmds)
 import Resp.Client (RespConn, mkRespConn, recvRdb, recvResp, sendResp)
 import Resp.Command (respBytes, respToCmd)
-import Resp.Core (Resp (..), encode)
+import Resp.Core (encode)
 import Resp.Result (cmdResultToResp, resultToResp)
 
 --- client server
@@ -31,17 +31,13 @@ clientLoopWrite clientState socket = do
     respConn <- liftIO $ mkRespConn socket
     forever $ do
         resp <- liftIO $ recvResp respConn
-        result <- processOne clientState resp
+        cmd <- liftEither $ first ConversionError $ respToCmd resp
+        result <- runCmd clientState cmd
         case result of
             ResNothing -> pure ()
             res -> do
                 let encoded = encode $ resultToResp res
                 liftIO $ send socket encoded
-
-processOne :: (HasLogger r, HasStores r, HasReplication r) => ClientState -> Resp -> Redis r Result
-processOne clientState resp = do
-    cmd <- liftEither $ first ConversionError $ respToCmd resp
-    runCmd clientState cmd
 
 -- Common Command Execution
 
@@ -52,7 +48,7 @@ runCmd clientState command = do
     txState <- liftIO $ readTVarIO clientState.txState
     case command of
         RedRepl (CmdReplicaToMaster c) -> resFromMaybe <$> runReplicaToMasterReplicationCmds clientState.socket c
-        RedRepl (CmdMasterToReplica c) -> ResNormal <$> runMasterToReplicaReplicationCmds c
+        RedRepl (CmdMasterToReplica c) -> ResNormal <$> liftIO (atomically $ runMasterToReplicaReplicationCmds env c)
         RedInfo section -> ResNormal <$> runServerInfoCmds section
         RedIO cmd' -> ResNormal <$> runAndReplicateIO env cmd'
         CmdWait n tout -> ResNormal <$> sendReplConfs clientState n tout
@@ -97,22 +93,26 @@ runReplication socket = do
     logInfo $ "Handshake complete. Waiting for RDB" <> show socket
     _rdb <- liftIO $ recvRdb respConn
 
-    txState <- liftIO $ newTVarIO NoTx
-    let fakeClient = MkClientState{..}
-    receiveMasterUpdates respConn fakeClient
+    receiveMasterUpdates respConn
 
-receiveMasterUpdates :: RespConn -> ClientState -> Redis Replica ()
-receiveMasterUpdates respConn fakeClient = forever $ do
-    env <- ask
-    resp <- liftIO $ recvResp respConn
-    result <- processOne fakeClient resp
-    case result of
-        ResNormal r@(RRepl cr) -> case cr of
-            ReplOk -> pure ()
-            ReplConfAck _ -> do
+receiveMasterUpdates :: RespConn -> Redis Replica ()
+receiveMasterUpdates respConn = do
+    forever $ do
+        env <- ask
+        resp <- liftIO $ recvResp respConn
+        liftIO $ print $ "received " <> show resp
+        command <- liftEither $ first ConversionError $ respToMasterCmd resp
+        now <- liftIO getCurrentTime
+        liftIO $ print $ "processing " <> show command
+        case command of
+            PropogationCmd c -> liftIO $ atomically $ do
+                _ <- runCmdSTM env now . propogationCmdToCmdSTM $ c
+                modifyTVar (getOffset env) (+ respBytes resp)
+            ReplicationCommand c -> do
+                res <- liftIO $ atomically $ do
+                    res <- runMasterToReplicaReplicationCmds env c
+                    modifyTVar (getOffset env) (+ respBytes resp)
+                    pure res
+                liftIO $ sendResp respConn $ cmdResultToResp res
+            MasterPing -> do
                 liftIO $ atomically $ modifyTVar (getOffset env) (+ respBytes resp)
-                liftIO $ sendResp respConn $ cmdResultToResp r
-            ResFullResync _ _ -> pure ()
-        ResNormal ResPong -> do
-            liftIO $ atomically $ modifyTVar (getOffset env) (+ respBytes resp)
-        _ -> pure ()

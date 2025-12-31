@@ -16,6 +16,7 @@ import Data.Time (nominalDiffTimeToSeconds, secondsToNominalDiffTime)
 import Command
 import Parsers (readFloatBS, readIntBS)
 import Resp.Core (Resp (..), encode)
+import Resp.Utils
 import Store.StreamStoreParsing (
     readConcreteStreamId,
     readXAddStreamId,
@@ -30,15 +31,6 @@ import StoreBackend.ListMap (Range (..))
 import Time (millisToNominalDiffTime, nominalDiffTimeToMillis)
 
 -- Conversion (from Resp)
-
-extractBulk :: Resp -> Either String ByteString
-extractBulk (BulkStr x) = Right x
-extractBulk r = Left $ "Invalit Type" <> show r
-
-chunksOf2 :: [a] -> Either String [(a, a)]
-chunksOf2 [] = Right []
-chunksOf2 (x : y : xs) = ((x, y) :) <$> chunksOf2 xs
-chunksOf2 _ = Left "Invalid chunk of 2"
 
 respToCmd :: Resp -> Either String Command
 respToCmd (Array 1 [BulkStr "PING"]) = pure $ RedSTM CmdPing
