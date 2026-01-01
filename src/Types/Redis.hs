@@ -53,6 +53,8 @@ import Replication.Config (
  )
 import Store.ListStore (ListStore)
 import Store.ListStore qualified as LS
+import Store.PubSubStore (PubSubStore)
+import Store.PubSubStore qualified as PS
 import Store.StreamStore (StreamStore)
 import Store.StreamStore qualified as StS
 import Store.StringStore (StringStore)
@@ -86,6 +88,7 @@ data Stores = MkStores
     , listStore :: TVar ListStore
     , typeIndex :: TVar TypeIndex
     , streamStore :: TVar StreamStore
+    , pubSubStore :: TVar PubSubStore
     }
 
 data Master
@@ -107,6 +110,7 @@ mkCommonEnv = do
         listStore <- LS.emptySTM
         typeIndex <- TS.emptySTM
         streamStore <- StS.emptySTM
+        pubSubStore <- PS.emptySTM
         pure $ MkStores{..}
 
     timeCache <- newTimeCache simpleTimeFormat
