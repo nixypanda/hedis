@@ -11,6 +11,7 @@ import Data.Bifunctor (Bifunctor (first))
 import Data.Time (UTCTime, getCurrentTime)
 import Network.Simple.TCP (Socket, send)
 
+import Data.ByteString (ByteString)
 import Data.List (nub)
 import Execution.Base (runConfigInfoCmds, runServerInfoCmds)
 import Protocol.Command
@@ -50,53 +51,61 @@ runCmd clientState command = do
         ts <- readTVar clientState.txState
         sc <- readTVar clientState.subbedChannels
         pure (ts, sc)
-    case subbedChannels of
-        [] ->
-            case command of
-                RedRepl (CmdReplicaToMaster c) -> resFromMaybe <$> runReplicaToMasterReplicationCmds clientState.socket c
-                RedRepl (CmdMasterToReplica c) -> liftIO . atomically $ ResNormal <$> runMasterToReplicaReplicationCmds env c
-                RedInfo section -> liftIO . atomically $ ResNormal <$> runServerInfoCmds env section
-                RedConfig section -> pure . ResNormal $ runConfigInfoCmds env section
-                RedIO cmd' -> ResNormal <$> runAndReplicateIO env cmd'
-                RedSub (CmdSubscribe chan) -> liftIO $ atomically $ subscribeToChannel clientState env chan
-                CmdWait n tout -> ResNormal <$> sendReplConfs clientState n tout
-                cmd -> case txState of
-                    InTx cs ->
-                        case cmd of
-                            RedSTM c -> liftIO $ atomically $ do
-                                writeTVar clientState.txState (InTx $ c : cs)
-                                pure . ResNormal $ RSimple "QUEUED"
-                            RedTrans m -> case m of
-                                Multi -> pure . ResError $ RTxErr RMultiInMulti
-                                Exec -> ResCombined <$> liftIO (atomically $ executeQueuedCmds clientState env now cs)
-                                Discard -> liftIO $ atomically $ do
-                                    writeTVar clientState.txState NoTx
-                                    pure . ResNormal $ ResOk
-                    NoTx -> case cmd of
-                        RedSTM cmd' -> resFromEither <$> liftIO (atomically $ runAndReplicateSTM env now cmd')
-                        RedTrans txCmd ->
-                            case txCmd of
-                                Exec -> pure . ResError $ RTxErr RExecWithoutMulti
-                                Discard -> pure . ResError $ RTxErr RDiscardWithoutMulti
-                                Multi -> liftIO $ atomically $ do
-                                    modifyTVar clientState.txState (const $ InTx [])
-                                    pure . ResNormal $ ResOk
-        _ ->
-            case command of
-                RedSub (CmdSubscribe chan) -> liftIO $ atomically $ subscribeToChannel clientState env chan
-                RedSTM CmdPing -> pure $ ResNormal $ ResPongSubscribed
-                cmd -> pure $ ResError $ RCmdNotAllowedInMode cmd ModeSubscribed
+    case command of
+        RedRepl (CmdReplicaToMaster c) -> resFromMaybe <$> runReplicaToMasterReplicationCmds clientState.socket c
+        RedRepl (CmdMasterToReplica c) -> liftIO . atomically $ ResNormal <$> runMasterToReplicaReplicationCmds env c
+        RedInfo section -> liftIO . atomically $ ResNormal <$> runServerInfoCmds env section
+        RedConfig section -> pure . ResNormal $ runConfigInfoCmds env section
+        RedIO cmd' -> ResNormal <$> runAndReplicateIO env cmd'
+        RedSub cmd' -> ResNormal <$> handlePubSubMessage clientState cmd'
+        CmdWait n tout -> ResNormal <$> sendReplConfs clientState n tout
+        RedSTM CmdPing -> case subbedChannels of
+            [] -> pure . ResNormal $ ResPong
+            _ -> pure . ResNormal $ ResPongSubscribed
+        cmd -> case txState of
+            InTx cs ->
+                case cmd of
+                    RedSTM c -> liftIO $ atomically $ do
+                        writeTVar clientState.txState (InTx $ c : cs)
+                        pure . ResNormal $ RSimple "QUEUED"
+                    RedTrans m -> case m of
+                        Multi -> pure . ResError $ RTxErr RMultiInMulti
+                        Exec -> ResCombined <$> liftIO (atomically $ executeQueuedCmds clientState env now cs)
+                        Discard -> liftIO $ atomically $ do
+                            writeTVar clientState.txState NoTx
+                            pure . ResNormal $ ResOk
+            NoTx -> case cmd of
+                RedSTM cmd' -> resFromEither <$> liftIO (atomically $ runAndReplicateSTM env now cmd')
+                RedTrans txCmd ->
+                    case txCmd of
+                        Exec -> pure . ResError $ RTxErr RExecWithoutMulti
+                        Discard -> pure . ResError $ RTxErr RDiscardWithoutMulti
+                        Multi -> liftIO $ atomically $ do
+                            modifyTVar clientState.txState (const $ InTx [])
+                            pure . ResNormal $ ResOk
+
+-- RedSTM CmdPing -> pure $ ResNormal ResPongSubscribed
 
 -- pub-sub
 
-subscribeToChannel :: (HasStores r) => ClientState -> Env r -> Key -> STM Result
+handlePubSubMessage :: (HasStores r) => ClientState -> PubSub -> Redis r CommandResult
+handlePubSubMessage clientState command = do
+    env <- ask
+    case command of
+        CmdSubscribe chan -> liftIO $ atomically $ subscribeToChannel clientState env chan
+        CmdPublish chan msg -> liftIO $ publishToChannel env chan msg
+
+publishToChannel :: Env r -> Key -> ByteString -> IO CommandResult
+publishToChannel = undefined
+
+subscribeToChannel :: (HasStores r) => ClientState -> Env r -> Key -> STM CommandResult
 subscribeToChannel clientState env chan = do
     let tvPubSubStore = getPubSubStore env
         tvTypeIndex = getTypeIndex env
     _ <- TS.setIfAvailable tvTypeIndex chan VChannel *> PS.addChannel chan tvPubSubStore
     modifyTVar clientState.subbedChannels (nub . (chan :))
     chans <- readTVar clientState.subbedChannels
-    pure $ ResNormal $ ResSubscribed chan (length chans)
+    pure $ ResSubscribed chan (length chans)
 
 -- Transaction
 
