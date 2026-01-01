@@ -14,6 +14,7 @@ import System.Log.FastLogger (LogStr, toLogStr)
 
 import Cli
 import Replication.Config
+import Replication.Master (runRdbLoad)
 import Server.ClientLoop
 import Server.ReplicationLoop
 import Types.Redis
@@ -54,6 +55,7 @@ runReplica env port replicaOf = do
 runMaster :: Env Master -> Int -> IO ()
 runMaster env port = do
     let (logInfo', _) = loggingFuncs (getLogger env)
+    runRedisIO env runRdbLoad
     logInfo' $ "Starting master server on port " <> show port
     serve HostAny (show port) $ \(socket, address) -> do
         logInfo' $ "successfully connected client: " ++ show address

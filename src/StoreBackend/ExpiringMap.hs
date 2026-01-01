@@ -3,6 +3,8 @@ module StoreBackend.ExpiringMap (
     empty,
     insert,
     lookup,
+    -- rdb loading
+    StoredVal (..),
 ) where
 
 import Data.Map.Strict (Map)

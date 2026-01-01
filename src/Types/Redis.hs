@@ -17,6 +17,7 @@ module Types.Redis (
     HandshakeError (InvalidReturn),
     RedisError (..),
     Stores (..),
+    CommonEnv (..),
     mkMasterEnv,
     mkReplicaEnv,
     logInfo,

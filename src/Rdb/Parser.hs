@@ -9,7 +9,7 @@ import Data.ByteString qualified as BS
 import Text.Parsec qualified as P
 import Text.Parsec.ByteString qualified as PB
 
-import Data.Attoparsec.ByteString
+import Data.Attoparsec.ByteString (Parser, anyWord8, parseOnly, peekWord8, string, take, takeByteString)
 import Data.Attoparsec.Combinator (lookAhead)
 import Data.Bits (Bits (..), shiftR)
 import Data.Word (Word64, Word8)
@@ -41,6 +41,9 @@ takeBytes n = do
         else P.parserFail "unexpected end of input while reading bytes"
 
 -----------------------------------------------------------------
+
+parseRdb :: ByteString -> Either String RdbData
+parseRdb = parseOnly rdbParser
 
 rdbParser :: Parser RdbData
 rdbParser = do
