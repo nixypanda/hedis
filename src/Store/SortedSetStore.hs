@@ -3,11 +3,11 @@ module Store.SortedSetStore where
 import Control.Concurrent.STM
 import Data.ByteString (ByteString)
 import Data.Map qualified as M
+
 import Protocol.Command
 import Protocol.Result
 import Store.TypeStore (TypeIndex)
 import Store.TypeStore qualified as TS
-import StoreBackend.ListMap (Range (..))
 import StoreBackend.SortedSetMap
 import StoreBackend.TypeIndex (ValueType (..))
 
@@ -46,3 +46,6 @@ runSortedSetStoreSTM tvTypeIndex tvZSet cmd =
             TS.setIfAvailable tvTypeIndex key VSortedSet
             n <- zaddSTM key sc val tvZSet
             pure $ RInt n
+        CmdZRank key val -> do
+            mRank <- zrankSTM key val tvZSet
+            pure $ RIntOrNil mRank
