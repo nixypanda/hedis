@@ -14,6 +14,7 @@ import Protocol.Command
 import Protocol.Result
 import Replication.Config (HasRdbConfig (..), replicationInfo)
 import Store.ListStore qualified as LS
+import Store.SortedSetStore qualified as SSS
 import Store.StreamStore qualified as StS
 import Store.StringStore qualified as SS
 import Store.TypeStore qualified as TS
@@ -26,6 +27,7 @@ runCmdSTM env now cmd = do
         tvStringMap = getStringStore env
         tvTypeIndex = getTypeIndex env
         tvStreamMap = getStreamStore env
+        tvSortedSetMap = getSortedSetStore env
     case cmd of
         CmdPing -> pure $ Right ResPong
         CmdEcho xs -> pure $ Right $ RBulk (Just xs)
@@ -39,6 +41,7 @@ runCmdSTM env now cmd = do
         STMString c -> SS.runStringStoreSTM tvTypeIndex tvStringMap now c
         STMList c -> Right <$> LS.runListStoreSTM tvTypeIndex tvListMap c
         STMStream c -> StS.runStreamStoreSTM tvTypeIndex tvStreamMap now c
+        STMSortedSet c -> Right <$> SSS.runSortedSetStoreSTM tvTypeIndex tvSortedSetMap c
 
 runCmdIO :: (HasStores r) => CmdIO -> Redis r CommandResult
 runCmdIO cmd = do

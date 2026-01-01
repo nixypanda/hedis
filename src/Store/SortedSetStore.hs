@@ -1,0 +1,48 @@
+module Store.SortedSetStore where
+
+import Control.Concurrent.STM
+import Data.ByteString (ByteString)
+import Data.Map qualified as M
+import Protocol.Command
+import Protocol.Result
+import Store.TypeStore (TypeIndex)
+import Store.TypeStore qualified as TS
+import StoreBackend.ListMap (Range (..))
+import StoreBackend.SortedSetMap
+import StoreBackend.TypeIndex (ValueType (..))
+
+type SortedSetStore = SortedSetMap ByteString ByteString
+
+emptySTM :: STM (TVar SortedSetStore)
+emptySTM = newTVar M.empty
+
+zaddSTM :: ByteString -> Double -> ByteString -> TVar SortedSetStore -> STM Int
+zaddSTM key score' val tv = do
+    m <- readTVar tv
+    let m' = insert key score' val m
+    writeTVar tv m'
+    pure $ count key m' - count key m
+
+zcardSTM :: ByteString -> TVar SortedSetStore -> STM Int
+zcardSTM key tv = count key <$> readTVar tv
+
+zscoreSTM :: ByteString -> ByteString -> TVar SortedSetStore -> STM (Maybe Double)
+zscoreSTM key val tv = score key val <$> readTVar tv
+
+zrankSTM :: ByteString -> ByteString -> TVar SortedSetStore -> STM (Maybe Int)
+zrankSTM key val tv = rank key val <$> readTVar tv
+
+zremSTM :: ByteString -> ByteString -> TVar SortedSetStore -> STM ()
+zremSTM key val tv =
+    modifyTVar' tv (remove key val)
+
+zrangeSTM :: ByteString -> Int -> Int -> TVar SortedSetStore -> STM [ByteString]
+zrangeSTM key start end tv = range key start end <$> readTVar tv
+
+runSortedSetStoreSTM :: TVar TypeIndex -> TVar SortedSetStore -> SortedSetCmd -> STM CommandResult
+runSortedSetStoreSTM tvTypeIndex tvZSet cmd =
+    case cmd of
+        CmdZAdd key sc val -> do
+            TS.setIfAvailable tvTypeIndex key VSortedSet
+            n <- zaddSTM key sc val tvZSet
+            pure $ RInt n
