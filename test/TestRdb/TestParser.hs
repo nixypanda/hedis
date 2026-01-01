@@ -12,8 +12,89 @@ import Data.ByteString (ByteString)
 import Rdb.Parser
 import Rdb.Type
 
+emptyRdb :: RdbData
+emptyRdb =
+    MkRdbData
+        { header = MkRdbHeader{magic = "REDIS", version = "0011"}
+        , metadata =
+            [ MkMetaAux "redis-ver" (MVString "7.2.0")
+            , MkMetaAux "redis-bits" (MVInt 64)
+            , MkMetaAux "ctime" (MVInt 1706821741)
+            , MkMetaAux "used-mem" (MVInt 1098928)
+            , MkMetaAux "aof-base" (MVInt 0)
+            ]
+        , dbs = []
+        , checksum = 17324850781886569122
+        }
+
+singleKv :: RdbData
+singleKv =
+    MkRdbData
+        { header = MkRdbHeader{magic = "REDIS", version = "0012"}
+        , metadata =
+            [ MkMetaAux "redis-ver" (MVString "8.2.2")
+            , MkMetaAux "redis-bits" (MVInt 64)
+            , MkMetaAux "ctime" (MVInt 1767222873)
+            , MkMetaAux "used-mem" (MVInt 871200)
+            , MkMetaAux "aof-base" (MVInt 0)
+            ]
+        , dbs =
+            [ MkRdbHashTable
+                ( MkHashTable
+                    { size = 1
+                    , identifier = 0
+                    , expirySize = 0
+                    , table = [("mykey", "myval")]
+                    }
+                )
+            ]
+        , checksum = 12651839348023696006
+        }
+
+assertRightEq ::
+    (HasCallStack, Show e, Eq a, Show a) =>
+    Either e a ->
+    a ->
+    Assertion
+assertRightEq result expected =
+    case result of
+        Left err -> assertFailure ("Unexpected Left: " <> show err)
+        Right x -> x @?= expected
+
+tests :: TestTree
+tests =
+    testGroup
+        "RDB parser"
+        [ testCase "parse empty db file" $ do
+            bs <- BS.readFile "test/data/empty.rdb"
+            case parseOnly rdbParser bs of
+                Left err -> assertFailure ("RDB parse failed: " <> err)
+                Right rdb -> rdb @?= emptyRdb
+        , testCase "parse db file with one entry" $ do
+            bs <- BS.readFile "test/data/one-kv.rdb"
+
+            case parseOnly rdbParser bs of
+                Left err ->
+                    assertFailure ("RDB parse failed: " <> err)
+                Right rdb -> rdb @?= singleKv
+        , testsIndividualParsers
+        ]
+
+testsIndividualParsers :: TestTree
+testsIndividualParsers =
+    testGroup
+        "Individual Parser tests"
+        [testsHeaderParser, testsAuxFieldParser, testsMetadataParser]
+
 headerBS :: BS.ByteString
 headerBS = BS.pack [0x52, 0x45, 0x44, 0x49, 0x53, 0x30, 0x30, 0x31, 0x31]
+
+testsHeaderParser :: TestTree
+testsHeaderParser =
+    testGroup
+        "Header parser"
+        [ testCase "rdb header parsing" $ assertRightEq (parseOnly headerParser headerBS) (MkRdbHeader "REDIS" "0011")
+        ]
 
 meta1BS :: BS.ByteString
 meta1BS = BS.pack [0x09, 0x72, 0x65, 0x64, 0x69, 0x73, 0x2d, 0x76, 0x65, 0x72, 0x05, 0x37, 0x2e, 0x32, 0x2e, 0x30]
@@ -31,19 +112,30 @@ meta5BS :: BS.ByteString
 meta5BS = BS.pack [0x08, 0x61, 0x6f, 0x66, 0x2d, 0x62, 0x61, 0x73, 0x65, 0xc0, 0x00]
 
 meta1Res :: RdbMetadata
-meta1Res = MkMetaAux (MVString "redis-ver") (MVString "7.2.0")
+meta1Res = MkMetaAux "redis-ver" (MVString "7.2.0")
 
 meta2Res :: RdbMetadata
-meta2Res = MkMetaAux (MVString "redis-bits") (MVInt 64)
+meta2Res = MkMetaAux "redis-bits" (MVInt 64)
 
 meta3Res :: RdbMetadata
-meta3Res = MkMetaAux (MVString "ctime") (MVInt 1706821741)
+meta3Res = MkMetaAux "ctime" (MVInt 1706821741)
 
 meta4Res :: RdbMetadata
-meta4Res = MkMetaAux (MVString "used-mem") (MVInt 1098928)
+meta4Res = MkMetaAux "used-mem" (MVInt 1098928)
 
 meta5Res :: RdbMetadata
-meta5Res = MkMetaAux (MVString "aof-base") (MVInt 0)
+meta5Res = MkMetaAux "aof-base" (MVInt 0)
+
+testsAuxFieldParser :: TestTree
+testsAuxFieldParser =
+    testGroup
+        "Aux field parser"
+        [ testCase "aux field in metadata parsing: redis-ver" $ assertRightEq (parseOnly auxField meta1BS) meta1Res
+        , testCase "aux field in metadata parsing: redis-bits" $ assertRightEq (parseOnly auxField meta2BS) meta2Res
+        , testCase "aux field in metadata parsing: ctime" $ assertRightEq (parseOnly auxField meta3BS) meta3Res
+        , testCase "aux field in metadata parsing: used-mem" $ assertRightEq (parseOnly auxField meta4BS) meta4Res
+        , testCase "aux field in metadata parsing: aof-base" $ assertRightEq (parseOnly auxField meta5BS) meta5Res
+        ]
 
 auxFieldPrefix :: BS.ByteString
 auxFieldPrefix = BS.pack [0xFA]
@@ -51,49 +143,11 @@ auxFieldPrefix = BS.pack [0xFA]
 metaSectionEnd :: ByteString
 metaSectionEnd = BS.pack [0xFE]
 
-tests :: TestTree
-tests =
+testsMetadataParser :: TestTree
+testsMetadataParser =
     testGroup
-        "RDB parser"
-        [ testCase "parse empty db file" $ do
-            bs <- BS.readFile "test/data/empty.rdb"
-
-            case parseOnly rdbParser bs of
-                Left err ->
-                    assertFailure ("RDB parse failed: " <> err)
-                Right rdb -> do
-                    print rdb
-                    rdb.header.version @?= "0011"
-        , testCase "parse db file with one entry" $ do
-            bs <- BS.readFile "test/data/one-kv.rdb"
-
-            case parseOnly rdbParser bs of
-                Left err ->
-                    assertFailure ("RDB parse failed: " <> err)
-                Right rdb -> do
-                    print rdb
-                    rdb.header.version @?= "0012"
-        , testCase "rdb header parsing" $ case parseOnly headerParser headerBS of
-            Left err -> assertFailure ("Header parse failed: " <> err)
-            Right hdr -> hdr.version @?= "0011"
-        , testCase "aux field in metadata parsing" $ case parseOnly auxField meta1BS of
-            Left err -> assertFailure ("Aux field parse failed: " <> err)
-            Right res -> res @?= meta1Res
-        , testCase "aux field in metadata parsing" $ case parseOnly auxField meta2BS of
-            Left err -> assertFailure ("Aux field parse failed: " <> err)
-            Right res -> res @?= meta2Res
-        , testCase "aux field in metadata parsing" $ case parseOnly auxField meta3BS of
-            Left err -> assertFailure ("Aux field parse failed: " <> err)
-            Right res -> res @?= meta3Res
-        , testCase "aux field in metadata parsing" $ case parseOnly auxField meta4BS of
-            Left err -> assertFailure ("Aux field parse failed: " <> err)
-            Right res -> res @?= meta4Res
-        , testCase "aux field in metadata parsing" $ case parseOnly auxField meta5BS of
-            Left err -> assertFailure ("Aux field parse failed: " <> err)
-            Right res -> res @?= meta5Res
-        , testCase "Full metadata parser" $
+        "Metadata parser"
+        [ testCase "Full metadata parser" $
             let input = BS.concat [auxFieldPrefix, BS.intercalate auxFieldPrefix [meta1BS, meta2BS, meta3BS, meta4BS, meta5BS], metaSectionEnd]
-             in case parseOnly metadataParser input of
-                    Left err -> assertFailure ("Aux field parse failed: " <> err)
-                    Right res -> res @?= [meta1Res, meta2Res, meta3Res, meta4Res, meta5Res]
+             in assertRightEq (parseOnly metadataParser input) [meta1Res, meta2Res, meta3Res, meta4Res, meta5Res]
         ]
