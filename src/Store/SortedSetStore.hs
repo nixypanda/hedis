@@ -43,13 +43,6 @@ zrangeSTM key start end tv = range key start end <$> readTVar tv
 runSortedSetStoreSTM :: TVar TypeIndex -> TVar SortedSetStore -> SortedSetCmd -> STM CommandResult
 runSortedSetStoreSTM tvTypeIndex tvZSet cmd =
     case cmd of
-        CmdZAdd key sc val -> do
-            TS.setIfAvailable tvTypeIndex key VSortedSet
-            n <- zaddSTM key sc val tvZSet
-            pure $ RInt n
-        CmdZRank key val -> do
-            mRank <- zrankSTM key val tvZSet
-            pure $ RIntOrNil mRank
-        CmdZRange key (MkRange start end) -> do
-            vals <- zrangeSTM key start end tvZSet
-            pure $ RArraySimple vals
+        CmdZAdd key sc val -> RInt <$> (TS.setIfAvailable tvTypeIndex key VSortedSet *> zaddSTM key sc val tvZSet)
+        CmdZRank key val -> RIntOrNil <$> zrankSTM key val tvZSet
+        CmdZRange key (MkRange start end) -> RArraySimple <$> zrangeSTM key start end tvZSet
