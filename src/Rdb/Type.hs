@@ -9,6 +9,8 @@ data RespEncodedRdb = MkRespEncodedRdb
     }
     deriving (Show, Eq)
 
+--
+
 data RdbData = MkRdbData
     { header :: RdbHeader
     , metadata :: [RdbMetadata]
@@ -26,7 +28,7 @@ data RdbHeader = MkRdbHeader
 data MetaVal = MVInt Int | MVString ByteString
     deriving (Show, Eq)
 
-data RdbMetadata = MkMetaAux MetaVal MetaVal
+data RdbMetadata = MkMetaAux ByteString MetaVal
     deriving (Show, Eq)
 
 newtype RdbDatabase = MkRdbHashTable HashTable
