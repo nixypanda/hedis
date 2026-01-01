@@ -8,11 +8,11 @@ import Control.Monad.Except (liftEither)
 import Control.Monad.IO.Class (MonadIO (liftIO))
 import Control.Monad.Reader (MonadReader (ask))
 import Data.Bifunctor (Bifunctor (first))
+import Data.ByteString (ByteString)
+import Data.List (nub)
 import Data.Time (UTCTime, getCurrentTime)
 import Network.Simple.TCP (Socket, send)
 
-import Data.ByteString (ByteString)
-import Data.List (nub)
 import Execution.Base (runConfigInfoCmds, runServerInfoCmds)
 import Protocol.Command
 import Protocol.Result
@@ -20,6 +20,7 @@ import Replication.Master (runAndReplicateIO, runAndReplicateSTM, runMasterToRep
 import Replication.Replica (runReplicaToMasterReplicationCmds)
 import Resp.Client (mkRespConn, recvResp)
 import Resp.Core (encode)
+import Store.PubSubStore (getChannels)
 import Store.PubSubStore qualified as PS
 import Store.TypeStore qualified as TS
 import StoreBackend.TypeIndex (ValueType (..))
@@ -95,8 +96,10 @@ handlePubSubMessage clientState command = do
         CmdSubscribe chan -> liftIO $ atomically $ subscribeToChannel clientState env chan
         CmdPublish chan msg -> liftIO $ publishToChannel env chan msg
 
-publishToChannel :: Env r -> Key -> ByteString -> IO CommandResult
-publishToChannel = undefined
+publishToChannel :: (HasStores r) => Env r -> Key -> ByteString -> IO CommandResult
+publishToChannel env key msg = do
+    channels <- liftIO $ atomically $ getChannels key (getPubSubStore env)
+    pure $ RInt (length channels)
 
 subscribeToChannel :: (HasStores r) => ClientState -> Env r -> Key -> STM CommandResult
 subscribeToChannel clientState env chan = do
