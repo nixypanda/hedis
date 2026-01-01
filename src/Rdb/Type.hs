@@ -1,16 +1,17 @@
-module Rdb.Type where
+module Rdb.Type (
+    RdbData (..),
+    RdbHeader (..),
+    MetaVal (..),
+    RdbMetadata (..),
+    RdbDatabase (..),
+    RdbStore (..),
+    HashTable (..),
+    RdbOpcode (..),
+) where
 
 import Data.ByteString (ByteString)
-import Data.Time (NominalDiffTime, UTCTime)
+import Data.Time (UTCTime)
 import Data.Word (Word64, Word8)
-
-data RespEncodedRdb = MkRespEncodedRdb
-    { len :: !Int
-    , payload :: !ByteString
-    }
-    deriving (Show, Eq)
-
---
 
 data RdbData = MkRdbData
     { header :: RdbHeader

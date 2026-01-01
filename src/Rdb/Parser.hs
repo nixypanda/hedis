@@ -2,49 +2,23 @@
 
 {- HLINT ignore "Use <$>" -}
 
-module Rdb.Parser where
+module Rdb.Parser (parseRdb, headerParser, auxField, metadataParser) where
 
 import Control.Applicative (many)
 import Data.Attoparsec.ByteString (Parser, anyWord8, parseOnly, peekWord8, string, take, takeByteString)
 import Data.Attoparsec.Combinator (lookAhead)
 import Data.Bits (Bits (..), shiftR)
 import Data.ByteString (ByteString)
-import Data.ByteString qualified as BS
+import Data.Functor (($>))
 import Data.Time (UTCTime)
 import Data.Time.Clock.POSIX (posixSecondsToUTCTime)
 import Data.Word (Word64, Word8)
-import Text.Parsec qualified as P
-import Text.Parsec.ByteString qualified as PB
 
-import Parsers (intParser)
 import Protocol.Command (Key)
 import Rdb.Binary
 import Rdb.Type
 
 import Prelude hiding (take)
-
-respEncodeRdbParser :: PB.Parser RespEncodedRdb
-respEncodeRdbParser = do
-    _ <- P.char '$'
-    len <- intParser
-    _ <- P.crlf
-    payload <- takeBytes len
-    case BS.take 5 payload of
-        "REDIS" -> pure ()
-        _ -> fail "Invalid RDB magic"
-
-    pure $
-        MkRespEncodedRdb{..}
-
-takeBytes :: Int -> PB.Parser BS.ByteString
-takeBytes n = do
-    input <- P.getInput
-    let (h, t) = BS.splitAt n input
-    if BS.length h == n
-        then P.setInput t >> pure h
-        else P.parserFail "unexpected end of input while reading bytes"
-
------------------------------------------------------------------
 
 parseRdb :: ByteString -> Either String RdbData
 parseRdb = parseOnly rdbParser
@@ -75,7 +49,7 @@ metadataEntry = do
     opcode <- peekRdbOpcode
 
     case opcode of
-        OpAux -> anyWord8 *> (Just <$> auxField)
+        OpAux -> opcode8 OpAux *> (Just <$> auxField)
         OpResizeDB -> fail "unsupported metadata entry type"
         -- Metadata ends here
         OpSelectDB -> pure Nothing -- database
@@ -99,7 +73,7 @@ dbEntry = do
     opcode <- peekRdbOpcode
     case opcode of
         OpSelectDB -> do
-            _ <- anyWord8
+            opcode8 OpSelectDB
             identifier <- rdbLenOnly
             store <- storeParser
             pure . Just $ MkRdbDatabase identifier store
@@ -111,43 +85,33 @@ storeParser = do
     opcode <- peekRdbOpcode
     case opcode of
         OpResizeDB -> do
-            _ <- anyWord8
+            opcode8 OpResizeDB
             size <- rdbLenOnly
             expirySize <- rdbLenOnly
             table <- many kvEntry
             pure $ MkHashStore $ MkHashTable{..}
         _ -> fail $ "unsupported db entry type: " <> show opcode
 
---
-
 kvEntry :: Parser (Key, ByteString, Maybe UTCTime)
 kvEntry = do
     opcode <- peekRdbOpcode
     case opcode of
         OpTypeString -> do
-            _ <- anyWord8
+            opcode8 OpTypeString
             (k, v) <- kvOnly
             pure (k, v, Nothing)
         OpExpireTime -> do
-            _ <- anyWord8
+            opcode8 OpExpireTime
             et <- getInt32Le
-            opcode' <- peekRdbOpcode
-            case opcode' of
-                OpTypeString -> do
-                    _ <- anyWord8
-                    (k, v) <- kvOnly
-                    pure (k, v, Just $ posixSecondsToUTCTime $ fromIntegral et)
-                _ -> fail $ "unsupported kv entry type: " <> show opcode'
+            opcode8 OpTypeString
+            (k, v) <- kvOnly
+            pure (k, v, Just $ posixSecondsToUTCTime $ fromIntegral et)
         OpExpireTimeMs -> do
-            _ <- anyWord8
+            opcode8 OpExpireTimeMs
             et <- getInt64Le
-            opcode' <- peekRdbOpcode
-            case opcode' of
-                OpTypeString -> do
-                    _ <- anyWord8
-                    (k, v) <- kvOnly
-                    pure (k, v, Just $ posixSecondsToUTCTime (fromIntegral et / 1000))
-                _ -> fail $ "unsupported kv entry type: " <> show opcode'
+            opcode8 OpTypeString
+            (k, v) <- kvOnly
+            pure (k, v, Just $ posixSecondsToUTCTime (fromIntegral et / 1000))
         _ -> fail $ "unsupported kv entry type: " <> show opcode
 
 kvOnly :: Parser (ByteString, ByteString)
@@ -165,11 +129,18 @@ crc64Parser = do
     opcode <- peekRdbOpcode
     case opcode of
         OpEOF -> do
-            _ <- anyWord8
+            opcode8 OpEOF
             anyWord64Be
         o -> fail $ "unexpected opcode in footer: " <> show o
 
---
+-- non-section parsers
+
+opcode8 :: RdbOpcode -> Parser ()
+opcode8 expected = do
+    actual <- peekRdbOpcode
+    if actual == expected
+        then anyWord8 $> ()
+        else fail $ "expected " <> show expected <> ", got " <> show actual
 
 peekOpcode :: Parser Word8
 peekOpcode =
@@ -196,7 +167,7 @@ rdbLenOnly = do
         0b01 -> do
             b2 <- anyWord8
             pure $ (fromIntegral (b .&. 0x3F) `shiftL` 8) .|. fromIntegral b2
-        0b10 -> getInt32Be
+        0b10 -> getInt32Le
         _ -> fail $ "special encoding not supported: " <> show b
 
 rdbLen :: Parser (Either MetaVal Int)
@@ -207,7 +178,7 @@ rdbLen = do
         0b01 -> do
             b2 <- anyWord8
             pure . Right $ (fromIntegral (b .&. 0x3F) `shiftL` 8) .|. fromIntegral b2
-        0b10 -> Right <$> getInt32Be
+        0b10 -> Right <$> getInt32Le
         0b11 -> case b .&. 0x3F of
             0 -> Left . MVInt <$> getInt8Be
             1 -> Left . MVInt <$> getInt16Le

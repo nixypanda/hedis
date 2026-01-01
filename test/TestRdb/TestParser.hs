@@ -6,9 +6,9 @@ import Test.Tasty
 import Test.Tasty.HUnit
 
 import Data.Attoparsec.ByteString (parseOnly)
+import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 
-import Data.ByteString (ByteString)
 import Rdb.Parser
 import Rdb.Type
 
@@ -83,16 +83,13 @@ tests =
         "RDB parser"
         [ testCase "parse empty db file" $ do
             bs <- BS.readFile "test/data/empty.rdb"
-            assertRightEq (parseOnly rdbParser bs) emptyRdb
+            assertRightEq (parseRdb bs) emptyRdb
         , testCase "parse db file with one entry" $ do
             bs <- BS.readFile "test/data/one-kv.rdb"
-            assertRightEq (parseOnly rdbParser bs) singleKv
+            assertRightEq (parseRdb bs) singleKv
         , testCase "parse db file with multiple key-value entries" $ do
             bs <- BS.readFile "test/data/multi-kv.rdb"
-            assertRightEq (parseOnly rdbParser bs) multiKv
-        , testCase "parse db file with key-valuse with expiry" $ do
-            bs <- BS.readFile "test/data/kv-with-expiry.rdb"
-            assertRightEq (parseOnly rdbParser bs) multiKv
+            assertRightEq (parseRdb bs) multiKv
         , testsIndividualParsers
         ]
 

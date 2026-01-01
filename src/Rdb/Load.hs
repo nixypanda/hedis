@@ -1,6 +1,6 @@
-module Rdb.Load where
+module Rdb.Load (loadRdbData) where
 
-import Control.Concurrent.STM
+import Control.Concurrent.STM (STM, writeTVar)
 import Data.ByteString (ByteString)
 import Data.Foldable (foldl')
 import Data.Map qualified as M

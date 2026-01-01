@@ -1,4 +1,11 @@
-module Rdb.Binary where
+module Rdb.Binary (
+    getInt8Be,
+    getInt16Le,
+    getInt32Le,
+    getInt64Le,
+    anyWord64Be,
+    hexDump,
+) where
 
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
@@ -12,20 +19,6 @@ import Prelude hiding (take)
 
 getInt8Be :: Parser Int
 getInt8Be = fromIntegral <$> anyWord8
-
-getInt16Be :: Parser Int
-getInt16Be = do
-    b1 <- fromIntegral <$> anyWord8
-    b2 <- fromIntegral <$> anyWord8
-    return $ (b1 `shiftL` 8) .|. b2
-
-getInt32Be :: Parser Int
-getInt32Be = do
-    b1 <- fromIntegral <$> anyWord8
-    b2 <- fromIntegral <$> anyWord8
-    b3 <- fromIntegral <$> anyWord8
-    b4 <- fromIntegral <$> anyWord8
-    return $ (b1 `shiftL` 24) .|. (b2 `shiftL` 16) .|. (b3 `shiftL` 8) .|. b4
 
 hexDump :: ByteString -> String
 hexDump =

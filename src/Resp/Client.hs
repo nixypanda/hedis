@@ -7,9 +7,8 @@ import Network.Simple.TCP (Socket, recv, send)
 import Text.Parsec.ByteString (Parser)
 
 import Parsers (parseWithRemainder)
-import Rdb.Parser (respEncodeRdbParser)
-import Rdb.Type (RespEncodedRdb)
 import Resp.Core (Resp, encode, respParser)
+import Resp.Rdb (RespEncodedRdb, respEncodeRdbParser)
 
 data RespError
     = RespEOF
