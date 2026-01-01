@@ -55,6 +55,8 @@ import Store.ListStore (ListStore)
 import Store.ListStore qualified as LS
 import Store.PubSubStore (PubSubStore)
 import Store.PubSubStore qualified as PS
+import Store.SortedSetStore (SortedSetStore)
+import Store.SortedSetStore qualified as SSS
 import Store.StreamStore (StreamStore)
 import Store.StreamStore qualified as StS
 import Store.StringStore (StringStore)
@@ -89,6 +91,7 @@ data Stores = MkStores
     , typeIndex :: TVar TypeIndex
     , streamStore :: TVar StreamStore
     , pubSubStore :: TVar PubSubStore
+    , sortedSetStore :: TVar SortedSetStore
     }
 
 data Master
@@ -111,6 +114,7 @@ mkCommonEnv = do
         typeIndex <- TS.emptySTM
         streamStore <- StS.emptySTM
         pubSubStore <- PS.emptySTM
+        sortedSetStore <- SSS.emptySTM
         pure $ MkStores{..}
 
     timeCache <- newTimeCache simpleTimeFormat
@@ -149,6 +153,9 @@ class HasStores r where
 
     getPubSubStore :: Env r -> TVar PubSubStore
     getPubSubStore = pubSubStore . getStores
+
+    getSortedSetStore :: Env r -> TVar SortedSetStore
+    getSortedSetStore = sortedSetStore . getStores
 
 instance HasStores Master where
     getStores :: Env Master -> Stores
