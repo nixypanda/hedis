@@ -9,6 +9,7 @@ import TestStore.TestListStore qualified
 import TestStore.TestStreamStoreParsing qualified
 import TestStoreBackend.TestExpiringMap qualified
 import TestStoreBackend.TestListMap qualified
+import TestStoreBackend.TestSortedSetMap qualified
 import TestStoreBackend.TestStreamMap qualified
 import TestWire.TestClient.TestCommand qualified
 
@@ -25,6 +26,7 @@ tests =
         , TestStore.TestListStore.tests
         , TestWire.TestClient.TestCommand.tests
         , TestRdb.TestParser.tests
+        , TestStoreBackend.TestSortedSetMap.tests
         ]
 
 main :: IO ()
