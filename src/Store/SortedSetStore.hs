@@ -3,6 +3,7 @@ module Store.SortedSetStore where
 import Control.Concurrent.STM
 import Data.ByteString (ByteString)
 import Data.Map qualified as M
+import Data.String (IsString (fromString))
 
 import Protocol.Command
 import Protocol.Result
@@ -47,3 +48,6 @@ runSortedSetStoreSTM tvTypeIndex tvZSet cmd =
         CmdZRank key val -> RIntOrNil <$> zrankSTM key val tvZSet
         CmdZRange key (MkRange start end) -> RArraySimple <$> zrangeSTM key start end tvZSet
         CmdZCard key -> RInt <$> zcardSTM key tvZSet
+        CmdZScore key val -> do
+            mSc <- zscoreSTM key val tvZSet
+            pure $ RBulk (fromString . show <$> mSc)
