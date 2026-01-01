@@ -1,4 +1,4 @@
-module Store.PubSubStore (PubSubStore, emptySTM, addChannel, getChannels) where
+module Store.PubSubStore (PubSubStore, emptySTM, addChannel, getChannels, removeChannel) where
 
 import Control.Concurrent.STM (STM, TVar, modifyTVar', newTVar, readTVar)
 import Data.List (nub)
@@ -20,3 +20,7 @@ addChannel k socket pssVar =
 
 getChannels :: Key -> TVar PubSubStore -> STM [Socket]
 getChannels k pssVar = M.findWithDefault [] k <$> readTVar pssVar
+
+removeChannel :: Key -> Socket -> TVar PubSubStore -> STM ()
+removeChannel k socket pssVar =
+    modifyTVar' pssVar $ M.adjust (filter (/= socket)) k

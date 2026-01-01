@@ -94,4 +94,5 @@ data MasterToReplica
 data PubSub
     = CmdSubscribe ByteString
     | CmdPublish ByteString ByteString
+    | CmdUnsubscribe ByteString
     deriving (Show, Eq)

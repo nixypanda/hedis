@@ -9,7 +9,7 @@ import Control.Monad.IO.Class (MonadIO (liftIO))
 import Control.Monad.Reader (MonadReader (ask))
 import Data.Bifunctor (Bifunctor (first))
 import Data.ByteString (ByteString)
-import Data.List (nub)
+import Data.List (delete, nub)
 import Data.Time (UTCTime, getCurrentTime)
 import Network.Simple.TCP (Socket, send)
 
@@ -96,6 +96,7 @@ handlePubSubMessage clientState command = do
     case command of
         CmdSubscribe chan -> liftIO $ atomically $ subscribeToChannel clientState env chan
         CmdPublish chan msg -> liftIO $ publishToChannel env chan msg
+        CmdUnsubscribe chan -> liftIO $ atomically $ unsubscribeFromChannel clientState env chan
 
 publishToChannel :: (HasStores r) => Env r -> Key -> ByteString -> IO CommandResult
 publishToChannel env key msg = do
@@ -113,6 +114,14 @@ subscribeToChannel clientState env chan = do
     modifyTVar clientState.subbedChannels (nub . (chan :))
     chans <- readTVar clientState.subbedChannels
     pure $ ResSubscribed chan (length chans)
+
+unsubscribeFromChannel :: (HasStores r) => ClientState -> Env r -> Key -> STM CommandResult
+unsubscribeFromChannel clientState env chan = do
+    let tvPubSubStore = getPubSubStore env
+    PS.removeChannel chan clientState.socket tvPubSubStore
+    modifyTVar clientState.subbedChannels (delete chan)
+    chans <- readTVar clientState.subbedChannels
+    pure $ ResUnsubscribed chan (length chans)
 
 -- Transaction
 

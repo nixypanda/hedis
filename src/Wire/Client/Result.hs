@@ -38,6 +38,7 @@ cmdResultToResp (RArrayStreamValues vals) = arrayMap valueToResp vals
 cmdResultToResp (RArrayKeyValues kvs) = arrayMap arrayKeyValsToResp kvs
 cmdResultToResp (RStreamId sid) = streamIdToResp sid
 cmdResultToResp (ResSubscribed chan n) = Array 3 [BulkStr "subscribe", BulkStr chan, Int n]
+cmdResultToResp (ResUnsubscribed chan n) = Array 3 [BulkStr "unsubscribe", BulkStr chan, Int n]
 cmdResultToResp (RRepl r) = replResultToResp r
 
 replResultToResp :: ReplResult -> Resp

@@ -99,6 +99,7 @@ respToCmd (Array 3 [BulkStr "CONFIG", BulkStr "GET", BulkStr "dbfilename"]) = pu
 -- PubSub
 respToCmd (Array 2 [BulkStr "SUBSCRIBE", BulkStr channel]) = pure $ RedSub $ CmdSubscribe channel
 respToCmd (Array 3 [BulkStr "PUBLISH", BulkStr channel, BulkStr msg]) = pure $ RedSub $ CmdPublish channel msg
+respToCmd (Array 2 [BulkStr "UNSUBSCRIBE", BulkStr channel]) = pure $ RedSub $ CmdUnsubscribe channel
 -- Unhandled
 respToCmd r = Left $ "Conversion Error" <> show r
 
@@ -117,6 +118,7 @@ cmdToResp (CmdWait n t) = Array 3 [BulkStr "WAIT", BulkStr $ fromString $ show n
 subCmdToResp :: PubSub -> Resp
 subCmdToResp (CmdSubscribe chan) = Array 2 [BulkStr "SUBSCRIBE", BulkStr chan]
 subCmdToResp (CmdPublish chan msg) = Array 3 [BulkStr "PUBLISH", BulkStr chan, BulkStr msg]
+subCmdToResp (CmdUnsubscribe chan) = Array 2 [BulkStr "UNSUBSCRIBE", BulkStr chan]
 
 configCmdToResp :: SubConfig -> Resp
 configCmdToResp ConfigDir = Array 3 [BulkStr "CONFIG", BulkStr "GET", BulkStr "dir"]
@@ -192,6 +194,7 @@ cmdToPretty (CmdWait{}) = "WAIT"
 subCmdToPretty :: PubSub -> ByteString
 subCmdToPretty (CmdSubscribe{}) = "SUBSCRIBE"
 subCmdToPretty (CmdPublish{}) = "PUBLISH"
+subCmdToPretty (CmdUnsubscribe{}) = "UNSUBSCRIBE"
 
 configCmdToPretty :: SubConfig -> ByteString
 configCmdToPretty ConfigDir = "CONFIG"

@@ -47,6 +47,7 @@ data CommandResult
     | RSimple ByteString
     | ResType (Maybe ValueType)
     | ResSubscribed Key Int
+    | ResUnsubscribed Key Int
     deriving (Show, Eq)
 
 data ReplResult
