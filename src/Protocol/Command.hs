@@ -91,6 +91,7 @@ data MasterToReplica
     = CmdReplConfGetAck
     deriving (Show, Eq)
 
-newtype PubSub
+data PubSub
     = CmdSubscribe ByteString
+    | CmdPublish ByteString ByteString
     deriving (Show, Eq)
