@@ -8,6 +8,7 @@ import Protocol.Command
 import Protocol.Result
 import Store.TypeStore (TypeIndex)
 import Store.TypeStore qualified as TS
+import StoreBackend.ListMap (Range (..))
 import StoreBackend.SortedSetMap
 import StoreBackend.TypeIndex (ValueType (..))
 
@@ -49,3 +50,6 @@ runSortedSetStoreSTM tvTypeIndex tvZSet cmd =
         CmdZRank key val -> do
             mRank <- zrankSTM key val tvZSet
             pure $ RIntOrNil mRank
+        CmdZRange key (MkRange start end) -> do
+            vals <- zrangeSTM key start end tvZSet
+            pure $ RArraySimple vals
