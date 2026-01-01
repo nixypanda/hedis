@@ -3,7 +3,7 @@
 module Server.ClientLoop (clientLoopWrite) where
 
 import Control.Concurrent.STM (STM, atomically, modifyTVar, readTVar, writeTVar)
-import Control.Monad (forever)
+import Control.Monad (forM_, forever)
 import Control.Monad.Except (liftEither)
 import Control.Monad.IO.Class (MonadIO (liftIO))
 import Control.Monad.Reader (MonadReader (ask))
@@ -15,6 +15,7 @@ import Network.Simple.TCP (Socket, send)
 
 import Execution.Base (runConfigInfoCmds, runServerInfoCmds)
 import Protocol.Command
+import Protocol.Message (Message (MkMessage))
 import Protocol.Result
 import Replication.Master (runAndReplicateIO, runAndReplicateSTM, runMasterToReplicaReplicationCmds, sendReplConfs)
 import Replication.Replica (runReplicaToMasterReplicationCmds)
@@ -83,7 +84,7 @@ runCmd clientState command = do
                                 modifyTVar clientState.txState (const $ InTx [])
                                 pure . ResNormal $ ResOk
         _ -> case command of
-            RedSTM CmdPing -> pure $ ResNormal $ ResPongSubscribed
+            RedSTM CmdPing -> pure $ ResNormal ResPongSubscribed
             RedSub cmd' -> ResNormal <$> handlePubSubMessage clientState cmd'
             cmd -> pure $ ResError $ RCmdNotAllowedInMode cmd ModeSubscribed
 
@@ -97,8 +98,11 @@ handlePubSubMessage clientState command = do
         CmdPublish chan msg -> liftIO $ publishToChannel env chan msg
 
 publishToChannel :: (HasStores r) => Env r -> Key -> ByteString -> IO CommandResult
-publishToChannel env key _msg = do
+publishToChannel env key msg = do
     channels <- liftIO $ atomically $ getChannels key (getPubSubStore env)
+    forM_ channels $ \chan -> do
+        let msg' = MkMessage key msg
+        send chan (encode $ toResp msg')
     pure $ RInt (length channels)
 
 subscribeToChannel :: (HasStores r) => ClientState -> Env r -> Key -> STM CommandResult
