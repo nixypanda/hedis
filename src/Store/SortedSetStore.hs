@@ -46,3 +46,4 @@ runSortedSetStoreSTM tvTypeIndex tvZSet cmd =
         CmdZAdd key sc val -> RInt <$> (TS.setIfAvailable tvTypeIndex key VSortedSet *> zaddSTM key sc val tvZSet)
         CmdZRank key val -> RIntOrNil <$> zrankSTM key val tvZSet
         CmdZRange key (MkRange start end) -> RArraySimple <$> zrangeSTM key start end tvZSet
+        CmdZCard key -> RInt <$> zcardSTM key tvZSet
