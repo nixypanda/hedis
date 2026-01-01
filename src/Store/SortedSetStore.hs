@@ -13,6 +13,8 @@ import StoreBackend.ListMap (Range (..))
 import StoreBackend.SortedSetMap
 import StoreBackend.TypeIndex (ValueType (..))
 
+import Prelude hiding (lookup)
+
 type SortedSetStore = SortedSetMap ByteString ByteString
 
 emptySTM :: STM (TVar SortedSetStore)
@@ -34,9 +36,13 @@ zscoreSTM key val tv = score key val <$> readTVar tv
 zrankSTM :: ByteString -> ByteString -> TVar SortedSetStore -> STM (Maybe Int)
 zrankSTM key val tv = rank key val <$> readTVar tv
 
-zremSTM :: ByteString -> ByteString -> TVar SortedSetStore -> STM ()
-zremSTM key val tv =
-    modifyTVar' tv (remove key val)
+zremSTM :: ByteString -> ByteString -> TVar SortedSetStore -> STM (Maybe ByteString)
+zremSTM key val tv = do
+    m <- readTVar tv
+    let res = lookup key val m
+        m' = remove key val m
+    writeTVar tv m'
+    pure $ res
 
 zrangeSTM :: ByteString -> Int -> Int -> TVar SortedSetStore -> STM [ByteString]
 zrangeSTM key start end tv = range key start end <$> readTVar tv
@@ -51,3 +57,4 @@ runSortedSetStoreSTM tvTypeIndex tvZSet cmd =
         CmdZScore key val -> do
             mSc <- zscoreSTM key val tvZSet
             pure $ RBulk (fromString . show <$> mSc)
+        CmdZRem key val -> RInt . maybe 0 (const 1) <$> zremSTM key val tvZSet

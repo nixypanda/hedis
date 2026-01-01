@@ -31,7 +31,7 @@ prop_signedInt =
 prop_signedFloat :: Property
 prop_signedFloat =
     property $ do
-        f <- forAll $ Gen.float (Range.linearFrac (-1e5) 1e5)
+        f <- forAll $ Gen.double (Range.linearFrac (-1e5) 1e5)
         let s = show f
         let result = readFloatBS (fromString s)
         result === Right f

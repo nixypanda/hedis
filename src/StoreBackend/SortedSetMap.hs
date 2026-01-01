@@ -28,6 +28,9 @@ insert key score' val =
 count :: (Ord k) => k -> SortedSetMap k v -> Int
 count key store = maybe 0 (S.size . fst) (M.lookup key store)
 
+lookup :: (Ord k, Ord v) => k -> v -> SortedSetMap k v -> Maybe v
+lookup key val store = M.lookup key store >>= \(_, idx) -> val <$ M.lookup val idx
+
 score :: (Ord k, Ord v) => k -> v -> SortedSetMap k v -> Maybe Double
 score key val store =
     M.lookup key store >>= \(_, idx) ->
@@ -42,16 +45,11 @@ rank key val store = do
     pure (S.size before)
 
 remove :: (Ord k, Ord v) => k -> v -> SortedSetMap k v -> SortedSetMap k v
-remove key val =
-    M.update go key
-  where
-    go (s, idx) = do
-        sc <- M.lookup val idx
-        let s' = S.delete (sc, val) s
-            idx' = M.delete val idx
-        if S.null s'
-            then Nothing
-            else Just (s', idx')
+remove key val store = case M.lookup key store of
+    Nothing -> store
+    Just (s, i) -> case M.lookup val i of
+        Nothing -> store
+        Just sc -> M.insert key (S.delete (sc, val) s, M.delete val i) store
 
 range :: (Ord k) => k -> Int -> Int -> SortedSetMap k v -> [v]
 range key start end store =
