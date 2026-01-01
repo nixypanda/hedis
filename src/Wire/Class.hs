@@ -4,9 +4,11 @@ import Data.ByteString qualified as BS
 
 import Protocol.Command (Command)
 import Protocol.MasterCmd (MasterCommand, PropogationCmd)
+import Protocol.Message (Message)
 import Protocol.Result (Result)
 import Resp.Core (Resp, encode)
 import Wire.Client.Command (cmdToResp, respToCmd)
+import Wire.Client.Message (msgToResp, respToMsg)
 import Wire.Client.Result (respToResult, resultToResp)
 import Wire.MasterCmd (masterCmdToResp, propogationCmdToResp, respToMasterCmd)
 
@@ -38,3 +40,9 @@ instance ToResp MasterCommand where
 
 instance ToResp PropogationCmd where
     toResp = propogationCmdToResp
+
+instance ToResp Message where
+    toResp = msgToResp
+
+instance FromResp Message where
+    fromResp = respToMsg
