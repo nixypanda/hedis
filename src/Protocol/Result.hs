@@ -1,11 +1,15 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 module Protocol.Result (
     CommandResult (..),
     CommandError (..),
     TransactionError (..),
     ReplResult (..),
     Result (..),
+    Mode (..),
     resFromMaybe,
     resFromEither,
+    modeToPretty,
 ) where
 
 import Data.ByteString (ByteString)
@@ -54,7 +58,7 @@ data CommandError
     = RStreamError StreamMapError
     | RIncrError
     | RTxErr TransactionError
-    | RCmdNotAllowedInMode Command
+    | RCmdNotAllowedInMode Command Mode
     deriving (Show, Eq)
 
 data TransactionError
@@ -63,3 +67,8 @@ data TransactionError
     | RMultiInMulti
     | RDiscardWithoutMulti
     deriving (Show, Eq)
+
+data Mode = ModeSubscribed deriving (Show, Eq)
+
+modeToPretty :: Mode -> ByteString
+modeToPretty ModeSubscribed = "subscribed"

@@ -84,7 +84,7 @@ runCmd clientState command = do
         _ ->
             case command of
                 RedSub (CmdSubscribe chan) -> liftIO $ atomically $ subscribeToChannel clientState env chan
-                cmd -> pure $ ResError $ RCmdNotAllowedInMode cmd
+                cmd -> pure $ ResError $ RCmdNotAllowedInMode cmd ModeSubscribed
 
 -- pub-sub
 

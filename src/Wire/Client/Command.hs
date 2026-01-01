@@ -1,10 +1,11 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Wire.Client.Command (respToCmd, cmdToResp) where
+module Wire.Client.Command (respToCmd, cmdToResp, cmdToPretty) where
 
 import Data.String (IsString (fromString))
 import Data.Time (nominalDiffTimeToSeconds, secondsToNominalDiffTime)
 
+import Data.ByteString (ByteString)
 import Parsers (readFloatBS, readIntBS)
 import Protocol.Command
 import Resp.Core (Resp (..))
@@ -173,3 +174,68 @@ streamStmCmdToResp (CmdXRead xs) =
 infoCmdToResp :: Maybe SubInfo -> Resp
 infoCmdToResp (Just IReplication) = Array 2 [BulkStr "INFO", BulkStr "replication"]
 infoCmdToResp Nothing = Array 1 [BulkStr "INFO"]
+
+-- command pretty names
+
+cmdToPretty :: Command -> ByteString
+cmdToPretty (RedSTM cmd) = stmCmdToPretty cmd
+cmdToPretty (RedTrans cmd) = txCmdToPretty cmd
+cmdToPretty (RedRepl cmd) = replicationCmdToPretty cmd
+cmdToPretty (RedIO cmd) = ioCmdToPretty cmd
+cmdToPretty (RedInfo cmd) = infoCmdToPretty cmd
+cmdToPretty (RedConfig cmd) = configCmdToPretty cmd
+cmdToPretty (RedSub cmd) = subCmdToPretty cmd
+cmdToPretty (CmdWait{}) = "WAIT"
+
+subCmdToPretty :: PubSub -> ByteString
+subCmdToPretty (CmdSubscribe{}) = "SUBSCRIBE"
+
+configCmdToPretty :: SubConfig -> ByteString
+configCmdToPretty ConfigDir = "CONFIG"
+configCmdToPretty ConfigDbFilename = "CONFIG"
+
+ioCmdToPretty :: CmdIO -> ByteString
+ioCmdToPretty (CmdBLPop{}) = "BLPOP"
+ioCmdToPretty (CmdXReadBlock{}) = "XREAD"
+
+replicationCmdToPretty :: CmdReplication -> ByteString
+replicationCmdToPretty (CmdReplicaToMaster (CmdReplConfListen{})) = "REPLCONF"
+replicationCmdToPretty (CmdReplicaToMaster CmdReplConfCapabilities) = "REPLCONF"
+replicationCmdToPretty (CmdReplicaToMaster (CmdPSync{})) = "PSYNC"
+replicationCmdToPretty (CmdReplicaToMaster (CmdReplConfAck{})) = "REPLCONF"
+replicationCmdToPretty (CmdMasterToReplica CmdReplConfGetAck) = "REPLCONF"
+
+stmCmdToPretty :: CmdSTM -> ByteString
+stmCmdToPretty CmdPing = "PING"
+stmCmdToPretty (CmdEcho{}) = "ECHO"
+stmCmdToPretty (CmdType{}) = "TYPE"
+stmCmdToPretty (STMString cmd) = stringStoreCmdToPretty cmd
+stmCmdToPretty (STMList cmd) = listStmCmdToPretty cmd
+stmCmdToPretty (STMStream cmd) = streamStmCmdToPretty cmd
+stmCmdToPretty CmdKeys = "KEYS"
+
+txCmdToPretty :: CmdTransaction -> ByteString
+txCmdToPretty Multi = "MULTI"
+txCmdToPretty Exec = "EXEC"
+txCmdToPretty Discard = "DISCARD"
+
+stringStoreCmdToPretty :: StringCmd -> ByteString
+stringStoreCmdToPretty (CmdSet{}) = "SET"
+stringStoreCmdToPretty (CmdIncr{}) = "INCR"
+stringStoreCmdToPretty (CmdGet{}) = "GET"
+
+listStmCmdToPretty :: ListCmd -> ByteString
+listStmCmdToPretty (CmdRPush{}) = "RPUSH"
+listStmCmdToPretty (CmdLPush{}) = "LPUSH"
+listStmCmdToPretty (CmdLPop{}) = "LPOP"
+listStmCmdToPretty (CmdLLen{}) = "LLEN"
+listStmCmdToPretty (CmdLRange{}) = "LRANGE"
+
+streamStmCmdToPretty :: StreamCmd -> ByteString
+streamStmCmdToPretty (CmdXAdd{}) = "XADD"
+streamStmCmdToPretty (CmdXRange{}) = "XRANGE"
+streamStmCmdToPretty (CmdXRead{}) = "XREAD"
+
+infoCmdToPretty :: Maybe SubInfo -> ByteString
+infoCmdToPretty (Just IReplication) = "INFO"
+infoCmdToPretty Nothing = "INFO"

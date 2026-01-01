@@ -14,6 +14,7 @@ import Resp.Core (Resp (..))
 import StoreBackend.StreamMap (ConcreteStreamId, StreamMapError (..))
 import StoreBackend.StreamMap qualified as SM
 import StoreBackend.TypeIndex (ValueType (..))
+import Wire.Client.Command (cmdToPretty)
 
 resultToResp :: Result -> Resp
 resultToResp (ResNormal r) = cmdResultToResp r
@@ -101,7 +102,7 @@ errorToResp :: CommandError -> Resp
 errorToResp (RStreamError e) = streamMapErrorToResp e
 errorToResp RIncrError = StrErr strIncrError
 errorToResp (RTxErr txErr) = txErrorToResp txErr
-errorToResp (RCmdNotAllowedInMode cmd) = StrErr $ "ERR command not allowed in mode " <> fromString (show cmd)
+errorToResp (RCmdNotAllowedInMode cmd mode) = StrErr $ "ERR Can't execute '" <> cmdToPretty cmd <> "'in " <> modeToPretty mode <> "mode"
 
 txErrorToResp :: TransactionError -> Resp
 txErrorToResp RExecWithoutMulti = StrErr strRExecWithoutMulti
