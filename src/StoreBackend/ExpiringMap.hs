@@ -9,13 +9,13 @@ module StoreBackend.ExpiringMap (
 
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as M
-import Data.Time (NominalDiffTime, UTCTime (..), diffUTCTime)
+import Data.Time (NominalDiffTime, UTCTime (..), addUTCTime)
 import Prelude hiding (lookup)
 
 data StoredVal a = MkStoredVal
     { value :: !a
     , storedWhen :: !UTCTime
-    , expiration :: !(Maybe NominalDiffTime)
+    , expiration :: !(Maybe UTCTime)
     }
     deriving (Show)
 
@@ -25,7 +25,8 @@ empty :: ExpiringMap k v
 empty = M.empty
 
 insert :: (Ord k) => k -> v -> UTCTime -> Maybe NominalDiffTime -> ExpiringMap k v -> ExpiringMap k v
-insert k value storedWhen expiration db = do
+insert k value storedWhen expiry db = do
+    let expiration = fmap (`addUTCTime` storedWhen) expiry
     M.insert k MkStoredVal{..} db
 
 lookup :: (Ord k) => k -> UTCTime -> ExpiringMap k v -> Maybe v
@@ -34,7 +35,4 @@ lookup k t db = M.lookup k db >>= getIfNotExpired t
 getIfNotExpired :: UTCTime -> StoredVal v -> Maybe v
 getIfNotExpired currentTime MkStoredVal{..} = case expiration of
     Nothing -> Just value
-    Just expiry ->
-        if currentTime `diffUTCTime` storedWhen < expiry
-            then Just value
-            else Nothing
+    Just expiry -> if currentTime < expiry then Just value else Nothing
