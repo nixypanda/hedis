@@ -5,6 +5,7 @@ module Store.TypeStore (
     IncorrectType,
     emptySTM,
     getTypeSTM,
+    getKeysSTM,
     availableSTM,
     setTypeSTM,
     setIfAvailable,
@@ -28,6 +29,9 @@ emptySTM = newTVar M.empty
 
 getTypeSTM :: TVar TypeIndex -> Key -> STM (Maybe ValueType)
 getTypeSTM tvIdx key = M.lookup key <$> readTVar tvIdx
+
+getKeysSTM :: TVar TypeIndex -> STM [Key]
+getKeysSTM tvIdx = M.keys <$> readTVar tvIdx
 
 availableSTM :: TVar TypeIndex -> Key -> RequiredType -> STM ()
 availableSTM tvIdx key req = do

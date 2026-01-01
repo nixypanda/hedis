@@ -51,6 +51,7 @@ replicateSTMCmdAs (STMStream c) cr = replicateStreamCmd c cr
 replicateSTMCmdAs CmdPing _ = Nothing
 replicateSTMCmdAs (CmdEcho{}) _ = Nothing
 replicateSTMCmdAs (CmdType{}) _ = Nothing
+replicateSTMCmdAs CmdKeys _ = Nothing
 
 replicateStreamCmd :: StreamCmd -> CommandResult -> Maybe PropogationCmd
 replicateStreamCmd (CmdXAdd k sid kvs) _ = Just $ RCmdXAdd k sid kvs

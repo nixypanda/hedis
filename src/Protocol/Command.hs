@@ -39,6 +39,7 @@ data CmdSTM
     = CmdPing
     | CmdEcho ByteString
     | CmdType Key
+    | CmdKeys
     | STMString StringCmd
     | STMList ListCmd
     | STMStream StreamCmd

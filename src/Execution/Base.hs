@@ -33,6 +33,9 @@ runCmdSTM env now cmd = do
         CmdType x -> do
             ty <- TS.getTypeSTM tvTypeIndex x
             pure $ Right $ ResType ty
+        CmdKeys -> do
+            keys <- TS.getKeysSTM tvTypeIndex
+            pure $ Right $ RArraySimple keys
         STMString c -> SS.runStringStoreSTM tvTypeIndex tvStringMap now c
         STMList c -> Right <$> LS.runListStoreSTM tvTypeIndex tvListMap c
         STMStream c -> StS.runStreamStoreSTM tvTypeIndex tvStreamMap now c

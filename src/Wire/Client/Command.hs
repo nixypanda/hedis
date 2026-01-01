@@ -28,6 +28,7 @@ respToCmd (Array 1 [BulkStr "PING"]) = pure $ RedSTM CmdPing
 respToCmd (Array 2 [BulkStr "ECHO", BulkStr xs]) = pure $ RedSTM $ CmdEcho xs
 -- Type Index
 respToCmd (Array 2 [BulkStr "TYPE", BulkStr key]) = pure $ RedSTM $ CmdType key
+respToCmd (Array 2 [BulkStr "KEYS", BulkStr "*"]) = pure $ RedSTM CmdKeys
 -- String Store
 respToCmd (Array 5 [BulkStr "SET", BulkStr key, BulkStr val, BulkStr "PX", BulkStr t]) = do
     expiry <- readIntBS t
@@ -130,6 +131,7 @@ stmCmdToResp (CmdType key) = Array 2 [BulkStr "TYPE", BulkStr key]
 stmCmdToResp (STMString cmd) = stringStoreCmdToResp cmd
 stmCmdToResp (STMList cmd) = listStmCmdToResp cmd
 stmCmdToResp (STMStream cmd) = streamStmCmdToResp cmd
+stmCmdToResp CmdKeys = Array 2 [BulkStr "KEYS", BulkStr "*"]
 
 txCmdToResp :: CmdTransaction -> Resp
 txCmdToResp Multi = Array 1 [BulkStr "MULTI"]
