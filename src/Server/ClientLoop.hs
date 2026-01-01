@@ -102,7 +102,7 @@ subscribeToChannel :: (HasStores r) => ClientState -> Env r -> Key -> STM Comman
 subscribeToChannel clientState env chan = do
     let tvPubSubStore = getPubSubStore env
         tvTypeIndex = getTypeIndex env
-    _ <- TS.setIfAvailable tvTypeIndex chan VChannel *> PS.addChannel chan tvPubSubStore
+    _ <- TS.setIfAvailable tvTypeIndex chan VChannel *> PS.addChannel chan clientState.socket tvPubSubStore
     modifyTVar clientState.subbedChannels (nub . (chan :))
     chans <- readTVar clientState.subbedChannels
     pure $ ResSubscribed chan (length chans)

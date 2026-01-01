@@ -1,23 +1,19 @@
 module Store.PubSubStore where
 
-import Control.Concurrent.STM (STM, TQueue, TVar, newTVar, readTVar)
-import Control.Concurrent.STM.TQueue (newTQueue)
-import Data.ByteString (ByteString)
+import Control.Concurrent.STM (STM, TVar, modifyTVar', newTVar)
+import Data.List (nub)
 import Data.Map (Map)
 import Data.Map qualified as M
+import Network.Simple.TCP (Socket)
 
 import Protocol.Command (Key)
 
-type PubSubStore = Map Key (TQueue ByteString)
+type PubSubStore = Map Key [Socket]
 
 emptySTM :: STM (TVar PubSubStore)
 emptySTM = newTVar M.empty
 
-addChannel :: Key -> TVar PubSubStore -> STM PubSubStore
-addChannel k pss' = do
-    pss <- readTVar pss'
-    case M.lookup k pss of
-        Nothing -> do
-            newQ <- newTQueue
-            pure $ M.insert k newQ pss
-        Just _ -> pure pss
+addChannel :: Key -> Socket -> TVar PubSubStore -> STM ()
+addChannel k socket pssVar =
+    modifyTVar' pssVar $
+        M.insertWith (\new old -> nub (new ++ old)) k [socket]
