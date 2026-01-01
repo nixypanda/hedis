@@ -47,7 +47,7 @@ signedIntParser = do
     let intValue = read digits :: Int
     return $ if sign == '-' then -intValue else intValue
 
-signedFloatParser :: Parser Float
+signedFloatParser :: Parser Double
 signedFloatParser = do
     sign <- optionMaybe (char '-')
     i <- many1 digit
@@ -64,7 +64,7 @@ parseBS p bs =
 readIntBS :: ByteString -> Either String Int
 readIntBS = parseBS signedIntParser
 
-readFloatBS :: ByteString -> Either String Float
+readFloatBS :: ByteString -> Either String Double
 readFloatBS = parseBS signedFloatParser
 
 parseWithRemainder :: Parser a -> ByteString -> Either ParseError (a, ByteString)

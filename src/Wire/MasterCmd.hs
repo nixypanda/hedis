@@ -53,6 +53,6 @@ respToMasterCmd (Array _ ((BulkStr "XADD") : (BulkStr key) : (BulkStr sId) : val
 -- Sorted Set
 respToMasterCmd (Array 4 [BulkStr "ZADD", BulkStr k, BulkStr score, BulkStr v]) = do
     score' <- readFloatBS score
-    pure . PropogationCmd $ RCmdZAdd k (realToFrac score') v
+    pure . PropogationCmd $ RCmdZAdd k score' v
 respToMasterCmd (Array 3 [BulkStr "ZREM", BulkStr k, BulkStr v]) = pure . PropogationCmd $ RCmdZRem k v
 respToMasterCmd c = Left $ "Invalid Propogation Command: -> " <> show c

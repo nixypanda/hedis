@@ -103,7 +103,7 @@ respToCmd (Array 2 [BulkStr "UNSUBSCRIBE", BulkStr channel]) = pure $ RedSub $ C
 -- SortedSet
 respToCmd (Array 4 [BulkStr "ZADD", BulkStr k, BulkStr score, BulkStr v]) = do
     score' <- readFloatBS score
-    pure . RedSTM . STMSortedSet $ CmdZAdd k (realToFrac score') v
+    pure . RedSTM . STMSortedSet $ CmdZAdd k score' v
 respToCmd (Array 3 [BulkStr "ZRANK", BulkStr k, BulkStr v]) = pure . RedSTM . STMSortedSet $ CmdZRank k v
 respToCmd (Array 4 [BulkStr "ZRANGE", BulkStr k, BulkStr start, BulkStr stop]) = do
     start' <- readIntBS start
