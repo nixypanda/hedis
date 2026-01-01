@@ -40,7 +40,7 @@ receiveMasterUpdates respConn = do
     env <- ask
     forever $ do
         resp <- liftIO $ recvResp respConn
-        command <- liftEither $ first ConversionError $ fromResp resp
+        command <- liftEither $ first RespParsingError $ fromResp resp
         now <- liftIO getCurrentTime
         let offsetIncr = modifyTVar (getOffset env) (+ respBytes command)
         case command of

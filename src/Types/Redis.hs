@@ -39,7 +39,6 @@ import System.Log.FastLogger (
     newTimedFastLogger,
     simpleTimeFormat,
  )
-import Text.Parsec (ParseError)
 
 import Protocol.Command (CmdSTM, Command)
 import Protocol.Result (CommandResult, Result)
@@ -58,27 +57,18 @@ import Store.StreamStore (StreamStore)
 import Store.StreamStore qualified as StS
 import Store.StringStore (StringStore)
 import Store.StringStore qualified as SS
-import Store.TypeStore (IncorrectType, TypeIndex)
+import Store.TypeStore (TypeIndex)
 import Store.TypeStore qualified as TS
 
 -- Types
 
 data RedisError
-    = ParsingError ParseError
-    | EncodeError String
-    | EmptyBuffer
-    | Unimplemented String
-    | ConversionError String
-    | InvalidCommand String
-    | WrongType IncorrectType
+    = RdbParsingError String
+    | RespParsingError String
     | HandshakeError HandshakeError
-    | ProtocolError ProtocolError
+    | EmptyBuffer
     | IOError String
     deriving (Show, Exception)
-
-newtype ProtocolError
-    = InvalidCommadnFromMaster Command
-    deriving (Show, Eq)
 
 data HandshakeError
     = InvalidReturn Command CommandResult Result

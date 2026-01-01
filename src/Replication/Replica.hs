@@ -24,7 +24,7 @@ doHandshake (MkReplicaState{..}) respConn = do
     let cmd1 = RedSTM CmdPing
     liftIO $ sendResp respConn $ toResp cmd1
     r1 <- liftIO $ recvResp respConn
-    cmdRes1 <- liftEither $ first ConversionError $ fromResp r1
+    cmdRes1 <- liftEither $ first RespParsingError $ fromResp r1
     case cmdRes1 of
         (ResNormal ResPong) -> pure ()
         other -> throwError $ HandshakeError $ InvalidReturn cmd1 ResPong other
@@ -33,7 +33,7 @@ doHandshake (MkReplicaState{..}) respConn = do
     let cmd2 = RedRepl $ CmdReplicaToMaster $ CmdReplConfListen localPort
     liftIO $ sendResp respConn $ toResp cmd2
     r2 <- liftIO $ recvResp respConn
-    cmdRes2 <- liftEither $ first ConversionError $ fromResp r2
+    cmdRes2 <- liftEither $ first RespParsingError $ fromResp r2
     case cmdRes2 of
         (ResNormal ResOk) -> pure ()
         other -> throwError $ HandshakeError $ InvalidReturn cmd2 ResOk other
@@ -42,7 +42,7 @@ doHandshake (MkReplicaState{..}) respConn = do
     let cmd3 = RedRepl $ CmdReplicaToMaster CmdReplConfCapabilities
     liftIO $ sendResp respConn $ toResp cmd3
     r3 <- liftIO $ recvResp respConn
-    cmdRes3 <- liftEither $ first ConversionError $ fromResp r3
+    cmdRes3 <- liftEither $ first RespParsingError $ fromResp r3
     case cmdRes3 of
         (ResNormal ResOk) -> pure ()
         other -> throwError $ HandshakeError $ InvalidReturn cmd3 ResOk other
@@ -53,7 +53,7 @@ doHandshake (MkReplicaState{..}) respConn = do
     let cmd4 = RedRepl $ CmdReplicaToMaster $ CmdPSync knownMasterRepl' replicaOffset'
     liftIO $ sendResp respConn $ toResp cmd4
     r4 <- liftIO $ recvResp respConn
-    cmdRes4 <- liftEither $ first ConversionError $ fromResp r4
+    cmdRes4 <- liftEither $ first RespParsingError $ fromResp r4
     case cmdRes4 of
         (ResNormal (RRepl (ResFullResync sid _))) -> liftIO . atomically $ do
             writeTVar knownMasterRepl sid

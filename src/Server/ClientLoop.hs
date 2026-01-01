@@ -28,7 +28,7 @@ clientLoopWrite clientState socket = do
     respConn <- liftIO $ mkRespConn socket
     forever $ do
         resp <- liftIO $ recvResp respConn
-        cmd <- liftEither $ first ConversionError $ fromResp resp
+        cmd <- liftEither $ first RespParsingError $ fromResp resp
         result <- runCmd clientState cmd
         case result of
             ResNothing -> pure ()

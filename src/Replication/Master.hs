@@ -50,7 +50,7 @@ runRdbLoad = do
         Right rdbFileBinary -> do
             now <- liftIO getCurrentTime
             r <- liftIO $ atomically $ loadRdbData now rdbFileBinary cs.stores
-            liftEither $ first EncodeError r
+            liftEither $ first RdbParsingError r
             pure ()
 
 acceptReplica :: Socket -> Redis r CommandResult -- fix r to be Master
