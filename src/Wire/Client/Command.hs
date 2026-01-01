@@ -100,6 +100,18 @@ respToCmd (Array 3 [BulkStr "CONFIG", BulkStr "GET", BulkStr "dbfilename"]) = pu
 respToCmd (Array 2 [BulkStr "SUBSCRIBE", BulkStr channel]) = pure $ RedSub $ CmdSubscribe channel
 respToCmd (Array 3 [BulkStr "PUBLISH", BulkStr channel, BulkStr msg]) = pure $ RedSub $ CmdPublish channel msg
 respToCmd (Array 2 [BulkStr "UNSUBSCRIBE", BulkStr channel]) = pure $ RedSub $ CmdUnsubscribe channel
+-- SortedSet
+respToCmd (Array 4 [BulkStr "ZADD", BulkStr k, BulkStr score, BulkStr v]) = do
+    score' <- readFloatBS score
+    pure . RedSTM . STMSortedSet $ CmdZAdd k (realToFrac score') v
+respToCmd (Array 3 [BulkStr "ZRANK", BulkStr k, BulkStr v]) = pure . RedSTM . STMSortedSet $ CmdZRank k v
+respToCmd (Array 4 [BulkStr "ZRANGE", BulkStr k, BulkStr start, BulkStr stop]) = do
+    start' <- readIntBS start
+    end' <- readIntBS stop
+    pure . RedSTM . STMSortedSet $ CmdZRange k (MkRange start' end')
+respToCmd (Array 2 [BulkStr "ZCARD", BulkStr k]) = pure . RedSTM . STMSortedSet $ CmdZCard k
+respToCmd (Array 3 [BulkStr "ZSCORE", BulkStr k, BulkStr v]) = pure . RedSTM . STMSortedSet $ CmdZScore k v
+respToCmd (Array 3 [BulkStr "ZREM", BulkStr k, BulkStr v]) = pure . RedSTM . STMSortedSet $ CmdZRem k v
 -- Unhandled
 respToCmd r = Left $ "Conversion Error" <> show r
 
@@ -142,7 +154,16 @@ stmCmdToResp (CmdType key) = Array 2 [BulkStr "TYPE", BulkStr key]
 stmCmdToResp (STMString cmd) = stringStoreCmdToResp cmd
 stmCmdToResp (STMList cmd) = listStmCmdToResp cmd
 stmCmdToResp (STMStream cmd) = streamStmCmdToResp cmd
+stmCmdToResp (STMSortedSet cmd) = sortedSetStmCmdToResp cmd
 stmCmdToResp CmdKeys = Array 2 [BulkStr "KEYS", BulkStr "*"]
+
+sortedSetStmCmdToResp :: SortedSetCmd -> Resp
+sortedSetStmCmdToResp (CmdZAdd k score v) = Array 4 [BulkStr "ZADD", BulkStr k, BulkStr $ fromString $ show score, BulkStr v]
+sortedSetStmCmdToResp (CmdZRank k v) = Array 3 [BulkStr "ZRANK", BulkStr k, BulkStr v]
+sortedSetStmCmdToResp (CmdZRange k (MkRange start stop)) = Array 4 [BulkStr "ZRANGE", BulkStr k, BulkStr $ fromString $ show start, BulkStr $ fromString $ show stop]
+sortedSetStmCmdToResp (CmdZCard k) = Array 2 [BulkStr "ZCARD", BulkStr k]
+sortedSetStmCmdToResp (CmdZScore k v) = Array 3 [BulkStr "ZSCORE", BulkStr k, BulkStr v]
+sortedSetStmCmdToResp (CmdZRem k v) = Array 3 [BulkStr "ZREM", BulkStr k, BulkStr v]
 
 txCmdToResp :: CmdTransaction -> Resp
 txCmdToResp Multi = Array 1 [BulkStr "MULTI"]
@@ -218,7 +239,16 @@ stmCmdToPretty (CmdType{}) = "TYPE"
 stmCmdToPretty (STMString cmd) = stringStoreCmdToPretty cmd
 stmCmdToPretty (STMList cmd) = listStmCmdToPretty cmd
 stmCmdToPretty (STMStream cmd) = streamStmCmdToPretty cmd
+stmCmdToPretty (STMSortedSet cmd) = sortedSetStmCmdToPretty cmd
 stmCmdToPretty CmdKeys = "KEYS"
+
+sortedSetStmCmdToPretty :: SortedSetCmd -> ByteString
+sortedSetStmCmdToPretty (CmdZAdd{}) = "ZADD"
+sortedSetStmCmdToPretty (CmdZRank{}) = "ZRANK"
+sortedSetStmCmdToPretty (CmdZRange{}) = "ZRANGE"
+sortedSetStmCmdToPretty (CmdZCard{}) = "ZCARD"
+sortedSetStmCmdToPretty (CmdZRem{}) = "ZREM"
+sortedSetStmCmdToPretty (CmdZScore{}) = "ZSCORE"
 
 txCmdToPretty :: CmdTransaction -> ByteString
 txCmdToPretty Multi = "MULTI"

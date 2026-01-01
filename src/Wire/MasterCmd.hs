@@ -4,7 +4,7 @@ module Wire.MasterCmd (masterCmdToResp, respToMasterCmd, propogationCmdToResp) w
 
 import Data.String (fromString)
 
-import Parsers (readIntBS)
+import Parsers (readFloatBS, readIntBS)
 import Protocol.Command
 import Protocol.MasterCmd
 import Resp.Core (Resp (..))
@@ -25,6 +25,8 @@ propogationCmdToResp (RCmdLPush key xs) = Array (length xs + 2) (BulkStr "LPUSH"
 propogationCmdToResp (RCmdLPop key Nothing) = Array 2 [BulkStr "LPOP", BulkStr key]
 propogationCmdToResp (RCmdLPop key (Just len)) = Array 3 [BulkStr "LPOP", BulkStr key, BulkStr $ fromString $ show len]
 propogationCmdToResp (RCmdXAdd key sid kvs) = Array (3 + length kvs * 2) $ BulkStr "XADD" : BulkStr key : BulkStr (showXaddId sid) : concatMap (\(k, v) -> [BulkStr k, BulkStr v]) kvs
+propogationCmdToResp (RCmdZAdd key score value) = Array 4 [BulkStr "ZADD", BulkStr key, BulkStr $ fromString $ show score, BulkStr value]
+propogationCmdToResp (RCmdZRem key value) = Array 3 [BulkStr "ZREM", BulkStr key, BulkStr value]
 
 respToMasterCmd :: Resp -> Either String MasterCommand
 respToMasterCmd (Array 1 [BulkStr "PING"]) = pure MasterPing
@@ -48,4 +50,9 @@ respToMasterCmd (Array _ ((BulkStr "XADD") : (BulkStr key) : (BulkStr sId) : val
     chunked <- chunksOf2 vals'
     sId' <- readXAddStreamId sId
     pure $ PropogationCmd $ RCmdXAdd key sId' chunked
+-- Sorted Set
+respToMasterCmd (Array 4 [BulkStr "ZADD", BulkStr k, BulkStr score, BulkStr v]) = do
+    score' <- readFloatBS score
+    pure . PropogationCmd $ RCmdZAdd k (realToFrac score') v
+respToMasterCmd (Array 3 [BulkStr "ZREM", BulkStr k, BulkStr v]) = pure . PropogationCmd $ RCmdZRem k v
 respToMasterCmd c = Left $ "Invalid Propogation Command: -> " <> show c

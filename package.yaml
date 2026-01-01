@@ -71,3 +71,4 @@ tests:
       - async
       - stm
       - attoparsec
+      - containers

@@ -1,6 +1,6 @@
 module StoreBackend.TypeIndex (ValueType (..), RequiredType (..), checkAvailable) where
 
-data ValueType = VString | VList | VStream | VChannel deriving (Show, Eq)
+data ValueType = VString | VList | VStream | VChannel | VSortedSet deriving (Show, Eq)
 
 data RequiredType = AbsentOr ValueType | MustBe ValueType
 

@@ -51,6 +51,7 @@ valueTypeToResp VString = Str "string"
 valueTypeToResp VList = Str "list"
 valueTypeToResp VStream = Str "stream"
 valueTypeToResp VChannel = Str "channel"
+valueTypeToResp VSortedSet = Str "sortedset"
 
 arrayMap :: (a -> Resp) -> [a] -> Resp
 arrayMap f xs = Array (length xs) (map f xs)

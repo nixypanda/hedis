@@ -13,6 +13,7 @@ module Protocol.Command (
     StreamCmd (..),
     SubConfig (..),
     PubSub (..),
+    SortedSetCmd (..),
 ) where
 
 import Data.ByteString (ByteString)
@@ -45,6 +46,7 @@ data CmdSTM
     | STMString StringCmd
     | STMList ListCmd
     | STMStream StreamCmd
+    | STMSortedSet SortedSetCmd
     deriving (Show, Eq)
 
 data StringCmd
@@ -65,6 +67,15 @@ data StreamCmd
     = CmdXAdd Key XAddStreamId [(ByteString, ByteString)]
     | CmdXRange Key XRange
     | CmdXRead [(Key, ConcreteStreamId)]
+    deriving (Show, Eq)
+
+data SortedSetCmd
+    = CmdZAdd Key Double ByteString
+    | CmdZRank Key ByteString
+    | CmdZRange Key Range
+    | CmdZCard Key
+    | CmdZScore Key ByteString
+    | CmdZRem Key ByteString
     deriving (Show, Eq)
 
 data CmdIO
