@@ -73,6 +73,7 @@ data RedisError
     | WrongType IncorrectType
     | HandshakeError HandshakeError
     | ProtocolError ProtocolError
+    | IOError String
     deriving (Show, Exception)
 
 newtype ProtocolError

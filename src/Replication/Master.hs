@@ -13,7 +13,9 @@ module Replication.Master (
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (async)
 import Control.Concurrent.STM (STM, TQueue, atomically, modifyTVar, newTQueueIO, newTVarIO, readTQueue, readTVar, readTVarIO, writeTQueue)
+import Control.Exception (Exception (..), try)
 import Control.Monad (forM_, forever)
+import Control.Monad.Error.Class (liftEither)
 import Control.Monad.IO.Class (MonadIO (..))
 import Control.Monad.Reader (MonadReader (ask))
 import Data.Bifunctor (first)
@@ -22,8 +24,8 @@ import Data.ByteString qualified as BS
 import Data.String (fromString)
 import Data.Time (NominalDiffTime, UTCTime, getCurrentTime)
 import Network.Simple.TCP (Socket, send)
+import System.IO.Error (isDoesNotExistError)
 
-import Control.Monad.Error.Class (liftEither)
 import Execution.Base (runCmdIO, runCmdSTM)
 import Protocol.Command
 import Protocol.MasterCmd
@@ -38,12 +40,18 @@ import Wire.Class (ToResp (..))
 runRdbLoad :: Redis Master ()
 runRdbLoad = do
     EnvMaster cs ms <- ask
-    rdbFileBinary <- liftIO $ BS.readFile $ rdbFilePath ms
-    now <- liftIO getCurrentTime
-    r <- liftIO $ atomically $ loadRdbData now rdbFileBinary cs.stores
-    liftEither $ first EncodeError r
-
-    pure ()
+    eRdbFileBinary <- liftIO $ try (BS.readFile $ rdbFilePath ms)
+    case eRdbFileBinary of
+        Left eIO
+            | isDoesNotExistError eIO -> do
+                logInfo $ "RDB file does not exist: " <> rdbFilePath ms <> ". Starting with empty state."
+                pure ()
+            | otherwise -> liftEither $ Left (IOError $ displayException eIO)
+        Right rdbFileBinary -> do
+            now <- liftIO getCurrentTime
+            r <- liftIO $ atomically $ loadRdbData now rdbFileBinary cs.stores
+            liftEither $ first EncodeError r
+            pure ()
 
 acceptReplica :: Socket -> Redis r CommandResult -- fix r to be Master
 acceptReplica sock = do
