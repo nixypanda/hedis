@@ -1,7 +1,7 @@
 module Rdb.Type where
 
 import Data.ByteString (ByteString)
-import Data.Word (Word64)
+import Data.Word (Word64, Word8)
 
 data RespEncodedRdb = MkRespEncodedRdb
     { len :: !Int
@@ -31,13 +31,24 @@ data MetaVal = MVInt Int | MVString ByteString
 data RdbMetadata = MkMetaAux ByteString MetaVal
     deriving (Show, Eq)
 
-newtype RdbDatabase = MkRdbHashTable HashTable
+data RdbDatabase = MkRdbDatabase {identifier :: Int, store :: RdbStore}
+    deriving (Show, Eq)
+
+newtype RdbStore = MkHashStore HashTable
     deriving (Show, Eq)
 
 data HashTable = MkHashTable
     { size :: Int
-    , identifier :: Int
     , expirySize :: Int
     , table :: [(ByteString, ByteString)]
     }
+    deriving (Show, Eq)
+
+data RdbOpcode
+    = OpAux
+    | OpResizeDB
+    | OpSelectDB
+    | OpEOF
+    | OpTypeString
+    | OpUnknown Word8
     deriving (Show, Eq)

@@ -39,14 +39,16 @@ singleKv =
             , MkMetaAux "aof-base" (MVInt 0)
             ]
         , dbs =
-            [ MkRdbHashTable
-                ( MkHashTable
-                    { size = 1
-                    , identifier = 0
-                    , expirySize = 0
-                    , table = [("mykey", "myval")]
-                    }
-                )
+            [ MkRdbDatabase
+                { identifier = 0
+                , store =
+                    MkHashStore $
+                        MkHashTable
+                            { size = 1
+                            , expirySize = 0
+                            , table = [("mykey", "myval")]
+                            }
+                }
             ]
         , checksum = 12651839348023696006
         }
