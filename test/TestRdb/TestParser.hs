@@ -41,16 +41,25 @@ singleKv =
         , dbs =
             [ MkRdbDatabase
                 { identifier = 0
-                , store =
-                    MkHashStore $
-                        MkHashTable
-                            { size = 1
-                            , expirySize = 0
-                            , table = [("mykey", "myval")]
-                            }
+                , store = MkHashStore $ MkHashTable{size = 1, expirySize = 0, table = [("mykey", "myval")]}
                 }
             ]
         , checksum = 12651839348023696006
+        }
+
+multiKv :: RdbData
+multiKv =
+    MkRdbData
+        { header = MkRdbHeader{magic = "REDIS", version = "0012"}
+        , metadata =
+            [ MkMetaAux "redis-ver" (MVString "8.2.2")
+            , MkMetaAux "redis-bits" (MVInt 64)
+            , MkMetaAux "ctime" (MVInt 1767263117)
+            , MkMetaAux "used-mem" (MVInt 846352)
+            , MkMetaAux "aof-base" (MVInt 0)
+            ]
+        , dbs = [MkRdbDatabase{identifier = 0, store = MkHashStore (MkHashTable{size = 2, expirySize = 0, table = [("banana", "man"), ("banananana", "mananan")]})}]
+        , checksum = 534785742208199237
         }
 
 assertRightEq ::
@@ -69,16 +78,13 @@ tests =
         "RDB parser"
         [ testCase "parse empty db file" $ do
             bs <- BS.readFile "test/data/empty.rdb"
-            case parseOnly rdbParser bs of
-                Left err -> assertFailure ("RDB parse failed: " <> err)
-                Right rdb -> rdb @?= emptyRdb
+            assertRightEq (parseOnly rdbParser bs) emptyRdb
         , testCase "parse db file with one entry" $ do
             bs <- BS.readFile "test/data/one-kv.rdb"
-
-            case parseOnly rdbParser bs of
-                Left err ->
-                    assertFailure ("RDB parse failed: " <> err)
-                Right rdb -> rdb @?= singleKv
+            assertRightEq (parseOnly rdbParser bs) singleKv
+        , testCase "parse db file with multiple key-value entries" $ do
+            bs <- BS.readFile "test/data/multi-kv.rdb"
+            assertRightEq (parseOnly rdbParser bs) multiKv
         , testsIndividualParsers
         ]
 

@@ -17,6 +17,7 @@ import Parsers (intParser)
 import Rdb.Binary
 import Rdb.Type
 
+import Control.Applicative (many)
 import Prelude hiding (take)
 
 respEncodeRdbParser :: PB.Parser RespEncodedRdb
@@ -110,8 +111,7 @@ storeParser = do
             _ <- anyWord8
             size <- rdbLenOnly
             expirySize <- rdbLenOnly
-            kv <- kvEntry
-            let table = [kv]
+            table <- many kvEntry
             pure $ MkHashStore $ MkHashTable{..}
         _ -> fail $ "unsupported db entry type: " <> show opcode
 
