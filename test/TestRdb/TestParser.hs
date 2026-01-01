@@ -41,7 +41,7 @@ singleKv =
         , dbs =
             [ MkRdbDatabase
                 { identifier = 0
-                , store = MkHashStore $ MkHashTable{size = 1, expirySize = 0, table = [("mykey", "myval")]}
+                , store = MkHashStore $ MkHashTable{size = 1, expirySize = 0, table = [("mykey", "myval", Nothing)]}
                 }
             ]
         , checksum = 12651839348023696006
@@ -58,7 +58,12 @@ multiKv =
             , MkMetaAux "used-mem" (MVInt 846352)
             , MkMetaAux "aof-base" (MVInt 0)
             ]
-        , dbs = [MkRdbDatabase{identifier = 0, store = MkHashStore (MkHashTable{size = 2, expirySize = 0, table = [("banana", "man"), ("banananana", "mananan")]})}]
+        , dbs =
+            [ MkRdbDatabase
+                { identifier = 0
+                , store = MkHashStore (MkHashTable{size = 2, expirySize = 0, table = [("banana", "man", Nothing), ("banananana", "mananan", Nothing)]})
+                }
+            ]
         , checksum = 534785742208199237
         }
 
@@ -84,6 +89,9 @@ tests =
             assertRightEq (parseOnly rdbParser bs) singleKv
         , testCase "parse db file with multiple key-value entries" $ do
             bs <- BS.readFile "test/data/multi-kv.rdb"
+            assertRightEq (parseOnly rdbParser bs) multiKv
+        , testCase "parse db file with key-valuse with expiry" $ do
+            bs <- BS.readFile "test/data/kv-with-expiry.rdb"
             assertRightEq (parseOnly rdbParser bs) multiKv
         , testsIndividualParsers
         ]

@@ -4,20 +4,23 @@
 
 module Rdb.Parser where
 
-import Data.ByteString (ByteString)
-import Data.ByteString qualified as BS
-import Text.Parsec qualified as P
-import Text.Parsec.ByteString qualified as PB
-
+import Control.Applicative (many)
 import Data.Attoparsec.ByteString (Parser, anyWord8, parseOnly, peekWord8, string, take, takeByteString)
 import Data.Attoparsec.Combinator (lookAhead)
 import Data.Bits (Bits (..), shiftR)
+import Data.ByteString (ByteString)
+import Data.ByteString qualified as BS
+import Data.Time (UTCTime)
+import Data.Time.Clock.POSIX (posixSecondsToUTCTime)
 import Data.Word (Word64, Word8)
+import Text.Parsec qualified as P
+import Text.Parsec.ByteString qualified as PB
+
 import Parsers (intParser)
+import Protocol.Command (Key)
 import Rdb.Binary
 import Rdb.Type
 
-import Control.Applicative (many)
 import Prelude hiding (take)
 
 respEncodeRdbParser :: PB.Parser RespEncodedRdb
@@ -117,18 +120,43 @@ storeParser = do
 
 --
 
-kvEntry :: Parser (ByteString, ByteString)
+kvEntry :: Parser (Key, ByteString, Maybe UTCTime)
 kvEntry = do
     opcode <- peekRdbOpcode
     case opcode of
         OpTypeString -> do
             _ <- anyWord8
-            k_len <- rdbLenOnly
-            k <- take k_len
-            v_len <- rdbLenOnly
-            v <- take v_len
-            pure (k, v)
+            (k, v) <- kvOnly
+            pure (k, v, Nothing)
+        OpExpireTime -> do
+            _ <- anyWord8
+            et <- getInt32Le
+            opcode' <- peekRdbOpcode
+            case opcode' of
+                OpTypeString -> do
+                    _ <- anyWord8
+                    (k, v) <- kvOnly
+                    pure (k, v, Just $ posixSecondsToUTCTime $ fromIntegral et)
+                _ -> fail $ "unsupported kv entry type: " <> show opcode'
+        OpExpireTimeMs -> do
+            _ <- anyWord8
+            et <- getInt64Le
+            opcode' <- peekRdbOpcode
+            case opcode' of
+                OpTypeString -> do
+                    _ <- anyWord8
+                    (k, v) <- kvOnly
+                    pure (k, v, Just $ posixSecondsToUTCTime (fromIntegral et / 1000))
+                _ -> fail $ "unsupported kv entry type: " <> show opcode'
         _ -> fail $ "unsupported kv entry type: " <> show opcode
+
+kvOnly :: Parser (ByteString, ByteString)
+kvOnly = do
+    k_len <- rdbLenOnly
+    k <- take k_len
+    v_len <- rdbLenOnly
+    v <- take v_len
+    pure (k, v)
 
 -- footer (crc64)
 
@@ -156,6 +184,8 @@ peekRdbOpcode = do
         0xFE -> OpSelectDB
         0xFF -> OpEOF
         0x00 -> OpTypeString
+        0xFD -> OpExpireTime
+        0xFC -> OpExpireTimeMs
         x -> OpUnknown x
 
 rdbLenOnly :: Parser Int

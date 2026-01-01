@@ -48,11 +48,11 @@ applyDb :: UTCTime -> StoreState -> RdbDatabase -> StoreState
 applyDb t st (MkRdbDatabase _ (MkHashStore ht)) =
     foldl' (insertKV t) st (table ht)
 
-insertKV :: UTCTime -> StoreState -> (Key, ByteString) -> StoreState
-insertKV defaultTime st (k, v) =
+insertKV :: UTCTime -> StoreState -> (Key, ByteString, Maybe UTCTime) -> StoreState
+insertKV defaultTime st (k, v, mt) =
     st
         { ssstringStore =
-            M.insert k (MkStoredVal v defaultTime Nothing) (ssstringStore st)
+            M.insert k (MkStoredVal v defaultTime mt) (ssstringStore st)
         , sstypeIndex =
             M.insert k VString (sstypeIndex st)
         }

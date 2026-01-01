@@ -1,6 +1,7 @@
 module Rdb.Type where
 
 import Data.ByteString (ByteString)
+import Data.Time (NominalDiffTime, UTCTime)
 import Data.Word (Word64, Word8)
 
 data RespEncodedRdb = MkRespEncodedRdb
@@ -40,7 +41,7 @@ newtype RdbStore = MkHashStore HashTable
 data HashTable = MkHashTable
     { size :: Int
     , expirySize :: Int
-    , table :: [(ByteString, ByteString)]
+    , table :: [(ByteString, ByteString, Maybe UTCTime)]
     }
     deriving (Show, Eq)
 
@@ -50,5 +51,7 @@ data RdbOpcode
     | OpSelectDB
     | OpEOF
     | OpTypeString
+    | OpExpireTime
+    | OpExpireTimeMs
     | OpUnknown Word8
     deriving (Show, Eq)

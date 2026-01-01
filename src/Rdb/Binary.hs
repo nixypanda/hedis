@@ -6,6 +6,7 @@ import Numeric (showHex)
 
 import Data.Attoparsec.ByteString
 import Data.Bits (Bits (..))
+import Data.Int
 import Data.Word (Word64)
 import Prelude hiding (take)
 
@@ -67,3 +68,23 @@ anyWord64Be = do
             .|. (fromIntegral b6 `shiftL` 16)
             .|. (fromIntegral b7 `shiftL` 8)
             .|. fromIntegral b8
+
+getInt64Le :: Parser Int
+getInt64Le = do
+    b0 <- anyWord8
+    b1 <- anyWord8
+    b2 <- anyWord8
+    b3 <- anyWord8
+    b4 <- anyWord8
+    b5 <- anyWord8
+    b6 <- anyWord8
+    b7 <- anyWord8
+    pure $
+        fromIntegral b0
+            .|. (fromIntegral b1 `shiftL` 8)
+            .|. (fromIntegral b2 `shiftL` 16)
+            .|. (fromIntegral b3 `shiftL` 24)
+            .|. (fromIntegral b4 `shiftL` 32)
+            .|. (fromIntegral b5 `shiftL` 40)
+            .|. (fromIntegral b6 `shiftL` 48)
+            .|. (fromIntegral b7 `shiftL` 56)
