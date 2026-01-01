@@ -24,6 +24,7 @@ resultToResp ResNothing = error "Nothing can't be converted to resp"
 
 cmdResultToResp :: CommandResult -> Resp
 cmdResultToResp ResPong = Str "PONG"
+cmdResultToResp ResPongSubscribed = Array 2 [BulkStr "pong", BulkStr ""]
 cmdResultToResp ResOk = Str "OK"
 cmdResultToResp (ResType Nothing) = Str "none"
 cmdResultToResp (ResType (Just t)) = valueTypeToResp t

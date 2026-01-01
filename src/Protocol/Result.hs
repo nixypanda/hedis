@@ -42,6 +42,7 @@ data CommandResult
     | RArrayStreamValues [SM.Value ByteString ByteString]
     | RRepl ReplResult
     | ResPong
+    | ResPongSubscribed
     | ResOk
     | RSimple ByteString
     | ResType (Maybe ValueType)
