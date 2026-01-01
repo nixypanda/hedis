@@ -35,6 +35,7 @@ cmdResultToResp (RArraySimple xs) = arrayMap BulkStr xs
 cmdResultToResp (RArrayStreamValues vals) = arrayMap valueToResp vals
 cmdResultToResp (RArrayKeyValues kvs) = arrayMap arrayKeyValsToResp kvs
 cmdResultToResp (RStreamId sid) = streamIdToResp sid
+cmdResultToResp (ResSubscribed chan n) = Array 3 [BulkStr "subscribe", BulkStr chan, Int n]
 cmdResultToResp (RRepl r) = replResultToResp r
 
 replResultToResp :: ReplResult -> Resp
@@ -46,6 +47,7 @@ valueTypeToResp :: ValueType -> Resp
 valueTypeToResp VString = Str "string"
 valueTypeToResp VList = Str "list"
 valueTypeToResp VStream = Str "stream"
+valueTypeToResp VChannel = Str "channel"
 
 arrayMap :: (a -> Resp) -> [a] -> Resp
 arrayMap f xs = Array (length xs) (map f xs)
@@ -99,6 +101,7 @@ errorToResp :: CommandError -> Resp
 errorToResp (RStreamError e) = streamMapErrorToResp e
 errorToResp RIncrError = StrErr strIncrError
 errorToResp (RTxErr txErr) = txErrorToResp txErr
+errorToResp (RCmdNotAllowedInMode cmd) = StrErr $ "ERR command not allowed in mode " <> fromString (show cmd)
 
 txErrorToResp :: TransactionError -> Resp
 txErrorToResp RExecWithoutMulti = StrErr strRExecWithoutMulti

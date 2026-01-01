@@ -12,6 +12,7 @@ module Protocol.Command (
     ListCmd (..),
     StreamCmd (..),
     SubConfig (..),
+    PubSub (..),
 ) where
 
 import Data.ByteString (ByteString)
@@ -32,6 +33,7 @@ data Command
     | RedInfo (Maybe SubInfo)
     | RedConfig SubConfig
     | RedRepl CmdReplication
+    | RedSub PubSub
     | CmdWait Int NominalDiffTime
     deriving (Show, Eq)
 
@@ -87,4 +89,8 @@ data ReplicaToMaster
 
 data MasterToReplica
     = CmdReplConfGetAck
+    deriving (Show, Eq)
+
+newtype PubSub
+    = CmdSubscribe ByteString
     deriving (Show, Eq)

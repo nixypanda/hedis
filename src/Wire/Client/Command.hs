@@ -95,6 +95,8 @@ respToCmd (Array 3 [BulkStr "WAIT", BulkStr n, BulkStr t]) = do
 -- CONFIG
 respToCmd (Array 3 [BulkStr "CONFIG", BulkStr "GET", BulkStr "dir"]) = pure $ RedConfig ConfigDir
 respToCmd (Array 3 [BulkStr "CONFIG", BulkStr "GET", BulkStr "dbfilename"]) = pure $ RedConfig ConfigDbFilename
+-- PubSub
+respToCmd (Array 2 [BulkStr "SUBSCRIBE", BulkStr channel]) = pure $ RedSub $ CmdSubscribe channel
 -- Unhandled
 respToCmd r = Left $ "Conversion Error" <> show r
 
@@ -107,7 +109,11 @@ cmdToResp (RedRepl cmd) = replicationCmdToResp cmd
 cmdToResp (RedIO cmd) = ioCmdToResp cmd
 cmdToResp (RedInfo cmd) = infoCmdToResp cmd
 cmdToResp (RedConfig cmd) = configCmdToResp cmd
+cmdToResp (RedSub cmd) = subCmdToResp cmd
 cmdToResp (CmdWait n t) = Array 3 [BulkStr "WAIT", BulkStr $ fromString $ show n, BulkStr $ fromString $ show $ nominalDiffTimeToMillis t]
+
+subCmdToResp :: PubSub -> Resp
+subCmdToResp (CmdSubscribe channel) = Array 2 [BulkStr "SUBSCRIBE", BulkStr channel]
 
 configCmdToResp :: SubConfig -> Resp
 configCmdToResp ConfigDir = Array 3 [BulkStr "CONFIG", BulkStr "GET", BulkStr "dir"]

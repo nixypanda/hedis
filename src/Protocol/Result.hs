@@ -10,7 +10,7 @@ module Protocol.Result (
 
 import Data.ByteString (ByteString)
 
-import Protocol.Command (Key)
+import Protocol.Command (Command, Key)
 import StoreBackend.StreamMap (ConcreteStreamId, StreamMapError (..))
 import StoreBackend.StreamMap qualified as SM
 import StoreBackend.TypeIndex (ValueType (..))
@@ -41,6 +41,7 @@ data CommandResult
     | ResOk
     | RSimple ByteString
     | ResType (Maybe ValueType)
+    | ResSubscribed Key Int
     deriving (Show, Eq)
 
 data ReplResult
@@ -53,6 +54,7 @@ data CommandError
     = RStreamError StreamMapError
     | RIncrError
     | RTxErr TransactionError
+    | RCmdNotAllowedInMode Command
     deriving (Show, Eq)
 
 data TransactionError

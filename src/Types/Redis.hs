@@ -40,7 +40,7 @@ import System.Log.FastLogger (
     simpleTimeFormat,
  )
 
-import Protocol.Command (CmdSTM, Command)
+import Protocol.Command (CmdSTM, Command, Key)
 import Protocol.Result (CommandResult, Result)
 import Replication.Config (
     MasterConfig,
@@ -126,6 +126,7 @@ mkReplicaEnv rc = EnvReplica <$> mkCommonEnv <*> atomically (initReplicaState rc
 data ClientState = MkClientState
     { txState :: TVar TxState
     , socket :: Socket
+    , subbedChannels :: TVar [Key]
     }
 
 newtype Redis r a = MkRedis {runRedis :: ReaderT (Env r) (ExceptT RedisError IO) a}
@@ -145,6 +146,9 @@ class HasStores r where
 
     getStreamStore :: Env r -> TVar StreamStore
     getStreamStore = streamStore . getStores
+
+    getPubSubStore :: Env r -> TVar PubSubStore
+    getPubSubStore = pubSubStore . getStores
 
 instance HasStores Master where
     getStores :: Env Master -> Stores

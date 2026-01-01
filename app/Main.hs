@@ -47,6 +47,7 @@ runReplica env port replicaOf = do
     serve HostAny (show port) $ \(socket, address) -> do
         logInfo' $ "successfully connected client: " ++ show address
         txState <- newTVarIO NoTx
+        subbedChannels <- newTVarIO []
         let clientState = MkClientState{..}
         runRedisIO env (clientLoopWrite clientState socket)
         logInfo' "Closing connection"
@@ -60,6 +61,7 @@ runMaster env port = do
     serve HostAny (show port) $ \(socket, address) -> do
         logInfo' $ "successfully connected client: " ++ show address
         txState <- newTVarIO NoTx
+        subbedChannels <- newTVarIO []
         let clientState = MkClientState{..}
         runRedisIO env (clientLoopWrite clientState socket)
         logInfo' "Closing connection"
