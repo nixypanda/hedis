@@ -1,4 +1,9 @@
-module Store.SortedSetStore (SortedSetStore, emptySTM, runSortedSetStoreSTM) where
+module Store.SortedSetStore (
+    SortedSetStore,
+    emptySTM,
+    runSortedSetStoreSTM,
+    runGeoStoreSTM,
+) where
 
 import Control.Concurrent.STM (STM, TVar, newTVar, readTVar, writeTVar)
 import Data.ByteString (ByteString)
@@ -6,6 +11,7 @@ import Data.Map qualified as M
 import Data.String (IsString (fromString))
 import Data.Word (Word64)
 
+import Geo.Encoding (encode)
 import Protocol.Command
 import Protocol.Result
 import Store.TypeStore (TypeIndex)
@@ -27,10 +33,10 @@ type SortedSetStore = SortedSetMap ByteString ByteString Score
 emptySTM :: STM (TVar SortedSetStore)
 emptySTM = newTVar M.empty
 
-zaddSTM :: ByteString -> Double -> ByteString -> TVar SortedSetStore -> STM Int
+zaddSTM :: ByteString -> Score -> ByteString -> TVar SortedSetStore -> STM Int
 zaddSTM key score' val tv = do
     m <- readTVar tv
-    let m' = SSS.insert key (ZScore score') val m
+    let m' = SSS.insert key score' val m
     writeTVar tv m'
     pure $ SSS.count key m' - SSS.count key m
 
@@ -57,7 +63,7 @@ zrangeSTM key start end tv = SSS.range key start end <$> readTVar tv
 runSortedSetStoreSTM :: TVar TypeIndex -> TVar SortedSetStore -> SortedSetCmd -> STM CommandResult
 runSortedSetStoreSTM tvTypeIndex tvZSet cmd =
     case cmd of
-        CmdZAdd key sc val -> RInt <$> (TS.setIfAvailable tvTypeIndex key VSortedSet *> zaddSTM key sc val tvZSet)
+        CmdZAdd key sc val -> RInt <$> (TS.setIfAvailable tvTypeIndex key VSortedSet *> zaddSTM key (ZScore sc) val tvZSet)
         CmdZRank key val -> RIntOrNil <$> zrankSTM key val tvZSet
         CmdZRange key (MkRange start end) -> RArraySimple <$> zrangeSTM key start end tvZSet
         CmdZCard key -> RInt <$> zcardSTM key tvZSet
@@ -65,3 +71,11 @@ runSortedSetStoreSTM tvTypeIndex tvZSet cmd =
             mSc <- zscoreSTM key val tvZSet
             pure $ RBulk (showPretty <$> mSc)
         CmdZRem key val -> RInt . maybe 0 (const 1) <$> zremSTM key val tvZSet
+
+runGeoStoreSTM :: TVar TypeIndex -> TVar SortedSetStore -> GeoCmd -> STM (Either CommandError CommandResult)
+runGeoStoreSTM tvTypeIndex tvZSet cmd =
+    case cmd of
+        CmdGeoAdd key coords v -> do
+            let score = encode coords
+            res <- TS.setIfAvailable tvTypeIndex key VSortedSet *> zaddSTM key (GeoScore score) v tvZSet
+            pure $ Right $ RInt res

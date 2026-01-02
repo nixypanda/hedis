@@ -42,6 +42,7 @@ runCmdSTM env now cmd = do
         STMList c -> Right <$> LS.runListStoreSTM tvTypeIndex tvListMap c
         STMStream c -> StS.runStreamStoreSTM tvTypeIndex tvStreamMap now c
         STMSortedSet c -> Right <$> SSS.runSortedSetStoreSTM tvTypeIndex tvSortedSetMap c
+        STMGeo c -> SSS.runGeoStoreSTM tvTypeIndex tvSortedSetMap c
 
 runCmdIO :: (HasStores r) => CmdIO -> Redis r CommandResult
 runCmdIO cmd = do
