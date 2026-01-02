@@ -17,12 +17,12 @@ import Data.Set qualified as S
 
 import Prelude hiding (lookup)
 
-type Set' v = Set (Double, v)
-type Index v = Map v Double
+type Set' v s = Set (s, v)
+type Index v s = Map v s
 
-type SortedSetMap k v = Map k (Set' v, Index v)
+type SortedSetMap k v s = Map k (Set' v s, Index v s)
 
-insert :: (Ord k, Ord v) => k -> Double -> v -> SortedSetMap k v -> SortedSetMap k v
+insert :: (Ord k, Ord v, Ord s) => k -> s -> v -> SortedSetMap k v s -> SortedSetMap k v s
 insert key score' val =
     M.alter go key
   where
@@ -36,18 +36,18 @@ insert key score' val =
             idx' = M.insert val score' idx
          in Just (s', idx')
 
-count :: (Ord k) => k -> SortedSetMap k v -> Int
+count :: (Ord k) => k -> SortedSetMap k v s -> Int
 count key store = maybe 0 (S.size . fst) (M.lookup key store)
 
-lookup :: (Ord k, Ord v) => k -> v -> SortedSetMap k v -> Maybe v
+lookup :: (Ord k, Ord v) => k -> v -> SortedSetMap k v s -> Maybe v
 lookup key val store = M.lookup key store >>= \(_, idx) -> val <$ M.lookup val idx
 
-score :: (Ord k, Ord v) => k -> v -> SortedSetMap k v -> Maybe Double
+score :: (Ord k, Ord v) => k -> v -> SortedSetMap k v s -> Maybe s
 score key val store =
     M.lookup key store >>= \(_, idx) ->
         M.lookup val idx
 
-rank :: (Ord k, Ord v) => k -> v -> SortedSetMap k v -> Maybe Int
+rank :: (Ord k, Ord v, Ord s) => k -> v -> SortedSetMap k v s -> Maybe Int
 rank key val store = do
     (s, idx) <- M.lookup key store
     sc <- M.lookup val idx
@@ -55,14 +55,14 @@ rank key val store = do
             S.takeWhileAntitone (< (sc, val)) s
     pure (S.size before)
 
-remove :: (Ord k, Ord v) => k -> v -> SortedSetMap k v -> SortedSetMap k v
+remove :: (Ord k, Ord v, Ord s) => k -> v -> SortedSetMap k v s -> SortedSetMap k v s
 remove key val store = case M.lookup key store of
     Nothing -> store
     Just (s, i) -> case M.lookup val i of
         Nothing -> store
         Just sc -> M.insert key (S.delete (sc, val) s, M.delete val i) store
 
-range :: (Ord k) => k -> Int -> Int -> SortedSetMap k v -> [v]
+range :: (Ord k) => k -> Int -> Int -> SortedSetMap k v s -> [v]
 range key start end store =
     case M.lookup key store of
         Nothing -> []

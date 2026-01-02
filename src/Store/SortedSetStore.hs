@@ -14,7 +14,7 @@ import StoreBackend.SortedSetMap (SortedSetMap)
 import StoreBackend.SortedSetMap qualified as SSS
 import StoreBackend.TypeIndex (ValueType (..))
 
-type SortedSetStore = SortedSetMap ByteString ByteString
+type SortedSetStore = SortedSetMap ByteString ByteString Double
 
 emptySTM :: STM (TVar SortedSetStore)
 emptySTM = newTVar M.empty
