@@ -15,11 +15,13 @@ module Protocol.Command (
     PubSub (..),
     SortedSetCmd (..),
     GeoCmd (..),
+    ZScore (..),
 ) where
 
 import Data.ByteString (ByteString)
 import Data.Time (NominalDiffTime)
 
+import Data.Word (Word64)
 import Geo.Types (Coordinates)
 import StoreBackend.ListMap (Range (..))
 import StoreBackend.StreamMap (ConcreteStreamId, XAddStreamId (..), XRange (..), XReadStreamId (..))
@@ -73,7 +75,7 @@ data StreamCmd
     deriving (Show, Eq)
 
 data SortedSetCmd
-    = CmdZAdd Key Double ByteString
+    = CmdZAdd Key ZScore ByteString
     | CmdZRank Key ByteString
     | CmdZRange Key Range
     | CmdZCard Key
@@ -115,3 +117,6 @@ data PubSub
     | CmdPublish ByteString ByteString
     | CmdUnsubscribe ByteString
     deriving (Show, Eq)
+
+data ZScore = ZScore Double | GeoScore Word64
+    deriving (Eq, Ord, Show)

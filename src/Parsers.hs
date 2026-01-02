@@ -7,12 +7,15 @@ module Parsers (
     intParser,
     readIntBS,
     readFloatBS,
+    readScientificBS,
     parseWithRemainder,
     parseBS,
 ) where
 
 import Control.Applicative ((<|>))
+import Data.Attoparsec.ByteString.Char8 qualified as ABC
 import Data.ByteString (ByteString)
+import Data.Scientific (Scientific)
 import Data.String (fromString)
 import Text.Parsec (
     anyChar,
@@ -66,6 +69,9 @@ readIntBS = parseBS signedIntParser
 
 readFloatBS :: ByteString -> Either String Double
 readFloatBS = parseBS signedFloatParser
+
+readScientificBS :: ByteString -> Either String Scientific
+readScientificBS = ABC.parseOnly ABC.scientific
 
 parseWithRemainder :: Parser a -> ByteString -> Either ParseError (a, ByteString)
 parseWithRemainder p bs =

@@ -33,6 +33,7 @@ library:
     - random
     - async
     - attoparsec
+    - scientific
 
 executables:
   codecrafters-redis-exe:

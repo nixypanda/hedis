@@ -9,7 +9,6 @@ import Control.Concurrent.STM (STM, TVar, newTVar, readTVar, writeTVar)
 import Data.ByteString (ByteString)
 import Data.Map qualified as M
 import Data.String (IsString (fromString))
-import Data.Word (Word64)
 
 import GHC.Float (castDoubleToWord64)
 import Geo.Encoding (decode, encode)
@@ -23,19 +22,16 @@ import StoreBackend.SortedSetMap (SortedSetMap)
 import StoreBackend.SortedSetMap qualified as SSS
 import StoreBackend.TypeIndex (ValueType (..))
 
-data Score = ZScore Double | GeoScore Word64
-    deriving (Eq, Ord)
-
-showPretty :: Score -> ByteString
+showPretty :: ZScore -> ByteString
 showPretty (ZScore score) = fromString $ show score
 showPretty (GeoScore geo) = fromString $ show geo
 
-type SortedSetStore = SortedSetMap ByteString ByteString Score
+type SortedSetStore = SortedSetMap ByteString ByteString ZScore
 
 emptySTM :: STM (TVar SortedSetStore)
 emptySTM = newTVar M.empty
 
-zaddSTM :: ByteString -> Score -> ByteString -> TVar SortedSetStore -> STM Int
+zaddSTM :: ByteString -> ZScore -> ByteString -> TVar SortedSetStore -> STM Int
 zaddSTM key score' val tv = do
     m <- readTVar tv
     let m' = SSS.insert key score' val m
@@ -45,7 +41,7 @@ zaddSTM key score' val tv = do
 zcardSTM :: ByteString -> TVar SortedSetStore -> STM Int
 zcardSTM key tv = SSS.count key <$> readTVar tv
 
-zscoreSTM :: ByteString -> ByteString -> TVar SortedSetStore -> STM (Maybe Score)
+zscoreSTM :: ByteString -> ByteString -> TVar SortedSetStore -> STM (Maybe ZScore)
 zscoreSTM key val tv = SSS.score key val <$> readTVar tv
 
 zrankSTM :: ByteString -> ByteString -> TVar SortedSetStore -> STM (Maybe Int)
@@ -65,7 +61,7 @@ zrangeSTM key start end tv = SSS.range key start end <$> readTVar tv
 runSortedSetStoreSTM :: TVar TypeIndex -> TVar SortedSetStore -> SortedSetCmd -> STM CommandResult
 runSortedSetStoreSTM tvTypeIndex tvZSet cmd =
     case cmd of
-        CmdZAdd key sc val -> RInt <$> (TS.setIfAvailable tvTypeIndex key VSortedSet *> zaddSTM key (ZScore sc) val tvZSet)
+        CmdZAdd key sc val -> RInt <$> (TS.setIfAvailable tvTypeIndex key VSortedSet *> zaddSTM key sc val tvZSet)
         CmdZRank key val -> RIntOrNil <$> zrankSTM key val tvZSet
         CmdZRange key (MkRange start end) -> RArraySimple <$> zrangeSTM key start end tvZSet
         CmdZCard key -> RInt <$> zcardSTM key tvZSet

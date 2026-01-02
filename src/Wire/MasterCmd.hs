@@ -4,8 +4,9 @@ module Wire.MasterCmd (masterCmdToResp, respToMasterCmd, propogationCmdToResp) w
 
 import Data.String (fromString)
 
+import Data.Scientific (floatingOrInteger)
 import Geo.Types (Coordinates (MkCoordinates))
-import Parsers (readFloatBS, readIntBS)
+import Parsers (readFloatBS, readIntBS, readScientificBS)
 import Protocol.Command
 import Protocol.MasterCmd
 import Resp.Core (Resp (..))
@@ -54,8 +55,10 @@ respToMasterCmd (Array _ ((BulkStr "XADD") : (BulkStr key) : (BulkStr sId) : val
     pure $ PropogationCmd $ RCmdXAdd key sId' chunked
 -- Sorted Set
 respToMasterCmd (Array 4 [BulkStr "ZADD", BulkStr k, BulkStr score, BulkStr v]) = do
-    score' <- readFloatBS score
-    pure . PropogationCmd $ RCmdZAdd k score' v
+    score' <- readScientificBS score
+    case floatingOrInteger score' of
+        Left double -> pure . PropogationCmd $ RCmdZAdd k (ZScore double) v
+        Right (int :: Integer) -> pure . PropogationCmd $ RCmdZAdd k (GeoScore (fromIntegral int)) v
 respToMasterCmd (Array 3 [BulkStr "ZREM", BulkStr k, BulkStr v]) = pure . PropogationCmd $ RCmdZRem k v
 -- Geo
 respToMasterCmd (Array 5 [BulkStr "GEOADD", BulkStr k, BulkStr lat, BulkStr long, BulkStr v]) = do

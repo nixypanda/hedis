@@ -6,8 +6,9 @@ import Data.String (IsString (fromString))
 import Data.Time (nominalDiffTimeToSeconds, secondsToNominalDiffTime)
 
 import Data.ByteString (ByteString)
+import Data.Scientific (floatingOrInteger)
 import Geo.Types (Coordinates (..))
-import Parsers (readFloatBS, readIntBS)
+import Parsers (readFloatBS, readIntBS, readScientificBS)
 import Protocol.Command
 import Resp.Core (Resp (..))
 import Resp.Utils
@@ -103,8 +104,10 @@ respToCmd (Array 3 [BulkStr "PUBLISH", BulkStr channel, BulkStr msg]) = pure $ R
 respToCmd (Array 2 [BulkStr "UNSUBSCRIBE", BulkStr channel]) = pure $ RedSub $ CmdUnsubscribe channel
 -- SortedSet
 respToCmd (Array 4 [BulkStr "ZADD", BulkStr k, BulkStr score, BulkStr v]) = do
-    score' <- readFloatBS score
-    pure . RedSTM . STMSortedSet $ CmdZAdd k score' v
+    score' <- readScientificBS score
+    case floatingOrInteger score' of
+        Left double -> pure . RedSTM . STMSortedSet $ CmdZAdd k (ZScore double) v
+        Right (int :: Integer) -> pure . RedSTM . STMSortedSet $ CmdZAdd k (GeoScore (fromIntegral int)) v
 respToCmd (Array 3 [BulkStr "ZRANK", BulkStr k, BulkStr v]) = pure . RedSTM . STMSortedSet $ CmdZRank k v
 respToCmd (Array 4 [BulkStr "ZRANGE", BulkStr k, BulkStr start, BulkStr stop]) = do
     start' <- readIntBS start

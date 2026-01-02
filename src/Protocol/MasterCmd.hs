@@ -27,7 +27,7 @@ data PropogationCmd
     | RCmdLPush Key [ByteString]
     | RCmdSet Key ByteString (Maybe NominalDiffTime)
     | RCmdXAdd Key XAddStreamId [(ByteString, ByteString)]
-    | RCmdZAdd Key Double ByteString
+    | RCmdZAdd Key ZScore ByteString
     | RCmdZRem Key ByteString
     | RCmdGeoAdd Key Coordinates ByteString
     deriving (Show)
