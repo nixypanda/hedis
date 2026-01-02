@@ -14,6 +14,7 @@ module Protocol.Result (
 
 import Data.ByteString (ByteString)
 
+import Geo.Types (Coordinates)
 import Protocol.Command (Command, Key)
 import StoreBackend.StreamMap (ConcreteStreamId, StreamMapError (..))
 import StoreBackend.StreamMap qualified as SM
@@ -62,6 +63,7 @@ data CommandError
     | RIncrError
     | RTxErr TransactionError
     | RCmdNotAllowedInMode Command Mode
+    | RInvalidLatLong Coordinates
     deriving (Show, Eq)
 
 data TransactionError

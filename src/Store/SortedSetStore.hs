@@ -12,6 +12,7 @@ import Data.String (IsString (fromString))
 import Data.Word (Word64)
 
 import Geo.Encoding (encode)
+import Geo.Types (coordinatesAreValid)
 import Protocol.Command
 import Protocol.Result
 import Store.TypeStore (TypeIndex)
@@ -76,6 +77,9 @@ runGeoStoreSTM :: TVar TypeIndex -> TVar SortedSetStore -> GeoCmd -> STM (Either
 runGeoStoreSTM tvTypeIndex tvZSet cmd =
     case cmd of
         CmdGeoAdd key coords v -> do
-            let score = encode coords
-            res <- TS.setIfAvailable tvTypeIndex key VSortedSet *> zaddSTM key (GeoScore score) v tvZSet
-            pure $ Right $ RInt res
+            if coordinatesAreValid coords
+                then do
+                    let score = encode coords
+                    res <- TS.setIfAvailable tvTypeIndex key VSortedSet *> zaddSTM key (GeoScore score) v tvZSet
+                    pure $ Right $ RInt res
+                else pure $ Left $ RInvalidLatLong coords

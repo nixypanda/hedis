@@ -1,23 +1,11 @@
 {-# OPTIONS_GHC -Wno-type-defaults #-}
 
-module Geo.Encoding where
+module Geo.Encoding (encode, decode) where
 
 import Data.Bits (shiftL, shiftR, (.&.), (.|.))
 import Data.Word (Word32, Word64)
 
-import Geo.Types (Coordinates (..))
-
-minLatitude :: Double
-minLatitude = -85.05112878
-
-maxLatitude :: Double
-maxLatitude = 85.05112878
-
-minLongitude :: Double
-minLongitude = -180.0
-
-maxLongitude :: Double
-maxLongitude = 180.0
+import Geo.Types
 
 latitudeRange :: Double
 latitudeRange = maxLatitude - minLatitude

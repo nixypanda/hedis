@@ -8,6 +8,7 @@ import Data.String (IsString (fromString))
 import Text.Parsec (anyChar, char, manyTill, string)
 import Text.Parsec.ByteString (Parser)
 
+import Geo.Types (Coordinates (..))
 import Parsers (intParser, parseBS, readIntBS)
 import Protocol.Result
 import Resp.Core (Resp (..))
@@ -108,6 +109,7 @@ errorToResp (RStreamError e) = streamMapErrorToResp e
 errorToResp RIncrError = StrErr strIncrError
 errorToResp (RTxErr txErr) = txErrorToResp txErr
 errorToResp (RCmdNotAllowedInMode cmd mode) = StrErr $ "ERR Can't execute '" <> cmdToPretty cmd <> "'in " <> modeToPretty mode <> "mode"
+errorToResp (RInvalidLatLong (MkCoordinates lat long)) = StrErr $ "ERR invalid longitude,latitude pair " <> fromString (show lat) <> "," <> fromString (show long)
 
 txErrorToResp :: TransactionError -> Resp
 txErrorToResp RExecWithoutMulti = StrErr strRExecWithoutMulti
