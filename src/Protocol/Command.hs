@@ -87,6 +87,7 @@ data GeoCmd
     = CmdGeoAdd Key Coordinates ByteString
     | CmdGeoPos Key [ByteString]
     | CmdGeoDist Key ByteString ByteString
+    | CmdGeoSearchByLonLatByRadius Key Coordinates Double -- everything is meters
     deriving (Show, Eq)
 
 data CmdIO

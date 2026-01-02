@@ -5,6 +5,7 @@ module StoreBackend.SortedSetMap (
     lookup,
     remove,
     range,
+    range',
     score,
     rank,
 ) where
@@ -67,6 +68,12 @@ range key start end store =
     case M.lookup key store of
         Nothing -> []
         Just (s, _) -> map snd . slice start end . S.toAscList $ s
+
+range' :: (Ord k) => k -> Int -> Int -> SortedSetMap k v s -> [(s, v)]
+range' key start end store =
+    case M.lookup key store of
+        Nothing -> []
+        Just (s, _) -> slice start end . S.toAscList $ s
 
 normalize :: Int -> Int -> Int
 normalize len i

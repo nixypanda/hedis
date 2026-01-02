@@ -103,3 +103,9 @@ runGeoStoreSTM tvTypeIndex tvZSet cmd =
             res <- mapM (geoPosSTM tvZSet key) vals
             pure $ Right $ RCoordinates res
         CmdGeoDist key1 val1 val2 -> Right . RDoubleOrNil <$> getDistSTM tvZSet key1 val1 val2
+        CmdGeoSearchByLonLatByRadius key origin radius -> do
+            -- The sorted set implementation does not support fast range queries
+            -- so, just filtering on all the elements.
+            options <- SSS.range' key 0 (-1) <$> readTVar tvZSet
+            let filtered = map snd . filter ((< radius) . haversineDistance origin . zscoreToGeo . fst) $ options
+            pure $ Right $ RArraySimple filtered
