@@ -5,14 +5,14 @@ module Main (main) where
 import Control.Concurrent.Async (async)
 import Control.Exception (throwIO)
 import Control.Monad.Except (runExceptT)
-import Control.Monad.Reader (ReaderT (runReaderT))
-import GHC.Conc (newTVarIO)
+import Control.Monad.Reader (ReaderT (runReaderT), liftIO)
 import Network.Simple.TCP (HostPreference (HostAny), closeSock, connect, serve)
 import Options.Applicative (execParser)
 import System.IO (BufferMode (NoBuffering), hSetBuffering, stderr, stdout)
 import System.Log.FastLogger (LogStr, toLogStr)
 
 import Cli
+import GHC.Conc.Sync (atomically)
 import Replication.Config
 import Replication.Master (runRdbLoad)
 import Server.ClientLoop
@@ -46,9 +46,7 @@ runReplica env port replicaOf = do
 
     serve HostAny (show port) $ \(socket, address) -> do
         logInfo' $ "successfully connected client: " ++ show address
-        txState <- newTVarIO NoTx
-        subbedChannels <- newTVarIO []
-        let clientState = MkClientState{..}
+        clientState <- liftIO $ atomically $ newClient socket
         runRedisIO env (clientLoopWrite clientState socket)
         logInfo' "Closing connection"
         closeSock socket
@@ -60,9 +58,7 @@ runMaster env port = do
     logInfo' $ "Starting master server on port " <> show port
     serve HostAny (show port) $ \(socket, address) -> do
         logInfo' $ "successfully connected client: " ++ show address
-        txState <- newTVarIO NoTx
-        subbedChannels <- newTVarIO []
-        let clientState = MkClientState{..}
+        clientState <- liftIO $ atomically $ newClient socket
         runRedisIO env (clientLoopWrite clientState socket)
         logInfo' "Closing connection"
         closeSock socket

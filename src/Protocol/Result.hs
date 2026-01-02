@@ -69,6 +69,7 @@ data CommandError
     | RCmdNotAllowedInMode Command Mode
     | RInvalidLatLong Coordinates
     | RAuthErrorWrongPassword
+    | RAuthErrorNoAuth
     deriving (Show, Eq)
 
 data TransactionError

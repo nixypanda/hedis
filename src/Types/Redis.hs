@@ -3,6 +3,7 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module Types.Redis (
     HasReplication (..),
@@ -21,9 +22,10 @@ module Types.Redis (
     mkMasterEnv,
     mkReplicaEnv,
     logInfo,
+    newClient,
 ) where
 
-import Control.Concurrent.STM (TVar, atomically)
+import Control.Concurrent.STM (TVar, atomically, newTVar)
 import Control.Exception (Exception)
 import Control.Monad.Except (ExceptT (..), MonadError)
 import Control.Monad.IO.Class (MonadIO (liftIO))
@@ -40,6 +42,7 @@ import System.Log.FastLogger (
     simpleTimeFormat,
  )
 
+import Control.Monad.STM (STM)
 import Protocol.Command (CmdSTM, Command, Key)
 import Protocol.Result (CommandResult, Result)
 import Replication.Config (
@@ -135,7 +138,17 @@ data ClientState = MkClientState
     { txState :: TVar TxState
     , socket :: Socket
     , subbedChannels :: TVar [Key]
+    , name :: TVar Key
+    , authenticated :: TVar Bool
     }
+
+newClient :: Socket -> STM ClientState
+newClient socket = do
+    txState <- newTVar NoTx
+    subbedChannels <- newTVar []
+    name <- newTVar "default"
+    authenticated <- newTVar False
+    pure MkClientState{..}
 
 newtype Redis r a = MkRedis {runRedis :: ReaderT (Env r) (ExceptT RedisError IO) a}
     deriving newtype (Functor, Applicative, Monad, MonadError RedisError, MonadIO, MonadReader (Env r), MonadFail)

@@ -125,6 +125,7 @@ errorToResp (RTxErr txErr) = txErrorToResp txErr
 errorToResp (RCmdNotAllowedInMode cmd mode) = StrErr $ "ERR Can't execute '" <> cmdToPretty cmd <> "'in " <> modeToPretty mode <> "mode"
 errorToResp (RInvalidLatLong (MkCoordinates lat long)) = StrErr $ "ERR invalid longitude,latitude pair " <> fromString (show long) <> "," <> fromString (show lat)
 errorToResp RAuthErrorWrongPassword = StrErr "WRONGPASS invalid username-password pair or user is disabled."
+errorToResp RAuthErrorNoAuth = StrErr "NOAUTH Authentication required."
 
 txErrorToResp :: TransactionError -> Resp
 txErrorToResp RExecWithoutMulti = StrErr strRExecWithoutMulti
