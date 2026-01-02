@@ -11,7 +11,8 @@ import Data.Map qualified as M
 import Data.String (IsString (fromString))
 import Data.Word (Word64)
 
-import Geo.Encoding (encode)
+import GHC.Float (castDoubleToWord64)
+import Geo.Encoding (decode, encode)
 import Geo.Types (coordinatesAreValid)
 import Protocol.Command
 import Protocol.Result
@@ -83,3 +84,12 @@ runGeoStoreSTM tvTypeIndex tvZSet cmd =
                     res <- TS.setIfAvailable tvTypeIndex key VSortedSet *> zaddSTM key (GeoScore score) v tvZSet
                     pure $ Right $ RInt res
                 else pure $ Left $ RInvalidLatLong coords
+        CmdGeoPos key val -> do
+            res <- zscoreSTM key val tvZSet
+            case res of
+                Nothing -> pure $ Right RArrayNull
+                -- We can throw error here, but Redis returns garbage so we will too
+                Just (ZScore s) -> wordToCoords . castDoubleToWord64 $ s
+                Just (GeoScore s) -> wordToCoords s
+  where
+    wordToCoords s = pure $ Right $ RCoordinates $ decode s

@@ -117,6 +117,7 @@ respToCmd (Array 5 [BulkStr "GEOADD", BulkStr k, BulkStr long, BulkStr lat, Bulk
     lat' <- readFloatBS lat
     long' <- readFloatBS long
     pure $ RedSTM $ STMGeo $ CmdGeoAdd k (MkCoordinates lat' long') v
+respToCmd (Array 3 [BulkStr "GEOPOS", BulkStr k, BulkStr v]) = pure $ RedSTM $ STMGeo $ CmdGeoPos k v
 -- Unhandled
 respToCmd r = Left $ "Conversion Error" <> show r
 
@@ -165,6 +166,7 @@ stmCmdToResp CmdKeys = Array 2 [BulkStr "KEYS", BulkStr "*"]
 
 geoStmCmdToResp :: GeoCmd -> Resp
 geoStmCmdToResp (CmdGeoAdd k (MkCoordinates lat long) v) = Array 5 [BulkStr "GEOADD", BulkStr k, BulkStr $ fromString $ show long, BulkStr $ fromString $ show lat, BulkStr v]
+geoStmCmdToResp (CmdGeoPos k v) = Array 3 [BulkStr "GEOPOS", BulkStr k, BulkStr v]
 
 sortedSetStmCmdToResp :: SortedSetCmd -> Resp
 sortedSetStmCmdToResp (CmdZAdd k score v) = Array 4 [BulkStr "ZADD", BulkStr k, BulkStr $ fromString $ show score, BulkStr v]
@@ -254,6 +256,7 @@ stmCmdToPretty CmdKeys = "KEYS"
 
 geoStmCmdToPretty :: GeoCmd -> ByteString
 geoStmCmdToPretty (CmdGeoAdd{}) = "GEOADD"
+geoStmCmdToPretty (CmdGeoPos{}) = "GEOPOS"
 
 sortedSetStmCmdToPretty :: SortedSetCmd -> ByteString
 sortedSetStmCmdToPretty (CmdZAdd{}) = "ZADD"

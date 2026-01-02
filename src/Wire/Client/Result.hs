@@ -42,6 +42,7 @@ cmdResultToResp (RArrayKeyValues kvs) = arrayMap arrayKeyValsToResp kvs
 cmdResultToResp (RStreamId sid) = streamIdToResp sid
 cmdResultToResp (ResSubscribed chan n) = Array 3 [BulkStr "subscribe", BulkStr chan, Int n]
 cmdResultToResp (ResUnsubscribed chan n) = Array 3 [BulkStr "unsubscribe", BulkStr chan, Int n]
+cmdResultToResp (RCoordinates (MkCoordinates lat long)) = Array 2 [BulkStr $ fromString $ show long, BulkStr $ fromString $ show lat]
 cmdResultToResp (RRepl r) = replResultToResp r
 
 replResultToResp :: ReplResult -> Resp
@@ -109,7 +110,7 @@ errorToResp (RStreamError e) = streamMapErrorToResp e
 errorToResp RIncrError = StrErr strIncrError
 errorToResp (RTxErr txErr) = txErrorToResp txErr
 errorToResp (RCmdNotAllowedInMode cmd mode) = StrErr $ "ERR Can't execute '" <> cmdToPretty cmd <> "'in " <> modeToPretty mode <> "mode"
-errorToResp (RInvalidLatLong (MkCoordinates lat long)) = StrErr $ "ERR invalid longitude,latitude pair " <> fromString (show lat) <> "," <> fromString (show long)
+errorToResp (RInvalidLatLong (MkCoordinates lat long)) = StrErr $ "ERR invalid longitude,latitude pair " <> fromString (show long) <> "," <> fromString (show lat)
 
 txErrorToResp :: TransactionError -> Resp
 txErrorToResp RExecWithoutMulti = StrErr strRExecWithoutMulti

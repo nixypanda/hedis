@@ -28,7 +28,7 @@ propogationCmdToResp (RCmdLPop key (Just len)) = Array 3 [BulkStr "LPOP", BulkSt
 propogationCmdToResp (RCmdXAdd key sid kvs) = Array (3 + length kvs * 2) $ BulkStr "XADD" : BulkStr key : BulkStr (showXaddId sid) : concatMap (\(k, v) -> [BulkStr k, BulkStr v]) kvs
 propogationCmdToResp (RCmdZAdd key score value) = Array 4 [BulkStr "ZADD", BulkStr key, BulkStr $ fromString $ show score, BulkStr value]
 propogationCmdToResp (RCmdZRem key value) = Array 3 [BulkStr "ZREM", BulkStr key, BulkStr value]
-propogationCmdToResp (RCmdGeoAdd key (MkCoordinates lat long) value) = Array 5 [BulkStr "GEOADD", BulkStr key, BulkStr $ fromString $ show lat, BulkStr $ fromString $ show long, BulkStr value]
+propogationCmdToResp (RCmdGeoAdd key (MkCoordinates lat long) value) = Array 5 [BulkStr "GEOADD", BulkStr key, BulkStr $ fromString $ show long, BulkStr $ fromString $ show lat, BulkStr value]
 
 respToMasterCmd :: Resp -> Either String MasterCommand
 respToMasterCmd (Array 1 [BulkStr "PING"]) = pure MasterPing
