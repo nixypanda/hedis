@@ -1,10 +1,21 @@
-module StoreBackend.SortedSetMap where
+module StoreBackend.SortedSetMap (
+    SortedSetMap,
+    insert,
+    count,
+    lookup,
+    remove,
+    range,
+    score,
+    rank,
+) where
 
 import Data.Map (Map)
 import Data.Set (Set)
 
 import Data.Map.Strict qualified as M
 import Data.Set qualified as S
+
+import Prelude hiding (lookup)
 
 type Set' v = Set (Double, v)
 type Index v = Map v Double
@@ -67,7 +78,7 @@ slice start stop xs =
     let len = length xs
         start' = normalize len start
         stop' = normalize len stop
-        count = stop' - start' + 1
-     in if count <= 0
+        count' = stop' - start' + 1
+     in if count' <= 0
             then []
-            else take count (drop start' xs)
+            else take count' (drop start' xs)

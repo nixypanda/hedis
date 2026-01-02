@@ -1,6 +1,6 @@
-module Store.SortedSetStore where
+module Store.SortedSetStore (SortedSetStore, emptySTM, runSortedSetStoreSTM) where
 
-import Control.Concurrent.STM
+import Control.Concurrent.STM (STM, TVar, newTVar, readTVar, writeTVar)
 import Data.ByteString (ByteString)
 import Data.Map qualified as M
 import Data.String (IsString (fromString))
@@ -10,10 +10,9 @@ import Protocol.Result
 import Store.TypeStore (TypeIndex)
 import Store.TypeStore qualified as TS
 import StoreBackend.ListMap (Range (..))
-import StoreBackend.SortedSetMap
+import StoreBackend.SortedSetMap (SortedSetMap)
+import StoreBackend.SortedSetMap qualified as SSS
 import StoreBackend.TypeIndex (ValueType (..))
-
-import Prelude hiding (lookup)
 
 type SortedSetStore = SortedSetMap ByteString ByteString
 
@@ -23,29 +22,29 @@ emptySTM = newTVar M.empty
 zaddSTM :: ByteString -> Double -> ByteString -> TVar SortedSetStore -> STM Int
 zaddSTM key score' val tv = do
     m <- readTVar tv
-    let m' = insert key score' val m
+    let m' = SSS.insert key score' val m
     writeTVar tv m'
-    pure $ count key m' - count key m
+    pure $ SSS.count key m' - SSS.count key m
 
 zcardSTM :: ByteString -> TVar SortedSetStore -> STM Int
-zcardSTM key tv = count key <$> readTVar tv
+zcardSTM key tv = SSS.count key <$> readTVar tv
 
 zscoreSTM :: ByteString -> ByteString -> TVar SortedSetStore -> STM (Maybe Double)
-zscoreSTM key val tv = score key val <$> readTVar tv
+zscoreSTM key val tv = SSS.score key val <$> readTVar tv
 
 zrankSTM :: ByteString -> ByteString -> TVar SortedSetStore -> STM (Maybe Int)
-zrankSTM key val tv = rank key val <$> readTVar tv
+zrankSTM key val tv = SSS.rank key val <$> readTVar tv
 
 zremSTM :: ByteString -> ByteString -> TVar SortedSetStore -> STM (Maybe ByteString)
 zremSTM key val tv = do
     m <- readTVar tv
-    let res = lookup key val m
-        m' = remove key val m
+    let res = SSS.lookup key val m
+        m' = SSS.remove key val m
     writeTVar tv m'
-    pure $ res
+    pure res
 
 zrangeSTM :: ByteString -> Int -> Int -> TVar SortedSetStore -> STM [ByteString]
-zrangeSTM key start end tv = range key start end <$> readTVar tv
+zrangeSTM key start end tv = SSS.range key start end <$> readTVar tv
 
 runSortedSetStoreSTM :: TVar TypeIndex -> TVar SortedSetStore -> SortedSetCmd -> STM CommandResult
 runSortedSetStoreSTM tvTypeIndex tvZSet cmd =
