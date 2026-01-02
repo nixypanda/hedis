@@ -2,7 +2,7 @@
 
 module Server.ClientLoop (clientLoopWrite) where
 
-import Control.Concurrent.STM (STM, atomically, modifyTVar, readTVar, writeTVar)
+import Control.Concurrent.STM (STM, TVar, atomically, modifyTVar, readTVar, writeTVar)
 import Control.Monad (forM_, forever)
 import Control.Monad.Except (liftEither)
 import Control.Monad.IO.Class (MonadIO (liftIO))
@@ -13,7 +13,7 @@ import Data.List (delete, nub)
 import Data.Time (UTCTime, getCurrentTime)
 import Network.Simple.TCP (Socket, send)
 
-import Auth.Types (UserFlags (..), UserProperty (..))
+import Auth.Types (Sha256, UserFlags (..), UserProperty (..))
 import Execution.Base (runConfigInfoCmds, runServerInfoCmds)
 import Protocol.Command
 import Protocol.Message (Message (MkMessage))
@@ -22,6 +22,7 @@ import Replication.Master (runAndReplicateIO, runAndReplicateSTM, runMasterToRep
 import Replication.Replica (runReplicaToMasterReplicationCmds)
 import Resp.Client (mkRespConn, recvResp)
 import Resp.Core (encode)
+import Store.AuthStore (AuthStore)
 import Store.AuthStore qualified as AS
 import Store.PubSubStore (getChannels)
 import Store.PubSubStore qualified as PS
@@ -52,7 +53,10 @@ runCmd clientState command = do
     env <- ask
     authRes <- liftIO . atomically $ requireAuthSTM env clientState
     case authRes of
-        Left err -> pure $ ResError err
+        Left err ->
+            case command of
+                RedAuth (CmdAuth uname pass) -> resFromEither <$> liftIO (atomically $ performAuth clientState (getAuthStore env) uname pass)
+                _ -> pure $ ResError err
         Right () -> do
             now <- liftIO getCurrentTime
             (txState, subbedChannels) <- liftIO $ atomically $ do
@@ -114,7 +118,7 @@ requireAuthSTM env clientState = do
                         else pure $ Left RAuthErrorNoAuth
 
 handleAuthCommands :: (HasStores r) => ClientState -> CmdAuth -> Redis r (Either CommandError CommandResult)
-handleAuthCommands _clientState command = do
+handleAuthCommands clientState command = do
     env <- ask
     let tvAuthStore = getAuthStore env
     case command of
@@ -125,12 +129,18 @@ handleAuthCommands _clientState command = do
         CmdAclSetUser uname pass -> liftIO . atomically $ do
             AS.addPasswordSTM uname pass tvAuthStore
             pure $ Right ResOk
-        CmdAuth uname pass -> liftIO . atomically $ do
-            muser <- AS.getUserSTM uname tvAuthStore
-            let passes = maybe [] (.passwords) muser
-            if pass `elem` passes
-                then pure $ Right ResOk
-                else pure $ Left RAuthErrorWrongPassword
+        CmdAuth uname pass -> liftIO . atomically $ performAuth clientState tvAuthStore uname pass
+
+performAuth :: ClientState -> TVar AuthStore -> Key -> Sha256 -> STM (Either CommandError CommandResult)
+performAuth clientState tvAuthStore uname pass = do
+    muser <- AS.getUserSTM uname tvAuthStore
+    let passes = maybe [] (.passwords) muser
+    if pass `elem` passes
+        then do
+            modifyTVar clientState.authenticated (const True)
+            modifyTVar clientState.name (const uname)
+            pure $ Right ResOk
+        else pure $ Left RAuthErrorWrongPassword
 
 -- pub-sub
 
