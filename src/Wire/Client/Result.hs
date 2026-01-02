@@ -8,7 +8,7 @@ import Data.String (IsString (fromString))
 import Text.Parsec (anyChar, char, manyTill, string)
 import Text.Parsec.ByteString (Parser)
 
-import Auth.Types (Sha256 (unSha256), UserFlags (..), UserProperty (..), sha256Hex)
+import Auth.Types (UserFlags (..), UserProperty (..), sha256Hex)
 import Geo.Types (Coordinates (..))
 import Parsers (intParser, parseBS, readIntBS)
 import Protocol.Result
@@ -124,6 +124,7 @@ errorToResp RIncrError = StrErr strIncrError
 errorToResp (RTxErr txErr) = txErrorToResp txErr
 errorToResp (RCmdNotAllowedInMode cmd mode) = StrErr $ "ERR Can't execute '" <> cmdToPretty cmd <> "'in " <> modeToPretty mode <> "mode"
 errorToResp (RInvalidLatLong (MkCoordinates lat long)) = StrErr $ "ERR invalid longitude,latitude pair " <> fromString (show long) <> "," <> fromString (show lat)
+errorToResp RAuthErrorWrongPassword = StrErr "WRONGPASS invalid username-password pair or user is disabled."
 
 txErrorToResp :: TransactionError -> Resp
 txErrorToResp RExecWithoutMulti = StrErr strRExecWithoutMulti

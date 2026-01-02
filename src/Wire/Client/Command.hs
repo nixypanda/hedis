@@ -147,6 +147,7 @@ respToCmd
 respToCmd (Array 2 [BulkStr "ACL", BulkStr "WHOAMI"]) = pure $ RedAuth CmdAclWhoAmI
 respToCmd (Array 3 [BulkStr "ACL", BulkStr "GETUSER", BulkStr uname]) = pure $ RedAuth $ CmdAclGetUser uname
 respToCmd (Array 4 [BulkStr "ACL", BulkStr "SETUSER", BulkStr uname, BulkStr pass]) = pure $ RedAuth $ CmdAclSetUser uname (hashPassword $ BS.drop 1 pass)
+respToCmd (Array 3 [BulkStr "AUTH", BulkStr uname, BulkStr pass]) = pure $ RedAuth $ CmdAuth uname (hashPassword pass)
 -- Unhandled
 respToCmd r = Left $ "Conversion Error" <> show r
 
@@ -167,6 +168,7 @@ authCmdToResp :: CmdAuth -> Resp
 authCmdToResp CmdAclWhoAmI = Array 2 [BulkStr "ACL", BulkStr "WHOAMI"]
 authCmdToResp (CmdAclGetUser uname) = Array 3 [BulkStr "ACL", BulkStr "GETUSER", BulkStr uname]
 authCmdToResp (CmdAclSetUser uname pwd) = Array 4 [BulkStr "ACL", BulkStr "SETUSER", BulkStr uname, BulkStr $ unSha256 pwd]
+authCmdToResp (CmdAuth uname pwd) = Array 3 [BulkStr "AUTH", BulkStr uname, BulkStr $ unSha256 pwd]
 
 subCmdToResp :: PubSub -> Resp
 subCmdToResp (CmdSubscribe chan) = Array 2 [BulkStr "SUBSCRIBE", BulkStr chan]
@@ -276,6 +278,7 @@ authCmdToPretty :: CmdAuth -> ByteString
 authCmdToPretty CmdAclWhoAmI = "WHOAMI"
 authCmdToPretty CmdAclGetUser{} = "GETUSER"
 authCmdToPretty CmdAclSetUser{} = "SETUSER"
+authCmdToPretty CmdAuth{} = "AUTH"
 
 subCmdToPretty :: PubSub -> ByteString
 subCmdToPretty (CmdSubscribe{}) = "SUBSCRIBE"

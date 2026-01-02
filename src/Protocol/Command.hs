@@ -127,6 +127,7 @@ data CmdAuth
     = CmdAclWhoAmI
     | CmdAclGetUser ByteString
     | CmdAclSetUser Key Sha256
+    | CmdAuth Key Sha256
     deriving (Show, Eq)
 
 data ZScore = ZScore Double | GeoScore Word64

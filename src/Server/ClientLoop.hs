@@ -13,6 +13,7 @@ import Data.List (delete, nub)
 import Data.Time (UTCTime, getCurrentTime)
 import Network.Simple.TCP (Socket, send)
 
+import Auth.Types (UserProperty (..))
 import Execution.Base (runConfigInfoCmds, runServerInfoCmds)
 import Protocol.Command
 import Protocol.Message (Message (MkMessage))
@@ -102,6 +103,12 @@ handleAuthCommands _clientState command = do
         CmdAclSetUser uname pass -> liftIO . atomically $ do
             AS.addPasswordSTM uname pass tvAuthStore
             pure $ Right ResOk
+        CmdAuth uname pass -> liftIO . atomically $ do
+            muser <- AS.getUserSTM uname tvAuthStore
+            let passes = maybe [] (.passwords) muser
+            if pass `elem` passes
+                then pure $ Right ResOk
+                else pure $ Left RAuthErrorWrongPassword
 
 -- pub-sub
 
