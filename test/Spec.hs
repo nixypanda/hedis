@@ -2,6 +2,7 @@ module Main (main) where
 
 import Test.Tasty (TestTree, defaultMain, testGroup)
 
+import TestGeo.TestEncoding qualified
 import TestParsers qualified
 import TestRdb.TestParser qualified
 import TestResp.TestCore qualified
@@ -27,6 +28,7 @@ tests =
         , TestWire.TestClient.TestCommand.tests
         , TestRdb.TestParser.tests
         , TestStoreBackend.TestSortedSetMap.tests
+        , TestGeo.TestEncoding.tests
         ]
 
 main :: IO ()
