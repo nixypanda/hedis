@@ -4,6 +4,7 @@ import Control.Concurrent.STM (STM, TVar, newTVar, readTVar, writeTVar)
 import Data.ByteString (ByteString)
 import Data.Map qualified as M
 import Data.String (IsString (fromString))
+import Data.Word (Word64)
 
 import Protocol.Command
 import Protocol.Result
@@ -14,7 +15,14 @@ import StoreBackend.SortedSetMap (SortedSetMap)
 import StoreBackend.SortedSetMap qualified as SSS
 import StoreBackend.TypeIndex (ValueType (..))
 
-type SortedSetStore = SortedSetMap ByteString ByteString Double
+data Score = ZScore Double | GeoScore Word64
+    deriving (Eq, Ord)
+
+showPretty :: Score -> ByteString
+showPretty (ZScore score) = fromString $ show score
+showPretty (GeoScore geo) = fromString $ show geo
+
+type SortedSetStore = SortedSetMap ByteString ByteString Score
 
 emptySTM :: STM (TVar SortedSetStore)
 emptySTM = newTVar M.empty
@@ -22,14 +30,14 @@ emptySTM = newTVar M.empty
 zaddSTM :: ByteString -> Double -> ByteString -> TVar SortedSetStore -> STM Int
 zaddSTM key score' val tv = do
     m <- readTVar tv
-    let m' = SSS.insert key score' val m
+    let m' = SSS.insert key (ZScore score') val m
     writeTVar tv m'
     pure $ SSS.count key m' - SSS.count key m
 
 zcardSTM :: ByteString -> TVar SortedSetStore -> STM Int
 zcardSTM key tv = SSS.count key <$> readTVar tv
 
-zscoreSTM :: ByteString -> ByteString -> TVar SortedSetStore -> STM (Maybe Double)
+zscoreSTM :: ByteString -> ByteString -> TVar SortedSetStore -> STM (Maybe Score)
 zscoreSTM key val tv = SSS.score key val <$> readTVar tv
 
 zrankSTM :: ByteString -> ByteString -> TVar SortedSetStore -> STM (Maybe Int)
@@ -55,5 +63,5 @@ runSortedSetStoreSTM tvTypeIndex tvZSet cmd =
         CmdZCard key -> RInt <$> zcardSTM key tvZSet
         CmdZScore key val -> do
             mSc <- zscoreSTM key val tvZSet
-            pure $ RBulk (fromString . show <$> mSc)
+            pure $ RBulk (showPretty <$> mSc)
         CmdZRem key val -> RInt . maybe 0 (const 1) <$> zremSTM key val tvZSet
