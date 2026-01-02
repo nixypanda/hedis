@@ -10,6 +10,7 @@ import Data.ByteString (ByteString)
 import Data.String (fromString)
 import Data.Time (NominalDiffTime)
 
+import Geo.Types (Coordinates)
 import Protocol.Command
 import Protocol.Result
 import StoreBackend.StreamMap (XAddStreamId)
@@ -28,6 +29,7 @@ data PropogationCmd
     | RCmdXAdd Key XAddStreamId [(ByteString, ByteString)]
     | RCmdZAdd Key Double ByteString
     | RCmdZRem Key ByteString
+    | RCmdGeoAdd Key Coordinates ByteString
     deriving (Show)
 
 propogationCmdToCmdSTM :: PropogationCmd -> CmdSTM
@@ -39,6 +41,7 @@ propogationCmdToCmdSTM (RCmdLPop key l) = STMList $ CmdLPop key l
 propogationCmdToCmdSTM (RCmdXAdd key sid kvs) = STMStream $ CmdXAdd key sid kvs
 propogationCmdToCmdSTM (RCmdZAdd key score val) = STMSortedSet $ CmdZAdd key score val
 propogationCmdToCmdSTM (RCmdZRem key val) = STMSortedSet $ CmdZRem key val
+propogationCmdToCmdSTM (RCmdGeoAdd key coords val) = STMGeo $ CmdGeoAdd key coords val
 
 replicateIOCmdAs :: CmdIO -> CommandResult -> Maybe PropogationCmd
 replicateIOCmdAs (CmdBLPop k 0) (RArraySimple _) = Just $ RCmdLPop k (Just 1)
@@ -53,10 +56,14 @@ replicateSTMCmdAs (STMString c) cr = replicateStringCmd c cr
 replicateSTMCmdAs (STMList c) cr = replicateListCmd c cr
 replicateSTMCmdAs (STMStream c) cr = replicateStreamCmd c cr
 replicateSTMCmdAs (STMSortedSet c) cr = replicateSortedSetCmd c cr
+replicateSTMCmdAs (STMGeo c) cr = replicateGeoCmd c cr
 replicateSTMCmdAs CmdPing _ = Nothing
 replicateSTMCmdAs (CmdEcho{}) _ = Nothing
 replicateSTMCmdAs (CmdType{}) _ = Nothing
 replicateSTMCmdAs CmdKeys _ = Nothing
+
+replicateGeoCmd :: GeoCmd -> CommandResult -> Maybe PropogationCmd
+replicateGeoCmd (CmdGeoAdd k coords val) _ = Just $ RCmdGeoAdd k coords val
 
 replicateSortedSetCmd :: SortedSetCmd -> CommandResult -> Maybe PropogationCmd
 replicateSortedSetCmd (CmdZAdd k score v) _ = Just $ RCmdZAdd k score v

@@ -6,6 +6,7 @@ import Data.String (IsString (fromString))
 import Data.Time (nominalDiffTimeToSeconds, secondsToNominalDiffTime)
 
 import Data.ByteString (ByteString)
+import Geo.Types (Coordinates (..))
 import Parsers (readFloatBS, readIntBS)
 import Protocol.Command
 import Resp.Core (Resp (..))
@@ -112,6 +113,10 @@ respToCmd (Array 4 [BulkStr "ZRANGE", BulkStr k, BulkStr start, BulkStr stop]) =
 respToCmd (Array 2 [BulkStr "ZCARD", BulkStr k]) = pure . RedSTM . STMSortedSet $ CmdZCard k
 respToCmd (Array 3 [BulkStr "ZSCORE", BulkStr k, BulkStr v]) = pure . RedSTM . STMSortedSet $ CmdZScore k v
 respToCmd (Array 3 [BulkStr "ZREM", BulkStr k, BulkStr v]) = pure . RedSTM . STMSortedSet $ CmdZRem k v
+respToCmd (Array 5 [BulkStr "GEOADD", BulkStr k, BulkStr lat, BulkStr long, BulkStr v]) = do
+    lat' <- readFloatBS lat
+    long' <- readFloatBS long
+    pure $ RedSTM $ STMGeo $ CmdGeoAdd k (MkCoordinates lat' long') v
 -- Unhandled
 respToCmd r = Left $ "Conversion Error" <> show r
 
@@ -155,7 +160,11 @@ stmCmdToResp (STMString cmd) = stringStoreCmdToResp cmd
 stmCmdToResp (STMList cmd) = listStmCmdToResp cmd
 stmCmdToResp (STMStream cmd) = streamStmCmdToResp cmd
 stmCmdToResp (STMSortedSet cmd) = sortedSetStmCmdToResp cmd
+stmCmdToResp (STMGeo cmd) = geoStmCmdToResp cmd
 stmCmdToResp CmdKeys = Array 2 [BulkStr "KEYS", BulkStr "*"]
+
+geoStmCmdToResp :: GeoCmd -> Resp
+geoStmCmdToResp (CmdGeoAdd k (MkCoordinates lat long) v) = Array 5 [BulkStr "GEOADD", BulkStr k, BulkStr $ fromString $ show lat, BulkStr $ fromString $ show long, BulkStr v]
 
 sortedSetStmCmdToResp :: SortedSetCmd -> Resp
 sortedSetStmCmdToResp (CmdZAdd k score v) = Array 4 [BulkStr "ZADD", BulkStr k, BulkStr $ fromString $ show score, BulkStr v]
@@ -240,7 +249,11 @@ stmCmdToPretty (STMString cmd) = stringStoreCmdToPretty cmd
 stmCmdToPretty (STMList cmd) = listStmCmdToPretty cmd
 stmCmdToPretty (STMStream cmd) = streamStmCmdToPretty cmd
 stmCmdToPretty (STMSortedSet cmd) = sortedSetStmCmdToPretty cmd
+stmCmdToPretty (STMGeo cmd) = geoStmCmdToPretty cmd
 stmCmdToPretty CmdKeys = "KEYS"
+
+geoStmCmdToPretty :: GeoCmd -> ByteString
+geoStmCmdToPretty (CmdGeoAdd{}) = "GEOADD"
 
 sortedSetStmCmdToPretty :: SortedSetCmd -> ByteString
 sortedSetStmCmdToPretty (CmdZAdd{}) = "ZADD"

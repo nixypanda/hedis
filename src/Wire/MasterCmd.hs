@@ -4,6 +4,7 @@ module Wire.MasterCmd (masterCmdToResp, respToMasterCmd, propogationCmdToResp) w
 
 import Data.String (fromString)
 
+import Geo.Types (Coordinates (MkCoordinates))
 import Parsers (readFloatBS, readIntBS)
 import Protocol.Command
 import Protocol.MasterCmd
@@ -27,6 +28,7 @@ propogationCmdToResp (RCmdLPop key (Just len)) = Array 3 [BulkStr "LPOP", BulkSt
 propogationCmdToResp (RCmdXAdd key sid kvs) = Array (3 + length kvs * 2) $ BulkStr "XADD" : BulkStr key : BulkStr (showXaddId sid) : concatMap (\(k, v) -> [BulkStr k, BulkStr v]) kvs
 propogationCmdToResp (RCmdZAdd key score value) = Array 4 [BulkStr "ZADD", BulkStr key, BulkStr $ fromString $ show score, BulkStr value]
 propogationCmdToResp (RCmdZRem key value) = Array 3 [BulkStr "ZREM", BulkStr key, BulkStr value]
+propogationCmdToResp (RCmdGeoAdd key (MkCoordinates lat long) value) = Array 5 [BulkStr "GEOADD", BulkStr key, BulkStr $ fromString $ show lat, BulkStr $ fromString $ show long, BulkStr value]
 
 respToMasterCmd :: Resp -> Either String MasterCommand
 respToMasterCmd (Array 1 [BulkStr "PING"]) = pure MasterPing
@@ -55,4 +57,9 @@ respToMasterCmd (Array 4 [BulkStr "ZADD", BulkStr k, BulkStr score, BulkStr v]) 
     score' <- readFloatBS score
     pure . PropogationCmd $ RCmdZAdd k score' v
 respToMasterCmd (Array 3 [BulkStr "ZREM", BulkStr k, BulkStr v]) = pure . PropogationCmd $ RCmdZRem k v
+-- Geo
+respToMasterCmd (Array 5 [BulkStr "GEOADD", BulkStr k, BulkStr lat, BulkStr long, BulkStr v]) = do
+    lat' <- readFloatBS lat
+    long' <- readFloatBS long
+    pure $ PropogationCmd $ RCmdGeoAdd k (MkCoordinates lat' long') v
 respToMasterCmd c = Left $ "Invalid Propogation Command: -> " <> show c

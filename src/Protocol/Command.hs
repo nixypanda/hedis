@@ -14,11 +14,13 @@ module Protocol.Command (
     SubConfig (..),
     PubSub (..),
     SortedSetCmd (..),
+    GeoCmd (..),
 ) where
 
 import Data.ByteString (ByteString)
 import Data.Time (NominalDiffTime)
 
+import Geo.Types (Coordinates)
 import StoreBackend.ListMap (Range (..))
 import StoreBackend.StreamMap (ConcreteStreamId, XAddStreamId (..), XRange (..), XReadStreamId (..))
 
@@ -47,6 +49,7 @@ data CmdSTM
     | STMList ListCmd
     | STMStream StreamCmd
     | STMSortedSet SortedSetCmd
+    | STMGeo GeoCmd
     deriving (Show, Eq)
 
 data StringCmd
@@ -76,6 +79,9 @@ data SortedSetCmd
     | CmdZCard Key
     | CmdZScore Key ByteString
     | CmdZRem Key ByteString
+    deriving (Show, Eq)
+
+data GeoCmd = CmdGeoAdd Key Coordinates ByteString
     deriving (Show, Eq)
 
 data CmdIO
