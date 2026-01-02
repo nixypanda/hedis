@@ -13,7 +13,7 @@ import Data.List (delete, nub)
 import Data.Time (UTCTime, getCurrentTime)
 import Network.Simple.TCP (Socket, send)
 
-import Auth.Types (UserProperty (MkUserProperty))
+import Auth.Types (UserFlags (..), UserProperty (..))
 import Execution.Base (runConfigInfoCmds, runServerInfoCmds)
 import Protocol.Command
 import Protocol.Message (Message (MkMessage))
@@ -57,7 +57,7 @@ runCmd clientState command = do
     case subbedChannels of
         [] -> case command of
             RedAuth CmdAclWhoAmI -> pure . ResNormal $ RBulk $ Just "default"
-            RedAuth (CmdAclGetUser _) -> pure . ResNormal $ ResUserProperties $ MkUserProperty []
+            RedAuth (CmdAclGetUser _) -> pure . ResNormal $ ResUserProperties $ MkUserProperty{flags = MkUserFlags{nopass = True}}
             RedRepl (CmdReplicaToMaster c) -> resFromMaybe <$> runReplicaToMasterReplicationCmds clientState.socket c
             RedRepl (CmdMasterToReplica c) -> liftIO . atomically $ ResNormal <$> runMasterToReplicaReplicationCmds env c
             RedInfo section -> liftIO . atomically $ ResNormal <$> runServerInfoCmds env section

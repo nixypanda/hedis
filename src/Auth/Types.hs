@@ -1,6 +1,7 @@
-module Auth.Types where
+module Auth.Types (UserFlags (..), UserProperty (..)) where
 
-import Data.ByteString (ByteString)
+newtype UserFlags = MkUserFlags {nopass :: Bool}
+    deriving (Show, Eq)
 
-newtype UserProperty = MkUserProperty {flags :: [ByteString]}
+newtype UserProperty = MkUserProperty {flags :: UserFlags}
     deriving (Show, Eq)

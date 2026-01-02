@@ -45,7 +45,7 @@ cmdResultToResp (RStreamId sid) = streamIdToResp sid
 cmdResultToResp (ResSubscribed chan n) = Array 3 [BulkStr "subscribe", BulkStr chan, Int n]
 cmdResultToResp (ResUnsubscribed chan n) = Array 3 [BulkStr "unsubscribe", BulkStr chan, Int n]
 cmdResultToResp (RCoordinates coords) = Array (length coords) (map (maybe NullArray coordsToRes) coords)
-cmdResultToResp (ResUserProperties _) = Array 2 [BulkStr "flags", Array 0 []]
+cmdResultToResp (ResUserProperties _) = Array 2 [BulkStr "flags", Array 1 [BulkStr "nopass"]]
 cmdResultToResp (RRepl r) = replResultToResp r
 
 coordsToRes :: Coordinates -> Resp
