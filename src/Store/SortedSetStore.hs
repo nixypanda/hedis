@@ -12,7 +12,7 @@ import Data.String (IsString (fromString))
 
 import GHC.Float (castDoubleToWord64)
 import Geo.Encoding (decode, encode)
-import Geo.Types (Coordinates, coordinatesAreValid)
+import Geo.Types (Coordinates, coordinatesAreValid, haversineDistance)
 import Protocol.Command
 import Protocol.Result
 import Store.TypeStore (TypeIndex)
@@ -75,13 +75,19 @@ runSortedSetStoreSTM tvTypeIndex tvZSet cmd =
 geoPosSTM :: TVar SortedSetStore -> Key -> ByteString -> STM (Maybe Coordinates)
 geoPosSTM tvZSet key val = do
     res <- zscoreSTM key val tvZSet
-    case res of
-        Nothing -> pure Nothing
-        -- We can throw error here, but Redis returns garbage so we will too
-        Just (ZScore s) -> wordToCoords . castDoubleToWord64 $ s
-        Just (GeoScore s) -> wordToCoords s
-  where
-    wordToCoords s = pure $ Just $ decode s
+    pure (fmap zscoreToGeo res)
+
+zscoreToGeo :: ZScore -> Coordinates
+zscoreToGeo (GeoScore s) = decode s
+zscoreToGeo (ZScore s) = decode . castDoubleToWord64 $ s
+
+getDistSTM :: TVar SortedSetStore -> Key -> ByteString -> ByteString -> STM (Maybe Double)
+getDistSTM tvZSet key1 val1 val2 = do
+    firstScore <- zscoreSTM key1 val1 tvZSet
+    secondScore <- zscoreSTM key1 val2 tvZSet
+    let firstCoords = zscoreToGeo <$> firstScore
+        secondCoords = zscoreToGeo <$> secondScore
+    pure $ haversineDistance <$> firstCoords <*> secondCoords
 
 runGeoStoreSTM :: TVar TypeIndex -> TVar SortedSetStore -> GeoCmd -> STM (Either CommandError CommandResult)
 runGeoStoreSTM tvTypeIndex tvZSet cmd =
@@ -96,3 +102,4 @@ runGeoStoreSTM tvTypeIndex tvZSet cmd =
         CmdGeoPos key vals -> do
             res <- mapM (geoPosSTM tvZSet key) vals
             pure $ Right $ RCoordinates res
+        CmdGeoDist key1 val1 val2 -> Right . RDoubleOrNil <$> getDistSTM tvZSet key1 val1 val2

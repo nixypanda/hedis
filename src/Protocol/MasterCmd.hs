@@ -65,6 +65,7 @@ replicateSTMCmdAs CmdKeys _ = Nothing
 replicateGeoCmd :: GeoCmd -> CommandResult -> Maybe PropogationCmd
 replicateGeoCmd (CmdGeoAdd k coords val) _ = Just $ RCmdGeoAdd k coords val
 replicateGeoCmd (CmdGeoPos{}) _ = Nothing
+replicateGeoCmd (CmdGeoDist{}) _ = Nothing
 
 replicateSortedSetCmd :: SortedSetCmd -> CommandResult -> Maybe PropogationCmd
 replicateSortedSetCmd (CmdZAdd k score v) _ = Just $ RCmdZAdd k score v

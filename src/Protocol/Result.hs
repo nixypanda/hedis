@@ -36,6 +36,7 @@ resFromEither = either ResError ResNormal
 data CommandResult
     = RBulk (Maybe ByteString)
     | RInt Int
+    | RDoubleOrNil (Maybe Double)
     | RIntOrNil (Maybe Int)
     | RArrayNull
     | RArraySimple [ByteString]

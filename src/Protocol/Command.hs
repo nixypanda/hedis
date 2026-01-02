@@ -86,6 +86,7 @@ data SortedSetCmd
 data GeoCmd
     = CmdGeoAdd Key Coordinates ByteString
     | CmdGeoPos Key [ByteString]
+    | CmdGeoDist Key ByteString ByteString
     deriving (Show, Eq)
 
 data CmdIO
