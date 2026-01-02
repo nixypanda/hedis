@@ -16,6 +16,7 @@ module Protocol.Command (
     SortedSetCmd (..),
     GeoCmd (..),
     ZScore (..),
+    CmdAuth (..),
 ) where
 
 import Data.ByteString (ByteString)
@@ -40,6 +41,7 @@ data Command
     | RedRepl CmdReplication
     | RedSub PubSub
     | CmdWait Int NominalDiffTime
+    | RedAuth CmdAuth
     deriving (Show, Eq)
 
 data CmdSTM
@@ -118,6 +120,10 @@ data PubSub
     = CmdSubscribe ByteString
     | CmdPublish ByteString ByteString
     | CmdUnsubscribe ByteString
+    deriving (Show, Eq)
+
+data CmdAuth
+    = CmdAclWhoAmI
     deriving (Show, Eq)
 
 data ZScore = ZScore Double | GeoScore Word64

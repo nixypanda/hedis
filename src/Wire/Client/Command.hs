@@ -141,7 +141,8 @@ respToCmd
         long' <- readFloatBS long
         r' <- readFloatBS r
         pure $ RedSTM $ STMGeo $ CmdGeoSearchByLonLatByRadius k (MkCoordinates lat' long') r'
-
+-- auth
+respToCmd (Array 2 [BulkStr "ACL", BulkStr "WHOAMI"]) = pure $ RedAuth CmdAclWhoAmI
 -- Unhandled
 respToCmd r = Left $ "Conversion Error" <> show r
 
@@ -155,7 +156,11 @@ cmdToResp (RedIO cmd) = ioCmdToResp cmd
 cmdToResp (RedInfo cmd) = infoCmdToResp cmd
 cmdToResp (RedConfig cmd) = configCmdToResp cmd
 cmdToResp (RedSub cmd) = subCmdToResp cmd
+cmdToResp (RedAuth cmd) = authCmdToResp cmd
 cmdToResp (CmdWait n t) = Array 3 [BulkStr "WAIT", BulkStr $ fromString $ show n, BulkStr $ fromString $ show $ nominalDiffTimeToMillis t]
+
+authCmdToResp :: CmdAuth -> Resp
+authCmdToResp CmdAclWhoAmI = Array 2 [BulkStr "ACL", BulkStr "WHOAMI"]
 
 subCmdToResp :: PubSub -> Resp
 subCmdToResp (CmdSubscribe chan) = Array 2 [BulkStr "SUBSCRIBE", BulkStr chan]
@@ -258,7 +263,11 @@ cmdToPretty (RedIO cmd) = ioCmdToPretty cmd
 cmdToPretty (RedInfo cmd) = infoCmdToPretty cmd
 cmdToPretty (RedConfig cmd) = configCmdToPretty cmd
 cmdToPretty (RedSub cmd) = subCmdToPretty cmd
+cmdToPretty (RedAuth cmd) = authCmdToPretty cmd
 cmdToPretty (CmdWait{}) = "WAIT"
+
+authCmdToPretty :: CmdAuth -> ByteString
+authCmdToPretty CmdAclWhoAmI = "WHOAMI"
 
 subCmdToPretty :: PubSub -> ByteString
 subCmdToPretty (CmdSubscribe{}) = "SUBSCRIBE"
