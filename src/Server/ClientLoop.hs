@@ -57,7 +57,7 @@ runCmd clientState command = do
     case subbedChannels of
         [] -> case command of
             RedAuth CmdAclWhoAmI -> pure . ResNormal $ RBulk $ Just "default"
-            RedAuth (CmdAclGetUser _) -> pure . ResNormal $ ResUserProperties $ MkUserProperty{flags = MkUserFlags{nopass = True}}
+            RedAuth (CmdAclGetUser _) -> pure . ResNormal $ ResUserProperties $ MkUserProperty{flags = MkUserFlags{nopass = True}, passwords = []}
             RedRepl (CmdReplicaToMaster c) -> resFromMaybe <$> runReplicaToMasterReplicationCmds clientState.socket c
             RedRepl (CmdMasterToReplica c) -> liftIO . atomically $ ResNormal <$> runMasterToReplicaReplicationCmds env c
             RedInfo section -> liftIO . atomically $ ResNormal <$> runServerInfoCmds env section
