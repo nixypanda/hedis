@@ -34,6 +34,8 @@ library:
     - async
     - attoparsec
     - scientific
+    - cryptonite
+    - memory
 
 executables:
   codecrafters-redis-exe:

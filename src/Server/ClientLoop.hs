@@ -13,7 +13,6 @@ import Data.List (delete, nub)
 import Data.Time (UTCTime, getCurrentTime)
 import Network.Simple.TCP (Socket, send)
 
-import Auth.Types (UserFlags (..), UserProperty (..))
 import Execution.Base (runConfigInfoCmds, runServerInfoCmds)
 import Protocol.Command
 import Protocol.Message (Message (MkMessage))
@@ -22,6 +21,7 @@ import Replication.Master (runAndReplicateIO, runAndReplicateSTM, runMasterToRep
 import Replication.Replica (runReplicaToMasterReplicationCmds)
 import Resp.Client (mkRespConn, recvResp)
 import Resp.Core (encode)
+import Store.AuthStore qualified as AS
 import Store.PubSubStore (getChannels)
 import Store.PubSubStore qualified as PS
 import Store.TypeStore qualified as TS
@@ -56,10 +56,9 @@ runCmd clientState command = do
         pure (ts, sc)
     case subbedChannels of
         [] -> case command of
-            RedAuth CmdAclWhoAmI -> pure . ResNormal $ RBulk $ Just "default"
-            RedAuth (CmdAclGetUser _) -> pure . ResNormal $ ResUserProperties $ MkUserProperty{flags = MkUserFlags{nopass = True}, passwords = []}
             RedRepl (CmdReplicaToMaster c) -> resFromMaybe <$> runReplicaToMasterReplicationCmds clientState.socket c
             RedRepl (CmdMasterToReplica c) -> liftIO . atomically $ ResNormal <$> runMasterToReplicaReplicationCmds env c
+            RedAuth cmd' -> resFromEither <$> handleAuthCommands clientState cmd'
             RedInfo section -> liftIO . atomically $ ResNormal <$> runServerInfoCmds env section
             RedConfig section -> pure . ResNormal $ runConfigInfoCmds env section
             RedIO cmd' -> ResNormal <$> runAndReplicateIO env cmd'
@@ -90,6 +89,19 @@ runCmd clientState command = do
             RedSTM CmdPing -> pure $ ResNormal ResPongSubscribed
             RedSub cmd' -> ResNormal <$> handlePubSubMessage clientState cmd'
             cmd -> pure $ ResError $ RCmdNotAllowedInMode cmd ModeSubscribed
+
+handleAuthCommands :: (HasStores r) => ClientState -> CmdAuth -> Redis r (Either CommandError CommandResult)
+handleAuthCommands _clientState command = do
+    env <- ask
+    let tvAuthStore = getAuthStore env
+    case command of
+        CmdAclWhoAmI -> pure . Right . RBulk $ Just "default"
+        CmdAclGetUser uname -> liftIO . atomically $ do
+            muser <- AS.getUserSTM uname tvAuthStore
+            pure . Right . maybe RArrayNull ResUserProperties $ muser
+        CmdAclSetUser uname pass -> liftIO . atomically $ do
+            AS.addPasswordSTM uname pass tvAuthStore
+            pure $ Right ResOk
 
 -- pub-sub
 

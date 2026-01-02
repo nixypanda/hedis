@@ -8,6 +8,7 @@ import Data.String (IsString (fromString))
 import Text.Parsec (anyChar, char, manyTill, string)
 import Text.Parsec.ByteString (Parser)
 
+import Auth.Types (Sha256 (unSha256), UserFlags (..), UserProperty (..), sha256Hex)
 import Geo.Types (Coordinates (..))
 import Parsers (intParser, parseBS, readIntBS)
 import Protocol.Result
@@ -45,8 +46,14 @@ cmdResultToResp (RStreamId sid) = streamIdToResp sid
 cmdResultToResp (ResSubscribed chan n) = Array 3 [BulkStr "subscribe", BulkStr chan, Int n]
 cmdResultToResp (ResUnsubscribed chan n) = Array 3 [BulkStr "unsubscribe", BulkStr chan, Int n]
 cmdResultToResp (RCoordinates coords) = Array (length coords) (map (maybe NullArray coordsToRes) coords)
-cmdResultToResp (ResUserProperties _) = Array 4 [BulkStr "flags", Array 1 [BulkStr "nopass"], BulkStr "passwords", Array 0 []]
+cmdResultToResp (ResUserProperties up) = userPropertiesToResp up
 cmdResultToResp (RRepl r) = replResultToResp r
+
+userPropertiesToResp :: UserProperty -> Resp
+userPropertiesToResp (MkUserProperty{..}) =
+    Array 4 [BulkStr "flags", flagsToRep flags, BulkStr "passwords", arrayMap (BulkStr . sha256Hex) passwords]
+  where
+    flagsToRep (MkUserFlags{..}) = if nopass then Array 1 [BulkStr "nopass"] else Array 0 []
 
 coordsToRes :: Coordinates -> Resp
 coordsToRes (MkCoordinates lat long) = Array 2 [BulkStr $ fromString $ show long, BulkStr $ fromString $ show lat]

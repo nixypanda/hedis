@@ -51,6 +51,8 @@ import Replication.Config (
     initMasterState,
     initReplicaState,
  )
+import Store.AuthStore (AuthStore)
+import Store.AuthStore qualified as AS
 import Store.ListStore (ListStore)
 import Store.ListStore qualified as LS
 import Store.PubSubStore (PubSubStore)
@@ -92,6 +94,7 @@ data Stores = MkStores
     , streamStore :: TVar StreamStore
     , pubSubStore :: TVar PubSubStore
     , sortedSetStore :: TVar SortedSetStore
+    , authStore :: TVar AuthStore
     }
 
 data Master
@@ -115,6 +118,7 @@ mkCommonEnv = do
         streamStore <- StS.emptySTM
         pubSubStore <- PS.emptySTM
         sortedSetStore <- SSS.emptySTM
+        authStore <- AS.emptySTM
         pure $ MkStores{..}
 
     timeCache <- newTimeCache simpleTimeFormat
@@ -156,6 +160,9 @@ class HasStores r where
 
     getSortedSetStore :: Env r -> TVar SortedSetStore
     getSortedSetStore = sortedSetStore . getStores
+
+    getAuthStore :: Env r -> TVar AuthStore
+    getAuthStore = authStore . getStores
 
 instance HasStores Master where
     getStores :: Env Master -> Stores

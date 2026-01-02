@@ -5,7 +5,9 @@ module Wire.Client.Command (respToCmd, cmdToResp, cmdToPretty) where
 import Data.String (IsString (fromString))
 import Data.Time (nominalDiffTimeToSeconds, secondsToNominalDiffTime)
 
+import Auth.Types (Sha256 (unSha256), hashPassword)
 import Data.ByteString (ByteString)
+import Data.ByteString qualified as BS
 import Data.Scientific (floatingOrInteger)
 import Geo.Types (Coordinates (..))
 import Parsers (readFloatBS, readIntBS, readScientificBS)
@@ -144,6 +146,7 @@ respToCmd
 -- auth
 respToCmd (Array 2 [BulkStr "ACL", BulkStr "WHOAMI"]) = pure $ RedAuth CmdAclWhoAmI
 respToCmd (Array 3 [BulkStr "ACL", BulkStr "GETUSER", BulkStr uname]) = pure $ RedAuth $ CmdAclGetUser uname
+respToCmd (Array 4 [BulkStr "ACL", BulkStr "SETUSER", BulkStr uname, BulkStr pass]) = pure $ RedAuth $ CmdAclSetUser uname (hashPassword $ BS.drop 1 pass)
 -- Unhandled
 respToCmd r = Left $ "Conversion Error" <> show r
 
@@ -163,6 +166,7 @@ cmdToResp (CmdWait n t) = Array 3 [BulkStr "WAIT", BulkStr $ fromString $ show n
 authCmdToResp :: CmdAuth -> Resp
 authCmdToResp CmdAclWhoAmI = Array 2 [BulkStr "ACL", BulkStr "WHOAMI"]
 authCmdToResp (CmdAclGetUser uname) = Array 3 [BulkStr "ACL", BulkStr "GETUSER", BulkStr uname]
+authCmdToResp (CmdAclSetUser uname pwd) = Array 4 [BulkStr "ACL", BulkStr "SETUSER", BulkStr uname, BulkStr $ unSha256 pwd]
 
 subCmdToResp :: PubSub -> Resp
 subCmdToResp (CmdSubscribe chan) = Array 2 [BulkStr "SUBSCRIBE", BulkStr chan]
@@ -271,6 +275,7 @@ cmdToPretty (CmdWait{}) = "WAIT"
 authCmdToPretty :: CmdAuth -> ByteString
 authCmdToPretty CmdAclWhoAmI = "WHOAMI"
 authCmdToPretty CmdAclGetUser{} = "GETUSER"
+authCmdToPretty CmdAclSetUser{} = "SETUSER"
 
 subCmdToPretty :: PubSub -> ByteString
 subCmdToPretty (CmdSubscribe{}) = "SUBSCRIBE"

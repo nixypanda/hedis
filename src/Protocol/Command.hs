@@ -22,6 +22,7 @@ module Protocol.Command (
 import Data.ByteString (ByteString)
 import Data.Time (NominalDiffTime)
 
+import Auth.Types (Sha256)
 import Data.Word (Word64)
 import Geo.Types (Coordinates)
 import StoreBackend.ListMap (Range (..))
@@ -125,6 +126,7 @@ data PubSub
 data CmdAuth
     = CmdAclWhoAmI
     | CmdAclGetUser ByteString
+    | CmdAclSetUser Key Sha256
     deriving (Show, Eq)
 
 data ZScore = ZScore Double | GeoScore Word64
