@@ -117,7 +117,9 @@ respToCmd (Array 5 [BulkStr "GEOADD", BulkStr k, BulkStr long, BulkStr lat, Bulk
     lat' <- readFloatBS lat
     long' <- readFloatBS long
     pure $ RedSTM $ STMGeo $ CmdGeoAdd k (MkCoordinates lat' long') v
-respToCmd (Array 3 [BulkStr "GEOPOS", BulkStr k, BulkStr v]) = pure $ RedSTM $ STMGeo $ CmdGeoPos k v
+respToCmd (Array _ (BulkStr "GEOPOS" : BulkStr k : vals)) = do
+    vals' <- mapM extractBulk vals
+    pure $ RedSTM $ STMGeo $ CmdGeoPos k vals'
 -- Unhandled
 respToCmd r = Left $ "Conversion Error" <> show r
 
@@ -166,7 +168,7 @@ stmCmdToResp CmdKeys = Array 2 [BulkStr "KEYS", BulkStr "*"]
 
 geoStmCmdToResp :: GeoCmd -> Resp
 geoStmCmdToResp (CmdGeoAdd k (MkCoordinates lat long) v) = Array 5 [BulkStr "GEOADD", BulkStr k, BulkStr $ fromString $ show long, BulkStr $ fromString $ show lat, BulkStr v]
-geoStmCmdToResp (CmdGeoPos k v) = Array 3 [BulkStr "GEOPOS", BulkStr k, BulkStr v]
+geoStmCmdToResp (CmdGeoPos k vals) = Array (length vals + 2) (BulkStr "GEOPOS" : BulkStr k : map BulkStr vals)
 
 sortedSetStmCmdToResp :: SortedSetCmd -> Resp
 sortedSetStmCmdToResp (CmdZAdd k score v) = Array 4 [BulkStr "ZADD", BulkStr k, BulkStr $ fromString $ show score, BulkStr v]

@@ -42,8 +42,11 @@ cmdResultToResp (RArrayKeyValues kvs) = arrayMap arrayKeyValsToResp kvs
 cmdResultToResp (RStreamId sid) = streamIdToResp sid
 cmdResultToResp (ResSubscribed chan n) = Array 3 [BulkStr "subscribe", BulkStr chan, Int n]
 cmdResultToResp (ResUnsubscribed chan n) = Array 3 [BulkStr "unsubscribe", BulkStr chan, Int n]
-cmdResultToResp (RCoordinates (MkCoordinates lat long)) = Array 2 [BulkStr $ fromString $ show long, BulkStr $ fromString $ show lat]
+cmdResultToResp (RCoordinates coords) = Array (length coords) (map (maybe NullArray coordsToRes) coords)
 cmdResultToResp (RRepl r) = replResultToResp r
+
+coordsToRes :: Coordinates -> Resp
+coordsToRes (MkCoordinates lat long) = Array 2 [BulkStr $ fromString $ show long, BulkStr $ fromString $ show lat]
 
 replResultToResp :: ReplResult -> Resp
 replResultToResp ReplOk = Str "OK"

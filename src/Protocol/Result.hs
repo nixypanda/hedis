@@ -50,7 +50,7 @@ data CommandResult
     | ResType (Maybe ValueType)
     | ResSubscribed Key Int
     | ResUnsubscribed Key Int
-    | RCoordinates Coordinates
+    | RCoordinates [Maybe Coordinates]
     deriving (Show, Eq)
 
 data ReplResult
