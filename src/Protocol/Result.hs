@@ -14,6 +14,7 @@ module Protocol.Result (
 
 import Data.ByteString (ByteString)
 
+import Auth.Types (UserProperty)
 import Geo.Types (Coordinates)
 import Protocol.Command (Command, Key)
 import StoreBackend.StreamMap (ConcreteStreamId, StreamMapError (..))
@@ -43,6 +44,7 @@ data CommandResult
     | RArrayKeyValues [(Key, [SM.Value ByteString ByteString])]
     | RStreamId ConcreteStreamId
     | RArrayStreamValues [SM.Value ByteString ByteString]
+    | ResUserProperties UserProperty
     | RRepl ReplResult
     | ResPong
     | ResPongSubscribed

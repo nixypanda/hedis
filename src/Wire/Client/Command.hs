@@ -143,6 +143,7 @@ respToCmd
         pure $ RedSTM $ STMGeo $ CmdGeoSearchByLonLatByRadius k (MkCoordinates lat' long') r'
 -- auth
 respToCmd (Array 2 [BulkStr "ACL", BulkStr "WHOAMI"]) = pure $ RedAuth CmdAclWhoAmI
+respToCmd (Array 3 [BulkStr "ACL", BulkStr "GETUSER", BulkStr uname]) = pure $ RedAuth $ CmdAclGetUser uname
 -- Unhandled
 respToCmd r = Left $ "Conversion Error" <> show r
 
@@ -161,6 +162,7 @@ cmdToResp (CmdWait n t) = Array 3 [BulkStr "WAIT", BulkStr $ fromString $ show n
 
 authCmdToResp :: CmdAuth -> Resp
 authCmdToResp CmdAclWhoAmI = Array 2 [BulkStr "ACL", BulkStr "WHOAMI"]
+authCmdToResp (CmdAclGetUser uname) = Array 3 [BulkStr "ACL", BulkStr "GETUSER", BulkStr uname]
 
 subCmdToResp :: PubSub -> Resp
 subCmdToResp (CmdSubscribe chan) = Array 2 [BulkStr "SUBSCRIBE", BulkStr chan]
@@ -268,6 +270,7 @@ cmdToPretty (CmdWait{}) = "WAIT"
 
 authCmdToPretty :: CmdAuth -> ByteString
 authCmdToPretty CmdAclWhoAmI = "WHOAMI"
+authCmdToPretty CmdAclGetUser{} = "GETUSER"
 
 subCmdToPretty :: PubSub -> ByteString
 subCmdToPretty (CmdSubscribe{}) = "SUBSCRIBE"

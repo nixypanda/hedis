@@ -124,6 +124,7 @@ data PubSub
 
 data CmdAuth
     = CmdAclWhoAmI
+    | CmdAclGetUser ByteString
     deriving (Show, Eq)
 
 data ZScore = ZScore Double | GeoScore Word64
