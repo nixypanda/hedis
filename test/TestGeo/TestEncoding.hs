@@ -7,7 +7,7 @@ import Test.Tasty
 import Test.Tasty.Hedgehog
 
 import Geo.Encoding
-import Geo.Types (Coordinates (..), eqWith)
+import Geo.Types
 
 genCoordinates :: Gen Coordinates
 genCoordinates =

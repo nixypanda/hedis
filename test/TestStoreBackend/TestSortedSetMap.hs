@@ -11,19 +11,19 @@ import StoreBackend.SortedSetMap
 
 -- helpers ------------------------------------------------------------
 
-empty :: SortedSetMap ByteString ByteString
+empty :: SortedSetMap ByteString ByteString Double
 empty = M.empty
 
 -- test data ----------------------------------------------------------
 
-zsetBasic :: SortedSetMap ByteString ByteString
+zsetBasic :: SortedSetMap ByteString ByteString Double
 zsetBasic =
     insert "zset_key" 1.0 "member_with_score_1"
         . insert "zset_key" 2.0 "member_with_score_2"
         . insert "zset_key" 2.0 "another_member_with_score_2"
         $ empty
 
-racerScores1 :: SortedSetMap ByteString ByteString
+racerScores1 :: SortedSetMap ByteString ByteString Double
 racerScores1 =
     insert "racer_scores" 8.1 "Sam-Bodden"
         . insert "racer_scores" 10.2 "Royce"
@@ -31,7 +31,7 @@ racerScores1 =
         . insert "racer_scores" 14.1 "Prickett"
         $ empty
 
-racerScores2 :: SortedSetMap ByteString ByteString
+racerScores2 :: SortedSetMap ByteString ByteString Double
 racerScores2 =
     insert "racer_scores" 8.5 "Sam-Bodden"
         . insert "racer_scores" 10.2 "Royce"
@@ -40,19 +40,19 @@ racerScores2 =
         . insert "racer_scores" 10.2 "Ben"
         $ empty
 
-zsetForCard :: SortedSetMap ByteString ByteString
+zsetForCard :: SortedSetMap ByteString ByteString Double
 zsetForCard =
     insert "zset_key" 1.2 "one"
         . insert "zset_key" 2.2 "two"
         $ empty
 
-zsetForScore :: SortedSetMap ByteString ByteString
+zsetForScore :: SortedSetMap ByteString ByteString Double
 zsetForScore =
     insert "zset_key" 24.34 "one"
         . insert "zset_key" 90.34 "two"
         $ empty
 
-racerScoresForRemove :: SortedSetMap ByteString ByteString
+racerScoresForRemove :: SortedSetMap ByteString ByteString Double
 racerScoresForRemove =
     insert "racer_scores" 8.3 "Sam-Bodden"
         . insert "racer_scores" 10.5 "Royce"
