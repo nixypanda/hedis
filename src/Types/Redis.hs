@@ -43,8 +43,8 @@ import System.Log.FastLogger (
  )
 
 import Control.Monad.STM (STM)
-import Protocol.Command (CmdSTM, Command, Key)
-import Protocol.Result (CommandResult, Result)
+import Protocol.Command
+import Protocol.Result
 import Replication.Config (
     MasterConfig,
     MasterState (..),
@@ -80,7 +80,7 @@ data RedisError
     deriving (Show, Exception)
 
 data HandshakeError
-    = InvalidReturn Command CommandResult Result
+    = InvalidReturn Command Success Result
     deriving (Show, Eq)
 
 -- Transactions

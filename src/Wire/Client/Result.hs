@@ -19,35 +19,38 @@ import StoreBackend.TypeIndex (ValueType (..))
 import Wire.Client.Command (cmdToPretty)
 
 resultToResp :: Result -> Resp
-resultToResp (ResNormal r) = cmdResultToResp r
-resultToResp (ResError e) = errorToResp e
-resultToResp (ResCombined er) = Array (length er) (map (either errorToResp cmdResultToResp) er)
-resultToResp ResNothing = error "Nothing can't be converted to resp"
+resultToResp (ResultOk r) = cmdResultToResp r
+resultToResp (ResultErr e) = errorToResp e
+resultToResp (ResultTx er) = Array (length er) (map (either errorToResp cmdResultToResp) er)
+resultToResp ResultIgnore = error "Nothing can't be converted to resp"
 
-cmdResultToResp :: CommandResult -> Resp
-cmdResultToResp ResPong = Str "PONG"
-cmdResultToResp ResPongSubscribed = Array 2 [BulkStr "pong", BulkStr ""]
-cmdResultToResp ResOk = Str "OK"
+cmdResultToResp :: Success -> Resp
+cmdResultToResp ReplyPong = Str "PONG"
+cmdResultToResp ReplyPongSubscribed = Array 2 [BulkStr "pong", BulkStr ""]
+cmdResultToResp ReplyOk = Str "OK"
 cmdResultToResp (ResType Nothing) = Str "none"
 cmdResultToResp (ResType (Just t)) = valueTypeToResp t
-cmdResultToResp (RSimple s) = Str s
-cmdResultToResp (RBulk Nothing) = NullBulk
-cmdResultToResp (RBulk (Just b)) = BulkStr b
-cmdResultToResp (RInt n) = Int n
-cmdResultToResp (RIntOrNil Nothing) = NullBulk
-cmdResultToResp (RIntOrNil (Just n)) = Int n
-cmdResultToResp (RDoubleOrNil Nothing) = NullBulk
-cmdResultToResp (RDoubleOrNil (Just n)) = BulkStr $ fromString $ show n
-cmdResultToResp RArrayNull = NullArray
-cmdResultToResp (RArraySimple xs) = arrayMap BulkStr xs
-cmdResultToResp (RArrayStreamValues vals) = arrayMap valueToResp vals
-cmdResultToResp (RArrayKeyValues kvs) = arrayMap arrayKeyValsToResp kvs
-cmdResultToResp (RStreamId sid) = streamIdToResp sid
-cmdResultToResp (ResSubscribed chan n) = Array 3 [BulkStr "subscribe", BulkStr chan, Int n]
-cmdResultToResp (ResUnsubscribed chan n) = Array 3 [BulkStr "unsubscribe", BulkStr chan, Int n]
-cmdResultToResp (RCoordinates coords) = Array (length coords) (map (maybe NullArray coordsToRes) coords)
-cmdResultToResp (ResUserProperties up) = userPropertiesToResp up
-cmdResultToResp (RRepl r) = replResultToResp r
+cmdResultToResp (ReplyInt Nothing) = NullBulk
+cmdResultToResp (ReplyInt (Just n)) = Int n
+cmdResultToResp (ReplyDouble Nothing) = NullBulk
+cmdResultToResp (ReplyDouble (Just n)) = BulkStr $ fromString $ show n
+cmdResultToResp (ReplyStrings xs) = arrayMap BulkStr xs
+cmdResultToResp (ReplyStreamValues vals) = arrayMap valueToResp vals
+cmdResultToResp (ReplyStreamKeyValues kvs) = arrayMap arrayKeyValsToResp kvs
+cmdResultToResp (ReplyStreamId sid) = streamIdToResp sid
+cmdResultToResp (ReplySubscribed chan n) = Array 3 [BulkStr "subscribe", BulkStr chan, Int n]
+cmdResultToResp (ReplyUnsubscribed chan n) = Array 3 [BulkStr "unsubscribe", BulkStr chan, Int n]
+cmdResultToResp (ReplyCoordinates coords) = Array (length coords) (map (maybe NullArray coordsToRes) coords)
+cmdResultToResp (ReplyUserProperty up) = userPropertiesToResp up
+cmdResultToResp (ReplyResp rr) = respReplyToResp rr
+cmdResultToResp (ReplyReplication r) = replResultToResp r
+
+respReplyToResp :: RespReply -> Resp
+respReplyToResp (RespBulk Nothing) = NullBulk
+respReplyToResp (RespBulk (Just b)) = BulkStr b
+respReplyToResp (RespInt n) = Int n
+respReplyToResp RespArrayNull = NullArray
+respReplyToResp (RespSimple s) = Str s
 
 userPropertiesToResp :: UserProperty -> Resp
 userPropertiesToResp (MkUserProperty{..}) =
@@ -58,10 +61,10 @@ userPropertiesToResp (MkUserProperty{..}) =
 coordsToRes :: Coordinates -> Resp
 coordsToRes (MkCoordinates lat long) = Array 2 [BulkStr $ fromString $ show long, BulkStr $ fromString $ show lat]
 
-replResultToResp :: ReplResult -> Resp
+replResultToResp :: ReplReply -> Resp
 replResultToResp ReplOk = Str "OK"
 replResultToResp (ReplConfAck n) = Array 3 [BulkStr "REPLCONF", BulkStr "ACK", BulkStr $ fromString $ show n]
-replResultToResp (ResFullResync sId s) = Str $ BS.intercalate " " ["FULLRESYNC", sId, fromString $ show s]
+replResultToResp (ReplFullResync sId s) = Str $ BS.intercalate " " ["FULLRESYNC", sId, fromString $ show s]
 
 valueTypeToResp :: ValueType -> Resp
 valueTypeToResp VString = Str "string"
@@ -88,24 +91,24 @@ arrayKeyValsToResp (k, vs) = Array 2 [BulkStr k, arrayMap valueToResp vs]
 ----
 
 respToResult :: Resp -> Either String Result
-respToResult (Str "PONG") = Right $ ResNormal ResPong
-respToResult (Str "OK") = Right $ ResNormal ResOk
+respToResult (Str "PONG") = Right $ ResultOk ReplyPong
+respToResult (Str "OK") = Right $ ResultOk ReplyOk
 respToResult (Str s)
-    | "FULLRESYNC " `BS.isPrefixOf` s = ResNormal . RRepl <$> parseBS fullresyncParser s
-    | otherwise = Right $ ResNormal $ RSimple s
-respToResult (Int i) = Right $ ResNormal $ RInt i
-respToResult (Array 3 [BulkStr "REPLCONF", BulkStr "ACK", BulkStr n]) = ResNormal . RRepl . ReplConfAck <$> readIntBS n
+    | "FULLRESYNC " `BS.isPrefixOf` s = ResultOk . ReplyReplication <$> parseBS fullresyncParser s
+    | otherwise = Right $ ResultOk $ ReplyResp $ RespSimple s
+respToResult (Int i) = Right $ ResultOk $ ReplyResp $ RespInt i
+respToResult (Array 3 [BulkStr "REPLCONF", BulkStr "ACK", BulkStr n]) = ResultOk . ReplyReplication . ReplConfAck <$> readIntBS n
 respToResult (StrErr s) = respToErr s
-respToResult NullArray = Right $ ResNormal RArrayNull
-respToResult NullBulk = Right $ ResNormal $ RBulk Nothing
-respToResult (BulkStr s) = Right $ ResNormal $ RBulk $ Just s
+respToResult NullArray = Right $ ResultOk $ ReplyResp RespArrayNull
+respToResult NullBulk = Right $ ResultOk $ ReplyResp $ RespBulk Nothing
+respToResult (BulkStr s) = Right $ ResultOk $ ReplyResp $ RespBulk $ Just s
 respToResult r = error $ "TODO: " <> show r
 
-fullresyncParser :: Parser ReplResult
+fullresyncParser :: Parser ReplReply
 fullresyncParser = do
     _ <- string "FULLRESYNC "
     sId <- fromString <$> manyTill anyChar (char ' ')
-    ResFullResync sId <$> intParser
+    ReplFullResync sId <$> intParser
 
 -- error conversions
 
@@ -118,20 +121,23 @@ strRMultiInMulti = "ERR MULTI inside MULTI"
 strRDiscardWithoutMulti = "ERR DISCARD without MULTI"
 strIncrError = "ERR value is not an integer or out of range"
 
-errorToResp :: CommandError -> Resp
-errorToResp (RStreamError e) = streamMapErrorToResp e
-errorToResp RIncrError = StrErr strIncrError
-errorToResp (RTxErr txErr) = txErrorToResp txErr
-errorToResp (RCmdNotAllowedInMode cmd mode) = StrErr $ "ERR Can't execute '" <> cmdToPretty cmd <> "'in " <> modeToPretty mode <> "mode"
-errorToResp (RInvalidLatLong (MkCoordinates lat long)) = StrErr $ "ERR invalid longitude,latitude pair " <> fromString (show long) <> "," <> fromString (show lat)
-errorToResp RAuthErrorWrongPassword = StrErr "WRONGPASS invalid username-password pair or user is disabled."
-errorToResp RAuthErrorNoAuth = StrErr "NOAUTH Authentication required."
+errorToResp :: Failure -> Resp
+errorToResp (ErrStream e) = streamMapErrorToResp e
+errorToResp ErrIncr = StrErr strIncrError
+errorToResp (ErrTx txErr) = txErrorToResp txErr
+errorToResp (ErrCmdNotAllowedInMode cmd mode) = StrErr $ "ERR Can't execute '" <> cmdToPretty cmd <> "'in " <> modeToPretty mode <> "mode"
+errorToResp (ErrInvalidCoords (MkCoordinates lat long)) = StrErr $ "ERR invalid longitude,latitude pair " <> fromString (show long) <> "," <> fromString (show lat)
+errorToResp (ErrAuth err) = authErrorToResp err
+
+authErrorToResp :: AuthError -> Resp
+authErrorToResp AuthWrongPassword = StrErr "WRONGPASS invalid username-password pair or user is disabled."
+authErrorToResp AuthNoAuth = StrErr "NOAUTH Authentication required."
 
 txErrorToResp :: TransactionError -> Resp
-txErrorToResp RExecWithoutMulti = StrErr strRExecWithoutMulti
-txErrorToResp RNotSupportedInTx = StrErr strRNotSupportedInTx
-txErrorToResp RMultiInMulti = StrErr strRMultiInMulti
-txErrorToResp RDiscardWithoutMulti = StrErr strRDiscardWithoutMulti
+txErrorToResp TxExecWithoutMulti = StrErr strRExecWithoutMulti
+txErrorToResp TxNotSupported = StrErr strRNotSupportedInTx
+txErrorToResp TxMultiInMulti = StrErr strRMultiInMulti
+txErrorToResp TxDiscardWithoutMulti = StrErr strRDiscardWithoutMulti
 
 streamMapErrorToResp :: StreamMapError -> Resp
 streamMapErrorToResp BaseStreamId = StrErr strStreamErrBaseStreamId
@@ -139,11 +145,11 @@ streamMapErrorToResp NotLargerId = StrErr strStreamErrNotLargerId
 
 respToErr :: ByteString -> Either String Result
 respToErr s
-    | s == strStreamErrBaseStreamId = Right $ ResError $ RStreamError BaseStreamId
-    | s == strStreamErrNotLargerId = Right $ ResError $ RStreamError NotLargerId
-    | s == strRExecWithoutMulti = Right $ ResError $ RTxErr RExecWithoutMulti
-    | s == strRNotSupportedInTx = Right $ ResError $ RTxErr RNotSupportedInTx
-    | s == strRMultiInMulti = Right $ ResError $ RTxErr RMultiInMulti
-    | s == strRDiscardWithoutMulti = Right $ ResError $ RTxErr RDiscardWithoutMulti
-    | s == strIncrError = Right $ ResError RIncrError
+    | s == strStreamErrBaseStreamId = Right $ ResultErr $ ErrStream BaseStreamId
+    | s == strStreamErrNotLargerId = Right $ ResultErr $ ErrStream NotLargerId
+    | s == strRExecWithoutMulti = Right $ ResultErr $ ErrTx TxExecWithoutMulti
+    | s == strRNotSupportedInTx = Right $ ResultErr $ ErrTx TxNotSupported
+    | s == strRMultiInMulti = Right $ ResultErr $ ErrTx TxMultiInMulti
+    | s == strRDiscardWithoutMulti = Right $ ResultErr $ ErrTx TxDiscardWithoutMulti
+    | s == strIncrError = Right $ ResultErr ErrIncr
     | otherwise = Left $ "unknown error: " <> show s

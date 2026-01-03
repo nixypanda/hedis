@@ -26,8 +26,8 @@ doHandshake (MkReplicaState{..}) respConn = do
     r1 <- liftIO $ recvResp respConn
     cmdRes1 <- liftEither $ first RespParsingError $ fromResp r1
     case cmdRes1 of
-        (ResNormal ResPong) -> pure ()
-        other -> throwError $ HandshakeError $ InvalidReturn cmd1 ResPong other
+        (ResultOk ReplyPong) -> pure ()
+        other -> throwError $ HandshakeError $ InvalidReturn cmd1 ReplyPong other
 
     -- Replconf
     let cmd2 = RedRepl $ CmdReplicaToMaster $ CmdReplConfListen localPort
@@ -35,8 +35,8 @@ doHandshake (MkReplicaState{..}) respConn = do
     r2 <- liftIO $ recvResp respConn
     cmdRes2 <- liftEither $ first RespParsingError $ fromResp r2
     case cmdRes2 of
-        (ResNormal ResOk) -> pure ()
-        other -> throwError $ HandshakeError $ InvalidReturn cmd2 ResOk other
+        (ResultOk ReplyOk) -> pure ()
+        other -> throwError $ HandshakeError $ InvalidReturn cmd2 ReplyOk other
 
     -- Replconf capabilities
     let cmd3 = RedRepl $ CmdReplicaToMaster CmdReplConfCapabilities
@@ -44,8 +44,8 @@ doHandshake (MkReplicaState{..}) respConn = do
     r3 <- liftIO $ recvResp respConn
     cmdRes3 <- liftEither $ first RespParsingError $ fromResp r3
     case cmdRes3 of
-        (ResNormal ResOk) -> pure ()
-        other -> throwError $ HandshakeError $ InvalidReturn cmd3 ResOk other
+        (ResultOk ReplyOk) -> pure ()
+        other -> throwError $ HandshakeError $ InvalidReturn cmd3 ReplyOk other
 
     -- Psync
     knownMasterRepl' <- liftIO $ readTVarIO knownMasterRepl
@@ -55,19 +55,19 @@ doHandshake (MkReplicaState{..}) respConn = do
     r4 <- liftIO $ recvResp respConn
     cmdRes4 <- liftEither $ first RespParsingError $ fromResp r4
     case cmdRes4 of
-        (ResNormal (RRepl (ResFullResync sid _))) -> liftIO . atomically $ do
+        (ResultOk (ReplyReplication (ReplFullResync sid _))) -> liftIO . atomically $ do
             writeTVar knownMasterRepl sid
             writeTVar replicaOffset 0
-        other -> throwError $ HandshakeError $ InvalidReturn cmd4 (RRepl (ResFullResync "" 0)) other
+        other -> throwError $ HandshakeError $ InvalidReturn cmd4 (ReplyReplication (ReplFullResync "" 0)) other
     pure ()
 
 runReplicaToMasterReplicationCmds ::
-    (HasReplication r, HasLogger r) => Socket -> ReplicaToMaster -> Redis r (Maybe CommandResult)
+    (HasReplication r, HasLogger r) => Socket -> ReplicaToMaster -> Redis r (Maybe Success)
 runReplicaToMasterReplicationCmds socket cmd = do
     env <- ask
     case cmd of
-        CmdReplConfCapabilities -> pure $ Just ResOk
-        CmdReplConfListen _ -> pure $ Just ResOk
+        CmdReplConfCapabilities -> pure $ Just ReplyOk
+        CmdReplConfListen _ -> pure $ Just ReplyOk
         CmdPSync "?" (-1) -> case getReplication env of
             MkReplicationMaster _ -> do
                 let rcSocket = socket

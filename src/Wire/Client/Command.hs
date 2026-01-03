@@ -80,9 +80,9 @@ respToCmd
         sid' <- readXReadStreamId sid
         pure $ RedIO $ CmdXReadBlock key sid' t'
 -- Transaactions
-respToCmd (Array 1 [BulkStr "MULTI"]) = pure $ RedTrans Multi
-respToCmd (Array 1 [BulkStr "EXEC"]) = pure $ RedTrans Exec
-respToCmd (Array 1 [BulkStr "DISCARD"]) = pure $ RedTrans Discard
+respToCmd (Array 1 [BulkStr "MULTI"]) = pure $ RedTrans CmdMulti
+respToCmd (Array 1 [BulkStr "EXEC"]) = pure $ RedTrans CmdExec
+respToCmd (Array 1 [BulkStr "DISCARD"]) = pure $ RedTrans CmdDiscard
 -- Replication
 respToCmd (Array 2 [BulkStr "INFO", BulkStr "replication"]) = pure $ RedInfo (Just IReplication)
 respToCmd (Array 1 [BulkStr "INFO"]) = pure $ RedInfo Nothing
@@ -227,9 +227,9 @@ sortedSetStmCmdToResp (CmdZScore k v) = Array 3 [BulkStr "ZSCORE", BulkStr k, Bu
 sortedSetStmCmdToResp (CmdZRem k v) = Array 3 [BulkStr "ZREM", BulkStr k, BulkStr v]
 
 txCmdToResp :: CmdTransaction -> Resp
-txCmdToResp Multi = Array 1 [BulkStr "MULTI"]
-txCmdToResp Exec = Array 1 [BulkStr "EXEC"]
-txCmdToResp Discard = Array 1 [BulkStr "DISCARD"]
+txCmdToResp CmdMulti = Array 1 [BulkStr "MULTI"]
+txCmdToResp CmdExec = Array 1 [BulkStr "EXEC"]
+txCmdToResp CmdDiscard = Array 1 [BulkStr "DISCARD"]
 
 stringStoreCmdToResp :: StringCmd -> Resp
 stringStoreCmdToResp (CmdSet key val (Just t)) = Array 5 [BulkStr "SET", BulkStr key, BulkStr val, BulkStr "PX", BulkStr $ fromString $ show $ nominalDiffTimeToMillis t]
@@ -326,9 +326,9 @@ sortedSetStmCmdToPretty (CmdZRem{}) = "ZREM"
 sortedSetStmCmdToPretty (CmdZScore{}) = "ZSCORE"
 
 txCmdToPretty :: CmdTransaction -> ByteString
-txCmdToPretty Multi = "MULTI"
-txCmdToPretty Exec = "EXEC"
-txCmdToPretty Discard = "DISCARD"
+txCmdToPretty CmdMulti = "MULTI"
+txCmdToPretty CmdExec = "EXEC"
+txCmdToPretty CmdDiscard = "DISCARD"
 
 stringStoreCmdToPretty :: StringCmd -> ByteString
 stringStoreCmdToPretty (CmdSet{}) = "SET"

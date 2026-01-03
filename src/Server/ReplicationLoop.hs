@@ -51,7 +51,7 @@ receiveMasterUpdates respConn = do
                 res <- liftIO $ atomically $ do
                     res <- runMasterToReplicaReplicationCmds env c
                     offsetIncr
-                    pure $ ResNormal res
+                    pure $ ResultOk res
                 liftIO $ sendResp respConn $ toResp res
             MasterPing -> do
                 liftIO $ atomically offsetIncr

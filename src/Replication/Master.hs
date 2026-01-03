@@ -53,12 +53,12 @@ runRdbLoad = do
             liftEither $ first RdbParsingError r
             pure ()
 
-acceptReplica :: Socket -> Redis r CommandResult -- fix r to be Master
+acceptReplica :: Socket -> Redis r Success -- fix r to be Master
 acceptReplica sock = do
     EnvMaster _ (MkMasterState{..}) <- ask
     _ <- initReplica sock
     masterReplOffset' <- liftIO $ readTVarIO masterReplOffset
-    pure $ RRepl $ ResFullResync masterReplId masterReplOffset'
+    pure $ ReplyReplication $ ReplFullResync masterReplId masterReplOffset'
 
 initReplica :: Socket -> Redis r ()
 initReplica rcSocket = do
@@ -85,14 +85,14 @@ replicaSender sock rdbFile q = do
         send sock resp
 
 runMasterToReplicaReplicationCmds ::
-    (HasReplication r) => Env r -> MasterToReplica -> STM CommandResult
+    (HasReplication r) => Env r -> MasterToReplica -> STM Success
 runMasterToReplicaReplicationCmds env cmd = do
     case cmd of
         CmdReplConfGetAck -> do
             offset <- readTVar (getOffset env)
-            pure $ RRepl $ ReplConfAck offset
+            pure $ ReplyReplication $ ReplConfAck offset
 
-sendReplConfs :: (HasReplication r) => ClientState -> Int -> NominalDiffTime -> Redis r CommandResult
+sendReplConfs :: (HasReplication r) => ClientState -> Int -> NominalDiffTime -> Redis r Success
 sendReplConfs _clientState n tout = do
     env <- ask
     case getReplication env of
@@ -119,12 +119,12 @@ sendReplConfs _clientState n tout = do
 
             mres <- liftIO $ timeout' tout poll
             acked <- liftIO $ maybe (liftIO $ atomically countAcked) pure mres
-            pure $ RInt $ if targetOffset > 0 then acked else length registry
+            pure $ ReplyResp $ RespInt $ if targetOffset > 0 then acked else length registry
         MkReplicationReplica _ ->
             error "WAIT called on replica"
 
 runAndReplicateSTM ::
-    (HasReplication r, HasStores r) => Env r -> UTCTime -> CmdSTM -> STM (Either CommandError CommandResult)
+    (HasReplication r, HasStores r) => Env r -> UTCTime -> CmdSTM -> STM (Either Failure Success)
 runAndReplicateSTM env now cmd = do
     res <- runCmdSTM env now cmd
     case replicateSTMCmdAs cmd <$> res of
@@ -135,7 +135,7 @@ runAndReplicateSTM env now cmd = do
         _ -> pure res
 
 -- The run and adding to queue is not atomic
-runAndReplicateIO :: (HasStores r, HasReplication r) => Env r -> CmdIO -> Redis r CommandResult
+runAndReplicateIO :: (HasStores r, HasReplication r) => Env r -> CmdIO -> Redis r Success
 runAndReplicateIO env cmd = do
     res <- runCmdIO cmd
     case replicateIOCmdAs cmd res of

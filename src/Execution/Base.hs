@@ -22,7 +22,7 @@ import Time (timeout')
 import Types.Redis
 
 runCmdSTM ::
-    (HasStores r) => Env r -> UTCTime -> CmdSTM -> STM (Either CommandError CommandResult)
+    (HasStores r) => Env r -> UTCTime -> CmdSTM -> STM (Either Failure Success)
 runCmdSTM env now cmd = do
     let tvListMap = getListStore env
         tvStringMap = getStringStore env
@@ -30,22 +30,22 @@ runCmdSTM env now cmd = do
         tvStreamMap = getStreamStore env
         tvSortedSetMap = getSortedSetStore env
     case cmd of
-        CmdPing -> pure $ Right ResPong
-        CmdEcho xs -> pure $ Right $ RBulk (Just xs)
+        CmdPing -> pure $ Right ReplyPong
+        CmdEcho xs -> pure $ Right $ ReplyResp $ RespBulk (Just xs)
         -- type index
         CmdType x -> do
             ty <- TS.getTypeSTM tvTypeIndex x
             pure $ Right $ ResType ty
         CmdKeys -> do
             keys <- TS.getKeysSTM tvTypeIndex
-            pure $ Right $ RArraySimple keys
+            pure $ Right $ ReplyStrings keys
         STMString c -> SS.runStringStoreSTM tvTypeIndex tvStringMap now c
         STMList c -> Right <$> LS.runListStoreSTM tvTypeIndex tvListMap c
         STMStream c -> StS.runStreamStoreSTM tvTypeIndex tvStreamMap now c
         STMSortedSet c -> Right <$> SSS.runSortedSetStoreSTM tvTypeIndex tvSortedSetMap c
         STMGeo c -> SSS.runGeoStoreSTM tvTypeIndex tvSortedSetMap c
 
-runCmdIO :: (HasStores r) => CmdIO -> Redis r CommandResult
+runCmdIO :: (HasStores r) => CmdIO -> Redis r Success
 runCmdIO cmd = do
     tvListMap <- asks getListStore
     tvStreamMap <- asks getStreamStore
@@ -53,34 +53,34 @@ runCmdIO cmd = do
         -- List Store
         CmdBLPop key 0 -> do
             vals <- liftIO $ atomically (LS.blpopSTM tvListMap key)
-            pure $ RArraySimple vals
+            pure $ ReplyStrings vals
         CmdBLPop key t -> do
             val <- liftIO (timeout' t (atomically (LS.blpopSTM tvListMap key)))
-            pure $ maybe RArrayNull RArraySimple val
+            pure $ maybe (ReplyResp RespArrayNull) ReplyStrings val
         -- Stream Store
         CmdXReadBlock key sid 0 -> do
             sid' <- liftIO $ atomically (StS.xResolveStreamIdSTM tvStreamMap key sid)
             vals <- liftIO (atomically (StS.xReadBlockSTM tvStreamMap key sid'))
-            pure $ (RArrayKeyValues . singleton) vals
+            pure $ (ReplyStreamKeyValues . singleton) vals
         CmdXReadBlock key sid tout -> do
             sid' <- liftIO $ atomically (StS.xResolveStreamIdSTM tvStreamMap key sid)
             vals <- liftIO (timeout' tout (atomically (StS.xReadBlockSTM tvStreamMap key sid')))
-            pure $ maybe RArrayNull (RArrayKeyValues . singleton) vals
+            pure $ maybe (ReplyResp RespArrayNull) (ReplyStreamKeyValues . singleton) vals
 
-runServerInfoCmds :: (HasReplication r) => Env r -> Maybe SubInfo -> STM CommandResult
+runServerInfoCmds :: (HasReplication r) => Env r -> Maybe SubInfo -> STM Success
 runServerInfoCmds env cmd = do
     case cmd of
         Just IReplication -> do
             info <- replicationInfo $ getReplication env
-            pure $ RBulk $ Just info
+            pure $ ReplyResp $ RespBulk $ Just info
         _ -> error "not handled"
 
-runConfigInfoCmds :: Env r -> SubConfig -> CommandResult
+runConfigInfoCmds :: Env r -> SubConfig -> Success
 runConfigInfoCmds env cmd = case env of
     EnvMaster _ ms -> f ms
     EnvReplica _ rs -> f rs
   where
-    f :: (HasRdbConfig r) => r -> CommandResult
+    f :: (HasRdbConfig r) => r -> Success
     f s = case cmd of
-        ConfigDir -> RArraySimple ["dir", fromString $ rdbDir s]
-        ConfigDbFilename -> RArraySimple ["dbfilename", fromString $ rdbFilename s]
+        ConfigDir -> ReplyStrings ["dir", fromString $ rdbDir s]
+        ConfigDbFilename -> ReplyStrings ["dbfilename", fromString $ rdbFilename s]

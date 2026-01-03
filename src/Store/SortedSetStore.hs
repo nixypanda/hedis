@@ -58,19 +58,19 @@ zremSTM key val tv = do
 zrangeSTM :: ByteString -> Int -> Int -> TVar SortedSetStore -> STM [ByteString]
 zrangeSTM key start end tv = SSS.range key start end <$> readTVar tv
 
-runSortedSetStoreSTM :: TVar TypeIndex -> TVar SortedSetStore -> SortedSetCmd -> STM CommandResult
+runSortedSetStoreSTM :: TVar TypeIndex -> TVar SortedSetStore -> SortedSetCmd -> STM Success
 runSortedSetStoreSTM tvTypeIndex tvZSet cmd =
     case cmd of
         CmdZAdd key sc val ->
-            RInt
+            ReplyResp . RespInt
                 <$> (TS.setIfAvailable tvTypeIndex key VSortedSet *> zaddSTM key sc val tvZSet)
-        CmdZRank key val -> RIntOrNil <$> zrankSTM key val tvZSet
-        CmdZRange key (MkRange start end) -> RArraySimple <$> zrangeSTM key start end tvZSet
-        CmdZCard key -> RInt <$> zcardSTM key tvZSet
+        CmdZRank key val -> ReplyInt <$> zrankSTM key val tvZSet
+        CmdZRange key (MkRange start end) -> ReplyStrings <$> zrangeSTM key start end tvZSet
+        CmdZCard key -> ReplyResp . RespInt <$> zcardSTM key tvZSet
         CmdZScore key val -> do
             mSc <- zscoreSTM key val tvZSet
-            pure $ RBulk (showPretty <$> mSc)
-        CmdZRem key val -> RInt . maybe 0 (const 1) <$> zremSTM key val tvZSet
+            pure $ ReplyResp $ RespBulk (showPretty <$> mSc)
+        CmdZRem key val -> ReplyResp . RespInt . maybe 0 (const 1) <$> zremSTM key val tvZSet
 
 --
 
@@ -92,7 +92,7 @@ getDistSTM tvZSet key1 val1 val2 = do
     pure $ haversineDistance <$> firstCoords <*> secondCoords
 
 runGeoStoreSTM ::
-    TVar TypeIndex -> TVar SortedSetStore -> GeoCmd -> STM (Either CommandError CommandResult)
+    TVar TypeIndex -> TVar SortedSetStore -> GeoCmd -> STM (Either Failure Success)
 runGeoStoreSTM tvTypeIndex tvZSet cmd =
     case cmd of
         CmdGeoAdd key coords v -> do
@@ -102,15 +102,15 @@ runGeoStoreSTM tvTypeIndex tvZSet cmd =
                     res <-
                         TS.setIfAvailable tvTypeIndex key VSortedSet
                             *> zaddSTM key (GeoScore score) v tvZSet
-                    pure $ Right $ RInt res
-                else pure $ Left $ RInvalidLatLong coords
+                    pure $ Right $ ReplyResp $ RespInt res
+                else pure $ Left $ ErrInvalidCoords coords
         CmdGeoPos key vals -> do
             res <- mapM (geoPosSTM tvZSet key) vals
-            pure $ Right $ RCoordinates res
-        CmdGeoDist key1 val1 val2 -> Right . RDoubleOrNil <$> getDistSTM tvZSet key1 val1 val2
+            pure $ Right $ ReplyCoordinates res
+        CmdGeoDist key1 val1 val2 -> Right . ReplyDouble <$> getDistSTM tvZSet key1 val1 val2
         CmdGeoSearchByLonLatByRadius key origin radius -> do
             -- The sorted set implementation does not support fast range queries
             -- so, just filtering on all the elements.
             options <- SSS.range' key 0 (-1) <$> readTVar tvZSet
             let filtered = map snd . filter ((< radius) . haversineDistance origin . zscoreToGeo . fst) $ options
-            pure $ Right $ RArraySimple filtered
+            pure $ Right $ ReplyStrings filtered

@@ -43,15 +43,15 @@ propogationCmdToCmdSTM (RCmdZAdd key score val) = STMSortedSet $ CmdZAdd key sco
 propogationCmdToCmdSTM (RCmdZRem key val) = STMSortedSet $ CmdZRem key val
 propogationCmdToCmdSTM (RCmdGeoAdd key coords val) = STMGeo $ CmdGeoAdd key coords val
 
-replicateIOCmdAs :: CmdIO -> CommandResult -> Maybe PropogationCmd
-replicateIOCmdAs (CmdBLPop k 0) (RArraySimple _) = Just $ RCmdLPop k (Just 1)
+replicateIOCmdAs :: CmdIO -> Success -> Maybe PropogationCmd
+replicateIOCmdAs (CmdBLPop k 0) (ReplyStrings _) = Just $ RCmdLPop k (Just 1)
 replicateIOCmdAs (CmdBLPop _ 0) _ = error "Incorrect combination"
-replicateIOCmdAs (CmdBLPop _ _) RArrayNull = Nothing
-replicateIOCmdAs (CmdBLPop k _) (RArraySimple _) = Just $ RCmdLPop k (Just 1)
+replicateIOCmdAs (CmdBLPop _ _) (ReplyResp RespArrayNull) = Nothing
+replicateIOCmdAs (CmdBLPop k _) (ReplyStrings _) = Just $ RCmdLPop k (Just 1)
 replicateIOCmdAs (CmdBLPop{}) _ = error "Incorrect combination"
 replicateIOCmdAs (CmdXReadBlock{}) _ = Nothing
 
-replicateSTMCmdAs :: CmdSTM -> CommandResult -> Maybe PropogationCmd
+replicateSTMCmdAs :: CmdSTM -> Success -> Maybe PropogationCmd
 replicateSTMCmdAs (STMString c) cr = replicateStringCmd c cr
 replicateSTMCmdAs (STMList c) cr = replicateListCmd c cr
 replicateSTMCmdAs (STMStream c) cr = replicateStreamCmd c cr
@@ -62,13 +62,13 @@ replicateSTMCmdAs (CmdEcho{}) _ = Nothing
 replicateSTMCmdAs (CmdType{}) _ = Nothing
 replicateSTMCmdAs CmdKeys _ = Nothing
 
-replicateGeoCmd :: GeoCmd -> CommandResult -> Maybe PropogationCmd
+replicateGeoCmd :: GeoCmd -> Success -> Maybe PropogationCmd
 replicateGeoCmd (CmdGeoAdd k coords val) _ = Just $ RCmdGeoAdd k coords val
 replicateGeoCmd (CmdGeoPos{}) _ = Nothing
 replicateGeoCmd (CmdGeoDist{}) _ = Nothing
 replicateGeoCmd (CmdGeoSearchByLonLatByRadius{}) _ = Nothing
 
-replicateSortedSetCmd :: SortedSetCmd -> CommandResult -> Maybe PropogationCmd
+replicateSortedSetCmd :: SortedSetCmd -> Success -> Maybe PropogationCmd
 replicateSortedSetCmd (CmdZAdd k score v) _ = Just $ RCmdZAdd k score v
 replicateSortedSetCmd (CmdZRank{}) _ = Nothing
 replicateSortedSetCmd (CmdZRange{}) _ = Nothing
@@ -76,20 +76,20 @@ replicateSortedSetCmd (CmdZCard{}) _ = Nothing
 replicateSortedSetCmd (CmdZScore{}) _ = Nothing
 replicateSortedSetCmd (CmdZRem k v) _ = Just $ RCmdZRem k v
 
-replicateStreamCmd :: StreamCmd -> CommandResult -> Maybe PropogationCmd
+replicateStreamCmd :: StreamCmd -> Success -> Maybe PropogationCmd
 replicateStreamCmd (CmdXAdd k sid kvs) _ = Just $ RCmdXAdd k sid kvs
 replicateStreamCmd (CmdXRead{}) _ = Nothing
 replicateStreamCmd (CmdXRange{}) _ = Nothing
 
-replicateListCmd :: ListCmd -> CommandResult -> Maybe PropogationCmd
+replicateListCmd :: ListCmd -> Success -> Maybe PropogationCmd
 replicateListCmd (CmdRPush k vs) _ = Just $ RCmdRPush k vs
 replicateListCmd (CmdLPush k vs) _ = Just $ RCmdLPush k vs
 replicateListCmd (CmdLPop k mcount) _ = Just $ RCmdLPop k mcount
 replicateListCmd (CmdLRange{}) _ = Nothing
 replicateListCmd (CmdLLen{}) _ = Nothing
 
-replicateStringCmd :: StringCmd -> CommandResult -> Maybe PropogationCmd
+replicateStringCmd :: StringCmd -> Success -> Maybe PropogationCmd
 replicateStringCmd (CmdSet k v t) _ = Just $ RCmdSet k v t
 replicateStringCmd (CmdGet{}) _ = Nothing
-replicateStringCmd (CmdIncr k) (RInt v) = Just $ RCmdSet k (fromString $ show v) Nothing
+replicateStringCmd (CmdIncr k) (ReplyResp (RespInt v)) = Just $ RCmdSet k (fromString $ show v) Nothing
 replicateStringCmd c@(CmdIncr _) cr = error $ "Incorrect combination: Command - " <> show c <> ", result - " <> show cr

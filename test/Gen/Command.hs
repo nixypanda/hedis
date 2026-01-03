@@ -8,9 +8,9 @@ import Data.ByteString (ByteString)
 import Data.ByteString.Char8 qualified as BS
 import Data.Time (NominalDiffTime)
 
-import Protocol.Command
 import Data.String (fromString)
 import Gen.Stream (genConcreteStreamId, genXAddStreamId, genXRange, genXReadStreamId)
+import Protocol.Command
 import StoreBackend.ListMap qualified as LM
 
 --------------------------------------------------------------------------------
@@ -115,7 +115,7 @@ genTimeout =
 
 genTransaction :: Gen CmdTransaction
 genTransaction =
-    Gen.element [Multi, Exec, Discard]
+    Gen.element [CmdMulti, CmdExec, CmdDiscard]
 
 --------------------------------------------------------------------------------
 -- Replication

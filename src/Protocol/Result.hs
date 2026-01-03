@@ -1,12 +1,14 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Protocol.Result (
-    CommandResult (..),
-    CommandError (..),
+    Success (..),
+    Failure (..),
     TransactionError (..),
-    ReplResult (..),
+    ReplReply (..),
+    RespReply (..),
     Result (..),
     Mode (..),
+    AuthError (..),
     resFromMaybe,
     resFromEither,
     modeToPretty,
@@ -22,61 +24,69 @@ import StoreBackend.StreamMap qualified as SM
 import StoreBackend.TypeIndex (ValueType (..))
 
 data Result
-    = ResNormal CommandResult
-    | ResError CommandError
-    | ResCombined [Either CommandError CommandResult]
-    | ResNothing
+    = ResultOk Success
+    | ResultErr Failure
+    | ResultTx [Either Failure Success]
+    | ResultIgnore
     deriving (Show, Eq)
 
-resFromMaybe :: Maybe CommandResult -> Result
-resFromMaybe = maybe ResNothing ResNormal
+resFromMaybe :: Maybe Success -> Result
+resFromMaybe = maybe ResultIgnore ResultOk
 
-resFromEither :: Either CommandError CommandResult -> Result
-resFromEither = either ResError ResNormal
+resFromEither :: Either Failure Success -> Result
+resFromEither = either ResultErr ResultOk
 
-data CommandResult
-    = RBulk (Maybe ByteString)
-    | RInt Int
-    | RDoubleOrNil (Maybe Double)
-    | RIntOrNil (Maybe Int)
-    | RArrayNull
-    | RArraySimple [ByteString]
-    | RArrayKeyValues [(Key, [SM.Value ByteString ByteString])]
-    | RStreamId ConcreteStreamId
-    | RArrayStreamValues [SM.Value ByteString ByteString]
-    | ResUserProperties UserProperty
-    | RRepl ReplResult
-    | ResPong
-    | ResPongSubscribed
-    | ResOk
-    | RSimple ByteString
+data Success
+    = ReplyResp RespReply
+    | ReplyOk
+    | ReplyPong
+    | ReplyPongSubscribed
+    | ReplyDouble (Maybe Double)
+    | ReplyInt (Maybe Int)
     | ResType (Maybe ValueType)
-    | ResSubscribed Key Int
-    | ResUnsubscribed Key Int
-    | RCoordinates [Maybe Coordinates]
+    | ReplyStreamId ConcreteStreamId
+    | ReplySubscribed Key Int
+    | ReplyUnsubscribed Key Int
+    | ReplyStrings [ByteString]
+    | ReplyStreamKeyValues [(Key, [SM.Value ByteString ByteString])]
+    | ReplyStreamValues [SM.Value ByteString ByteString]
+    | ReplyUserProperty UserProperty
+    | ReplyCoordinates [Maybe Coordinates]
+    | ReplyReplication ReplReply
     deriving (Show, Eq)
 
-data ReplResult
+data RespReply
+    = RespBulk (Maybe ByteString)
+    | RespInt Int
+    | RespArrayNull
+    | RespSimple ByteString
+    deriving (Show, Eq)
+
+data ReplReply
     = ReplOk
     | ReplConfAck Int
-    | ResFullResync ByteString Int
+    | ReplFullResync ByteString Int
     deriving (Show, Eq)
 
-data CommandError
-    = RStreamError StreamMapError
-    | RIncrError
-    | RTxErr TransactionError
-    | RCmdNotAllowedInMode Command Mode
-    | RInvalidLatLong Coordinates
-    | RAuthErrorWrongPassword
-    | RAuthErrorNoAuth
+data Failure
+    = ErrStream StreamMapError
+    | ErrIncr
+    | ErrTx TransactionError
+    | ErrCmdNotAllowedInMode Command Mode
+    | ErrInvalidCoords Coordinates
+    | ErrAuth AuthError
+    deriving (Show, Eq)
+
+data AuthError
+    = AuthWrongPassword
+    | AuthNoAuth
     deriving (Show, Eq)
 
 data TransactionError
-    = RExecWithoutMulti
-    | RNotSupportedInTx
-    | RMultiInMulti
-    | RDiscardWithoutMulti
+    = TxExecWithoutMulti
+    | TxNotSupported
+    | TxMultiInMulti
+    | TxDiscardWithoutMulti
     deriving (Show, Eq)
 
 data Mode = ModeSubscribed deriving (Show, Eq)

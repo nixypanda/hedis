@@ -42,12 +42,12 @@ data Command
     = RedSTM CmdSTM
     | RedIO CmdIO
     | RedTrans CmdTransaction
-    | RedInfo (Maybe SubInfo)
     | RedConfig SubConfig
     | RedRepl CmdReplication
     | RedSub PubSub
-    | CmdWait Int NominalDiffTime
     | RedAuth CmdAuth
+    | RedInfo (Maybe SubInfo)
+    | CmdWait Int NominalDiffTime
     deriving (Show, Eq)
 
 data CmdSTM
@@ -103,7 +103,10 @@ data CmdIO
     | CmdXReadBlock Key XReadStreamId NominalDiffTime
     deriving (Show, Eq)
 
-data CmdTransaction = Multi | Exec | Discard
+data CmdTransaction
+    = CmdMulti
+    | CmdExec
+    | CmdDiscard
     deriving (Show, Eq)
 
 data CmdReplication

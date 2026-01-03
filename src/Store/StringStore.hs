@@ -13,8 +13,8 @@ import Data.String (IsString (fromString))
 import Data.Time (NominalDiffTime, UTCTime)
 
 import Parsers (readIntBS)
-import Protocol.Command (Key, StringCmd (..))
-import Protocol.Result (CommandError (..), CommandResult (..))
+import Protocol.Command
+import Protocol.Result
 import Store.TypeStore (TypeIndex)
 import Store.TypeStore qualified as TS
 import StoreBackend.ExpiringMap (ExpiringMap)
@@ -54,14 +54,14 @@ incrSTM tv key now = do
             pure $ Right n
 
 runStringStoreSTM ::
-    TVar TypeIndex -> TVar StringStore -> UTCTime -> StringCmd -> STM (Either CommandError CommandResult)
+    TVar TypeIndex -> TVar StringStore -> UTCTime -> StringCmd -> STM (Either Failure Success)
 runStringStoreSTM tvTypeIndex tvStringMap now cmd = case cmd of
     CmdSet key val mexpiry -> do
         TS.setIfAvailable tvTypeIndex key VString *> setSTM tvStringMap key val now mexpiry
-        pure $ Right ResOk
+        pure $ Right ReplyOk
     CmdGet key -> do
         val <- getSTM tvStringMap key now
-        pure $ Right $ RBulk val
+        pure $ Right $ ReplyResp $ RespBulk val
     CmdIncr key -> do
         val <- incrSTM tvStringMap key now
-        pure $ bimap (const RIncrError) RInt val
+        pure $ bimap (const ErrIncr) (ReplyResp . RespInt) val

@@ -12,7 +12,7 @@ import Data.Time (UTCTime)
 
 import Data.Bifunctor (Bifunctor (bimap))
 import Protocol.Command (Key, StreamCmd (..))
-import Protocol.Result (CommandError (..), CommandResult (..))
+import Protocol.Result
 import Store.TypeStore (TypeIndex)
 import Store.TypeStore qualified as TS
 import StoreBackend.StreamMap (
@@ -68,14 +68,14 @@ xReadBlockSTM tv key sid = do
         [] -> retry
         xs -> pure (key, xs)
 
-runStreamStoreSTM :: TVar TypeIndex -> TVar StreamStore -> UTCTime -> StreamCmd -> STM (Either CommandError CommandResult)
+runStreamStoreSTM :: TVar TypeIndex -> TVar StreamStore -> UTCTime -> StreamCmd -> STM (Either Failure Success)
 runStreamStoreSTM tvTypeIndex tvStreamMap now cmd = case cmd of
     CmdXAdd key sId ks -> do
         val <- TS.setIfAvailable tvTypeIndex key VStream *> xAddSTM tvStreamMap key sId ks now
-        pure $ bimap RStreamError RStreamId val
+        pure $ bimap ErrStream ReplyStreamId val
     CmdXRange key range -> do
         vals <- xRangeSTM tvStreamMap key range
-        pure $ Right $ RArrayStreamValues vals
+        pure $ Right $ ReplyStreamValues vals
     CmdXRead keys -> do
         vals <- xReadSTM tvStreamMap keys
-        pure $ Right $ RArrayKeyValues vals
+        pure $ Right $ ReplyStreamKeyValues vals

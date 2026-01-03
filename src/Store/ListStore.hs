@@ -15,8 +15,8 @@ module Store.ListStore (
 import Control.Concurrent.STM (STM, TVar, newTVar, readTVar, retry, writeTVar)
 import Data.ByteString (ByteString)
 
-import Protocol.Command (Key, ListCmd (..))
-import Protocol.Result (CommandResult (..))
+import Protocol.Command
+import Protocol.Result
 import Store.TypeStore (TypeIndex)
 import Store.TypeStore qualified as TS
 import StoreBackend.ListMap (ListMap, Range)
@@ -79,23 +79,23 @@ llenSTM tv key = do
     m <- readTVar tv
     pure (LM.lookupCount key m)
 
-runListStoreSTM :: TVar TypeIndex -> TVar ListStore -> ListCmd -> STM CommandResult
+runListStoreSTM :: TVar TypeIndex -> TVar ListStore -> ListCmd -> STM Success
 runListStoreSTM tvTypeIndex tvListMap cmd = case cmd of
     CmdRPush key xs -> do
         count <- TS.setIfAvailable tvTypeIndex key VList *> rpushSTM tvListMap key xs
-        pure $ RInt count
+        pure $ ReplyResp $ RespInt count
     CmdLPush key xs -> do
         count <- TS.setIfAvailable tvTypeIndex key VList *> lpushSTM tvListMap key xs
-        pure $ RInt count
+        pure $ ReplyResp $ RespInt count
     CmdLPop key Nothing -> do
         val <- lpopSTM tvListMap key
-        pure $ RBulk val
+        pure $ ReplyResp $ RespBulk val
     CmdLPop key (Just mLen) -> do
         vals <- lpopsSTM tvListMap key mLen
-        pure $ RArraySimple vals
+        pure $ ReplyStrings vals
     CmdLRange key range -> do
         vals <- lrangeSTM tvListMap key range
-        pure $ RArraySimple vals
+        pure $ ReplyStrings vals
     CmdLLen key -> do
         len <- llenSTM tvListMap key
-        pure $ RInt len
+        pure $ ReplyResp $ RespInt len
