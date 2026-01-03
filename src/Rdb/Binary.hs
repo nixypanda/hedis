@@ -7,14 +7,12 @@ module Rdb.Binary (
     hexDump,
 ) where
 
+import Data.Attoparsec.ByteString (Parser, anyWord8)
+import Data.Bits (Bits (..))
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
-import Numeric (showHex)
-
-import Data.Attoparsec.ByteString
-import Data.Bits (Bits (..))
-import Data.Int
 import Data.Word (Word64)
+import Numeric (showHex)
 import Prelude hiding (take)
 
 getInt8Be :: Parser Int
@@ -40,7 +38,11 @@ getInt32Le = do
     b2 <- anyWord8
     b3 <- anyWord8
     b4 <- anyWord8
-    pure $ fromIntegral b1 .|. (fromIntegral b2 `shiftL` 8) .|. (fromIntegral b3 `shiftL` 16) .|. (fromIntegral b4 `shiftL` 24)
+    pure $
+        fromIntegral b1
+            .|. (fromIntegral b2 `shiftL` 8)
+            .|. (fromIntegral b3 `shiftL` 16)
+            .|. (fromIntegral b4 `shiftL` 24)
 
 anyWord64Be :: Parser Word64
 anyWord64Be = do

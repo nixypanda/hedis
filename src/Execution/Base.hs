@@ -7,9 +7,9 @@ import Control.Concurrent.STM (STM, atomically)
 import Control.Monad.IO.Class (MonadIO (liftIO))
 import Control.Monad.Reader (asks)
 import Data.List (singleton)
+import Data.String (IsString (..))
 import Data.Time (UTCTime)
 
-import Data.String (IsString (..))
 import Protocol.Command
 import Protocol.Result
 import Replication.Config (HasRdbConfig (..), replicationInfo)
@@ -21,7 +21,8 @@ import Store.TypeStore qualified as TS
 import Time (timeout')
 import Types.Redis
 
-runCmdSTM :: (HasStores r) => Env r -> UTCTime -> CmdSTM -> STM (Either CommandError CommandResult)
+runCmdSTM ::
+    (HasStores r) => Env r -> UTCTime -> CmdSTM -> STM (Either CommandError CommandResult)
 runCmdSTM env now cmd = do
     let tvListMap = getListStore env
         tvStringMap = getStringStore env

@@ -1,11 +1,12 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Store.AuthStore where
+module Store.AuthStore (AuthStore, emptySTM, getUserSTM, addPasswordSTM) where
 
-import Auth.Types (Sha256 (..), UserFlags (..), UserProperty (..))
 import Control.Concurrent.STM (STM, TVar, modifyTVar', newTVar, readTVar)
 import Data.Map (Map)
 import Data.Map qualified as M
+
+import Auth.Types (Sha256 (..), UserFlags (..), UserProperty (..))
 import Protocol.Command (Key)
 
 type AuthStore = Map Key UserProperty

@@ -55,7 +55,9 @@ runCmd clientState command = do
     case authRes of
         Left err ->
             case command of
-                RedAuth (CmdAuth uname pass) -> resFromEither <$> liftIO (atomically $ performAuth clientState (getAuthStore env) uname pass)
+                RedAuth (CmdAuth uname pass) ->
+                    resFromEither
+                        <$> liftIO (atomically $ performAuth clientState (getAuthStore env) uname pass)
                 _ -> pure $ ResError err
         Right () -> do
             now <- liftIO getCurrentTime
@@ -63,10 +65,17 @@ runCmd clientState command = do
                 ts <- readTVar clientState.txState
                 sc <- readTVar clientState.subbedChannels
                 pure (ts, sc)
-            case subbedChannels of
-                [] -> case command of
-                    RedRepl (CmdReplicaToMaster c) -> resFromMaybe <$> runReplicaToMasterReplicationCmds clientState.socket c
-                    RedRepl (CmdMasterToReplica c) -> liftIO . atomically $ ResNormal <$> runMasterToReplicaReplicationCmds env c
+            let isSubscribed = not . null $ subbedChannels
+            if isSubscribed
+                then case command of
+                    RedSTM CmdPing -> pure $ ResNormal ResPongSubscribed
+                    RedSub cmd' -> ResNormal <$> handlePubSubMessage clientState cmd'
+                    cmd -> pure $ ResError $ RCmdNotAllowedInMode cmd ModeSubscribed
+                else case command of
+                    RedRepl (CmdReplicaToMaster c) ->
+                        resFromMaybe <$> runReplicaToMasterReplicationCmds clientState.socket c
+                    RedRepl (CmdMasterToReplica c) ->
+                        liftIO . atomically $ ResNormal <$> runMasterToReplicaReplicationCmds env c
                     RedAuth cmd' -> resFromEither <$> handleAuthCommands clientState cmd'
                     RedInfo section -> liftIO . atomically $ ResNormal <$> runServerInfoCmds env section
                     RedConfig section -> pure . ResNormal $ runConfigInfoCmds env section
@@ -81,12 +90,14 @@ runCmd clientState command = do
                                     pure . ResNormal $ RSimple "QUEUED"
                                 RedTrans m -> case m of
                                     Multi -> pure . ResError $ RTxErr RMultiInMulti
-                                    Exec -> ResCombined <$> liftIO (atomically $ executeQueuedCmds clientState env now cs)
+                                    Exec ->
+                                        ResCombined <$> liftIO (atomically $ executeQueuedCmds clientState env now cs)
                                     Discard -> liftIO $ atomically $ do
                                         writeTVar clientState.txState NoTx
                                         pure . ResNormal $ ResOk
                         NoTx -> case cmd of
-                            RedSTM cmd' -> resFromEither <$> liftIO (atomically $ runAndReplicateSTM env now cmd')
+                            RedSTM cmd' ->
+                                resFromEither <$> liftIO (atomically $ runAndReplicateSTM env now cmd')
                             RedTrans txCmd ->
                                 case txCmd of
                                     Exec -> pure . ResError $ RTxErr RExecWithoutMulti
@@ -94,10 +105,6 @@ runCmd clientState command = do
                                     Multi -> liftIO $ atomically $ do
                                         modifyTVar clientState.txState (const $ InTx [])
                                         pure . ResNormal $ ResOk
-                _ -> case command of
-                    RedSTM CmdPing -> pure $ ResNormal ResPongSubscribed
-                    RedSub cmd' -> ResNormal <$> handlePubSubMessage clientState cmd'
-                    cmd -> pure $ ResError $ RCmdNotAllowedInMode cmd ModeSubscribed
 
 requireAuthSTM :: (HasStores r) => Env r -> ClientState -> STM (Either CommandError ())
 requireAuthSTM env clientState = do
@@ -117,7 +124,8 @@ requireAuthSTM env clientState = do
                             pure (Right ())
                         else pure $ Left RAuthErrorNoAuth
 
-handleAuthCommands :: (HasStores r) => ClientState -> CmdAuth -> Redis r (Either CommandError CommandResult)
+handleAuthCommands ::
+    (HasStores r) => ClientState -> CmdAuth -> Redis r (Either CommandError CommandResult)
 handleAuthCommands clientState command = do
     env <- ask
     let tvAuthStore = getAuthStore env
@@ -131,7 +139,8 @@ handleAuthCommands clientState command = do
             pure $ Right ResOk
         CmdAuth uname pass -> liftIO . atomically $ performAuth clientState tvAuthStore uname pass
 
-performAuth :: ClientState -> TVar AuthStore -> Key -> Sha256 -> STM (Either CommandError CommandResult)
+performAuth ::
+    ClientState -> TVar AuthStore -> Key -> Sha256 -> STM (Either CommandError CommandResult)
 performAuth clientState tvAuthStore uname pass = do
     muser <- AS.getUserSTM uname tvAuthStore
     let passes = maybe [] (.passwords) muser
@@ -164,7 +173,9 @@ subscribeToChannel :: (HasStores r) => ClientState -> Env r -> Key -> STM Comman
 subscribeToChannel clientState env chan = do
     let tvPubSubStore = getPubSubStore env
         tvTypeIndex = getTypeIndex env
-    _ <- TS.setIfAvailable tvTypeIndex chan VChannel *> PS.addChannel chan clientState.socket tvPubSubStore
+    _ <-
+        TS.setIfAvailable tvTypeIndex chan VChannel
+            *> PS.addChannel chan clientState.socket tvPubSubStore
     modifyTVar clientState.subbedChannels (nub . (chan :))
     chans <- readTVar clientState.subbedChannels
     pure $ ResSubscribed chan (length chans)
@@ -179,7 +190,13 @@ unsubscribeFromChannel clientState env chan = do
 
 -- Transaction
 
-executeQueuedCmds :: (HasStores r, HasReplication r) => ClientState -> Env r -> UTCTime -> [CmdSTM] -> STM [Either CommandError CommandResult]
+executeQueuedCmds ::
+    (HasStores r, HasReplication r) =>
+    ClientState ->
+    Env r ->
+    UTCTime ->
+    [CmdSTM] ->
+    STM [Either CommandError CommandResult]
 executeQueuedCmds clientState env now cmds = do
     vals <- mapM (runAndReplicateSTM env now) (reverse cmds)
     modifyTVar clientState.txState (const NoTx)

@@ -12,7 +12,7 @@ module Replication.Master (
 
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (async)
-import Control.Concurrent.STM (STM, TQueue, atomically, modifyTVar, newTQueueIO, newTVarIO, readTQueue, readTVar, readTVarIO, writeTQueue)
+import Control.Concurrent.STM
 import Control.Exception (Exception (..), try)
 import Control.Monad (forM_, forever)
 import Control.Monad.Error.Class (liftEither)
@@ -31,7 +31,7 @@ import Protocol.Command
 import Protocol.MasterCmd
 import Protocol.Result
 import Rdb.Load (loadRdbData)
-import Replication.Config (HasRdbConfig (rdbFilePath), MasterState (..), ReplicaConn (..), Replication (..))
+import Replication.Config
 import Resp.Core (encode)
 import Time (timeout')
 import Types.Redis
@@ -84,7 +84,8 @@ replicaSender sock rdbFile q = do
         resp <- liftIO $ atomically $ readTQueue q
         send sock resp
 
-runMasterToReplicaReplicationCmds :: (HasReplication r) => Env r -> MasterToReplica -> STM CommandResult
+runMasterToReplicaReplicationCmds ::
+    (HasReplication r) => Env r -> MasterToReplica -> STM CommandResult
 runMasterToReplicaReplicationCmds env cmd = do
     case cmd of
         CmdReplConfGetAck -> do
@@ -100,8 +101,6 @@ sendReplConfs _clientState n tout = do
                 r <- readTVar masterState.replicaRegistry
                 t <- readTVar masterState.masterReplOffset
                 pure (r, t)
-
-            liftIO $ print $ "WAIT targetOffset=" <> show targetOffset <> " replicas=" <> show n <> " timeout=" <> show tout
 
             -- trigger GETACK
             liftIO $ forM_ registry $ \r ->
@@ -124,7 +123,8 @@ sendReplConfs _clientState n tout = do
         MkReplicationReplica _ ->
             error "WAIT called on replica"
 
-runAndReplicateSTM :: (HasReplication r, HasStores r) => Env r -> UTCTime -> CmdSTM -> STM (Either CommandError CommandResult)
+runAndReplicateSTM ::
+    (HasReplication r, HasStores r) => Env r -> UTCTime -> CmdSTM -> STM (Either CommandError CommandResult)
 runAndReplicateSTM env now cmd = do
     res <- runCmdSTM env now cmd
     case replicateSTMCmdAs cmd <$> res of

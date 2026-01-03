@@ -9,8 +9,8 @@ import Control.Concurrent.STM (STM, TVar, newTVar, readTVar, writeTVar)
 import Data.ByteString (ByteString)
 import Data.Map qualified as M
 import Data.String (IsString (fromString))
-
 import GHC.Float (castDoubleToWord64)
+
 import Geo.Encoding (decode, encode)
 import Geo.Types (Coordinates, coordinatesAreValid, haversineDistance)
 import Protocol.Command
@@ -61,7 +61,9 @@ zrangeSTM key start end tv = SSS.range key start end <$> readTVar tv
 runSortedSetStoreSTM :: TVar TypeIndex -> TVar SortedSetStore -> SortedSetCmd -> STM CommandResult
 runSortedSetStoreSTM tvTypeIndex tvZSet cmd =
     case cmd of
-        CmdZAdd key sc val -> RInt <$> (TS.setIfAvailable tvTypeIndex key VSortedSet *> zaddSTM key sc val tvZSet)
+        CmdZAdd key sc val ->
+            RInt
+                <$> (TS.setIfAvailable tvTypeIndex key VSortedSet *> zaddSTM key sc val tvZSet)
         CmdZRank key val -> RIntOrNil <$> zrankSTM key val tvZSet
         CmdZRange key (MkRange start end) -> RArraySimple <$> zrangeSTM key start end tvZSet
         CmdZCard key -> RInt <$> zcardSTM key tvZSet
@@ -89,14 +91,17 @@ getDistSTM tvZSet key1 val1 val2 = do
         secondCoords = zscoreToGeo <$> secondScore
     pure $ haversineDistance <$> firstCoords <*> secondCoords
 
-runGeoStoreSTM :: TVar TypeIndex -> TVar SortedSetStore -> GeoCmd -> STM (Either CommandError CommandResult)
+runGeoStoreSTM ::
+    TVar TypeIndex -> TVar SortedSetStore -> GeoCmd -> STM (Either CommandError CommandResult)
 runGeoStoreSTM tvTypeIndex tvZSet cmd =
     case cmd of
         CmdGeoAdd key coords v -> do
             if coordinatesAreValid coords
                 then do
                     let score = encode coords
-                    res <- TS.setIfAvailable tvTypeIndex key VSortedSet *> zaddSTM key (GeoScore score) v tvZSet
+                    res <-
+                        TS.setIfAvailable tvTypeIndex key VSortedSet
+                            *> zaddSTM key (GeoScore score) v tvZSet
                     pure $ Right $ RInt res
                 else pure $ Left $ RInvalidLatLong coords
         CmdGeoPos key vals -> do

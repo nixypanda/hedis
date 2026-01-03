@@ -12,7 +12,7 @@ import Network.Simple.TCP (Socket)
 
 import Protocol.Command
 import Protocol.Result
-import Replication.Config (MasterState (..), ReplicaConn (..), ReplicaState (..), Replication (..))
+import Replication.Config
 import Replication.Master (acceptReplica)
 import Resp.Client (RespConn, recvResp, sendResp)
 import Types.Redis
@@ -61,7 +61,8 @@ doHandshake (MkReplicaState{..}) respConn = do
         other -> throwError $ HandshakeError $ InvalidReturn cmd4 (RRepl (ResFullResync "" 0)) other
     pure ()
 
-runReplicaToMasterReplicationCmds :: (HasReplication r, HasLogger r) => Socket -> ReplicaToMaster -> Redis r (Maybe CommandResult)
+runReplicaToMasterReplicationCmds ::
+    (HasReplication r, HasLogger r) => Socket -> ReplicaToMaster -> Redis r (Maybe CommandResult)
 runReplicaToMasterReplicationCmds socket cmd = do
     env <- ask
     case cmd of

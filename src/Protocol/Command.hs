@@ -26,7 +26,12 @@ import Auth.Types (Sha256)
 import Data.Word (Word64)
 import Geo.Types (Coordinates)
 import StoreBackend.ListMap (Range (..))
-import StoreBackend.StreamMap (ConcreteStreamId, XAddStreamId (..), XRange (..), XReadStreamId (..))
+import StoreBackend.StreamMap (
+    ConcreteStreamId,
+    XAddStreamId (..),
+    XRange (..),
+    XReadStreamId (..),
+ )
 
 type Key = ByteString
 

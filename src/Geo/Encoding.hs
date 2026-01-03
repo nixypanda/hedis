@@ -7,11 +7,11 @@ import Data.Word (Word32, Word64)
 
 import Geo.Types
 
-latitudeRange :: Double
-latitudeRange = maxLatitude - minLatitude
+latRange :: Double
+latRange = maxLatitude - minLatitude
 
-longitudeRange :: Double
-longitudeRange = maxLongitude - minLongitude
+longRange :: Double
+longRange = maxLongitude - minLongitude
 
 spreadInt32ToInt64 :: Word32 -> Word64
 spreadInt32ToInt64 v =
@@ -33,8 +33,8 @@ encode :: Coordinates -> Word64
 encode MkCoordinates{..} =
     let
         -- Normalize to the range 0-2^26
-        normalizedLatitude = (2 ^ 26) * (latitude - minLatitude) / latitudeRange
-        normalizedLongitude = (2 ^ 26) * (longitude - minLongitude) / longitudeRange
+        normalizedLatitude = (2 ^ 26) * (latitude - minLatitude) / latRange
+        normalizedLongitude = (2 ^ 26) * (longitude - minLongitude) / longRange
 
         -- Truncate to integers
         latInt = truncate normalizedLatitude :: Word32
@@ -52,17 +52,17 @@ compactInt64ToInt32 v =
      in fromIntegral $ (v5 .|. (v5 `shiftR` 16)) .&. 0x00000000FFFFFFFF
 
 convertGridNumbersToCoordinates :: Word32 -> Word32 -> Coordinates
-convertGridNumbersToCoordinates gridLatitudeNumber gridLongitudeNumber =
+convertGridNumbersToCoordinates latNum longNum =
     let
         -- Calculate the grid boundaries
-        gridLatitudeMin = minLatitude + latitudeRange * (fromIntegral gridLatitudeNumber / (2 ^ 26))
-        gridLatitudeMax = minLatitude + latitudeRange * (fromIntegral (gridLatitudeNumber + 1) / (2 ^ 26))
-        gridLongitudeMin = minLongitude + longitudeRange * (fromIntegral gridLongitudeNumber / (2 ^ 26))
-        gridLongitudeMax = minLongitude + longitudeRange * (fromIntegral (gridLongitudeNumber + 1) / (2 ^ 26))
+        gridLatMin = minLatitude + latRange * (fromIntegral latNum / (2 ^ 26))
+        gridLatMax = minLatitude + latRange * (fromIntegral (latNum + 1) / (2 ^ 26))
+        gridLongMin = minLongitude + longRange * (fromIntegral longNum / (2 ^ 26))
+        gridLongMax = minLongitude + longRange * (fromIntegral (longNum + 1) / (2 ^ 26))
 
         -- Calculate the center point of the grid cell
-        lat = (gridLatitudeMin + gridLatitudeMax) / 2
-        lon = (gridLongitudeMin + gridLongitudeMax) / 2
+        lat = (gridLatMin + gridLatMax) / 2
+        lon = (gridLongMin + gridLongMax) / 2
      in
         MkCoordinates lat lon
 

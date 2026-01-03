@@ -7,11 +7,11 @@ module Store.StringStore (
 ) where
 
 import Control.Concurrent.STM (STM, TVar, modifyTVar', newTVar, readTVar, writeTVar)
+import Data.Bifunctor (Bifunctor (bimap))
 import Data.ByteString (ByteString)
 import Data.String (IsString (fromString))
 import Data.Time (NominalDiffTime, UTCTime)
 
-import Data.Bifunctor (Bifunctor (bimap))
 import Parsers (readIntBS)
 import Protocol.Command (Key, StringCmd (..))
 import Protocol.Result (CommandError (..), CommandResult (..))
@@ -53,7 +53,8 @@ incrSTM tv key now = do
             writeTVar tv m'
             pure $ Right n
 
-runStringStoreSTM :: TVar TypeIndex -> TVar StringStore -> UTCTime -> StringCmd -> STM (Either CommandError CommandResult)
+runStringStoreSTM ::
+    TVar TypeIndex -> TVar StringStore -> UTCTime -> StringCmd -> STM (Either CommandError CommandResult)
 runStringStoreSTM tvTypeIndex tvStringMap now cmd = case cmd of
     CmdSet key val mexpiry -> do
         TS.setIfAvailable tvTypeIndex key VString *> setSTM tvStringMap key val now mexpiry

@@ -6,16 +6,16 @@ import Data.Foldable (foldl')
 import Data.Map qualified as M
 import Data.Time (UTCTime)
 
-import Protocol.Command
+import Protocol.Command (Key)
 import Rdb.Parser (parseRdb)
 import Rdb.Type
 import Store.ListStore (ListStore)
 import Store.StreamStore (StreamStore)
 import Store.StringStore (StringStore)
 import Store.TypeStore (TypeIndex)
-import StoreBackend.ExpiringMap
+import StoreBackend.ExpiringMap (StoredVal (MkStoredVal))
 import StoreBackend.TypeIndex (ValueType (VString))
-import Types.Redis
+import Types.Redis (Stores (..))
 
 data StoreState = InitialState
     { ssstringStore :: StringStore
