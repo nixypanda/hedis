@@ -1,4 +1,13 @@
-module Geo.Types where
+module Geo.Types (
+    Coordinates (..),
+    eqWith,
+    minLatitude,
+    maxLatitude,
+    minLongitude,
+    maxLongitude,
+    coordinatesAreValid,
+    haversineDistance,
+) where
 
 data Coordinates = MkCoordinates
     { latitude :: Double
