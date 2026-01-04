@@ -15,7 +15,6 @@ import Data.ByteString qualified as BS
 import Data.Scientific (floatingOrInteger)
 import Geo.Types (Coordinates (..))
 import Parsers (readFloatBS, readIntBS, readScientificBS)
-import Protocol.Command
 import Resp.Core (Resp (..))
 import Resp.Utils
 import Store.SortedSetStore (ZScore (..))
@@ -31,6 +30,7 @@ import Store.StreamStoreParsing (
  )
 import StoreBackend.ListMap (Range (..))
 import Time (millisToNominalDiffTime, nominalDiffTimeToMillis)
+import Types.Command
 
 -- Conversion (from Resp)
 respToCmd :: Resp -> Either String Command

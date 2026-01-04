@@ -43,18 +43,6 @@ import System.Log.FastLogger (
  )
 
 import Control.Monad.STM (STM)
-import Protocol.Command
-import Protocol.Replication (ReplicaToMaster)
-import Protocol.Result
-import Replication.Config (
-    MasterConfig,
-    MasterState (..),
-    ReplicaConfig,
-    ReplicaState (..),
-    Replication (..),
-    initMasterState,
-    initReplicaState,
- )
 import Store.AuthStore (AuthStore)
 import Store.AuthStore qualified as AS
 import Store.ListStore (ListStore)
@@ -69,6 +57,18 @@ import Store.StringStore (StringStore)
 import Store.StringStore qualified as SS
 import Store.TypeStore (TypeIndex)
 import Store.TypeStore qualified as TS
+import Types.Command
+import Types.Propogation (ReplicaToMaster)
+import Types.Replication (
+    MasterConfig,
+    MasterState (..),
+    ReplicaConfig,
+    ReplicaState (..),
+    Replication (..),
+    initMasterState,
+    initReplicaState,
+ )
+import Types.Result
 
 -- Types
 

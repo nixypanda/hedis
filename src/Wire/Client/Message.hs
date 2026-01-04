@@ -2,8 +2,8 @@
 
 module Wire.Client.Message (msgToResp, respToMsg) where
 
-import Protocol.Message
 import Resp.Core
+import Types.Message
 
 msgToResp :: Message -> Resp
 msgToResp (MkMessage chan msg) = Array 3 [BulkStr "message", BulkStr chan, BulkStr msg]

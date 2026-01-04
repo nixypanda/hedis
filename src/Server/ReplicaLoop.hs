@@ -14,12 +14,12 @@ import Network.Simple.TCP (Socket, send)
 
 import Dispatch.Client (runCmd)
 import Dispatch.Store (runCmdSTM)
-import Protocol.Replication
-import Protocol.Result
-import Replication.Config
 import Resp.Client (RespConn, mkRespConn, recvRdb, recvResp, sendResp)
 import Resp.Core (encode)
+import Types.Propogation
 import Types.Redis
+import Types.Replication
+import Types.Result
 import Wire.Class (FromResp (..), ToResp (..))
 
 runReplicaLoop :: ClientState -> Redis Replica ()

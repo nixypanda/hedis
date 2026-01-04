@@ -11,9 +11,6 @@ import Data.List (singleton)
 import Data.String (IsString (..))
 import Data.Time (UTCTime)
 
-import Protocol.Command
-import Protocol.Result
-import Replication.Config (HasRdbConfig (..), replicationInfo)
 import Store.ListStore qualified as LS
 import Store.SortedSetStore qualified as SSS
 import Store.StreamStore qualified as StS
@@ -22,7 +19,10 @@ import Store.TypeStore qualified as TS
 import StoreBackend.ListMap (Range (..))
 import StoreBackend.TypeIndex (ValueType (..))
 import Time (timeout')
+import Types.Command
 import Types.Redis
+import Types.Replication (HasRdbConfig (..), replicationInfo)
+import Types.Result
 
 runCmdSTM ::
     (HasStores r) => Env r -> UTCTime -> CmdSTM -> STM (Either Failure Success)

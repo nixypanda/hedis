@@ -2,7 +2,7 @@
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-module Replication.Config (
+module Types.Replication (
     Replication (..),
     ReplicaOf (..),
     ReplicationConfig (..),

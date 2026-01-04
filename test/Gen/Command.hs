@@ -10,7 +10,7 @@ import Data.Time (NominalDiffTime)
 
 import Data.String (fromString)
 import Gen.Stream (genConcreteStreamId, genXAddStreamId, genXRange, genXReadStreamId)
-import Protocol.Command
+import Types.Command
 import StoreBackend.ListMap qualified as LM
 
 --------------------------------------------------------------------------------

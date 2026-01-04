@@ -20,14 +20,14 @@ import Network.Simple.TCP (Socket, send)
 import System.IO.Error (isDoesNotExistError)
 
 import Dispatch.Client (runCmd)
-import Protocol.Command
-import Protocol.Replication
-import Protocol.Result
 import Rdb.Load (loadRdbData)
-import Replication.Config
 import Resp.Client (mkRespConn, recvResp)
 import Resp.Core (Resp, encode)
+import Types.Command
+import Types.Propogation
 import Types.Redis
+import Types.Replication
+import Types.Result
 import Wire.Class (FromResp (..), ToResp (..))
 
 data Incoming

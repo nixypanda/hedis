@@ -6,17 +6,17 @@ import Control.Concurrent.Async (async)
 import Control.Exception (throwIO)
 import Control.Monad.Except (runExceptT)
 import Control.Monad.Reader (ReaderT (runReaderT), liftIO)
+import GHC.Conc.Sync (atomically)
 import Network.Simple.TCP (HostPreference (HostAny), closeSock, connect, serve)
 import Options.Applicative (execParser)
 import System.IO (BufferMode (NoBuffering), hSetBuffering, stderr, stdout)
 import System.Log.FastLogger (LogStr, toLogStr)
 
 import Cli
-import GHC.Conc.Sync (atomically)
-import Replication.Config
 import Server.MasterLoop (runMasterLoop, runRdbLoad)
 import Server.ReplicaLoop
 import Types.Redis
+import Types.Replication
 
 -- main
 

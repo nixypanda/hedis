@@ -1,4 +1,4 @@
-module Protocol.Message (Message (..)) where
+module Types.Message (Message (..)) where
 
 import Data.ByteString (ByteString)
 

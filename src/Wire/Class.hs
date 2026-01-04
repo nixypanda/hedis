@@ -2,11 +2,11 @@ module Wire.Class (ToResp (..), FromResp (..)) where
 
 import Data.ByteString qualified as BS
 
-import Protocol.Command (Command)
-import Protocol.Message (Message)
-import Protocol.Replication (MasterCommand, MasterToReplica, PropogationCmd, ReplicaToMaster)
-import Protocol.Result (Result, Success)
 import Resp.Core (Resp, encode)
+import Types.Command (Command)
+import Types.Message (Message)
+import Types.Propogation (MasterCommand, MasterToReplica, PropogationCmd, ReplicaToMaster)
+import Types.Result (Result, Success)
 import Wire.Client.Command (cmdToResp, respToCmd)
 import Wire.Client.Message (msgToResp, respToMsg)
 import Wire.Client.Result (cmdResultToResp, respToResult, resultToResp)

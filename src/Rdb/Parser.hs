@@ -14,9 +14,9 @@ import Data.Time (UTCTime)
 import Data.Time.Clock.POSIX (posixSecondsToUTCTime)
 import Data.Word (Word64, Word8)
 
-import Protocol.Command (Key)
 import Rdb.Binary
 import Rdb.Type
+import Types.Command (Key)
 
 import Prelude hiding (take)
 

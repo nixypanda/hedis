@@ -1,4 +1,4 @@
-module Protocol.Replication (
+module Types.Propogation (
     MasterCommand (..),
     PropogationCmd (..),
     ReplicaToMaster (..),
@@ -13,10 +13,10 @@ import Data.String (fromString)
 import Data.Time (NominalDiffTime)
 
 import Geo.Types (Coordinates)
-import Protocol.Command
-import Protocol.Result
 import Store.SortedSetStore (ZScore)
 import StoreBackend.StreamMap (XAddStreamId)
+import Types.Command
+import Types.Result
 
 data ReplicaToMaster
     = CmdReplConfListen Int

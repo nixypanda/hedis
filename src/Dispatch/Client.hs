@@ -14,11 +14,6 @@ import Network.Simple.TCP (send)
 
 import Auth (Sha256, UserFlags (..), UserProperty (..))
 import Dispatch.Store (runCmdIO, runCmdSTM, runConfigInfoCmds, runServerInfoCmds)
-import Protocol.Command
-import Protocol.Message
-import Protocol.Replication
-import Protocol.Result
-import Replication.Config
 import Resp.Core (encode)
 import Store.AuthStore (AuthStore)
 import Store.AuthStore qualified as AS
@@ -27,7 +22,12 @@ import Store.PubSubStore qualified as PS
 import Store.TypeStore qualified as TS
 import StoreBackend.TypeIndex (ValueType (..))
 import Time (timeout')
+import Types.Command
+import Types.Message
+import Types.Propogation
 import Types.Redis
+import Types.Replication
+import Types.Result
 import Wire.Class (ToResp (..))
 
 runCmd :: (HasStores r, HasReplication r) => ClientState -> Command -> Redis r Result

@@ -11,11 +11,11 @@ import Text.Parsec.ByteString (Parser)
 import Auth (UserFlags (..), UserProperty (..), sha256Hex)
 import Geo.Types (Coordinates (..))
 import Parsers (intParser, parseBS, readIntBS)
-import Protocol.Result
 import Resp.Core (Resp (..))
 import StoreBackend.StreamMap (ConcreteStreamId, StreamMapError (..))
 import StoreBackend.StreamMap qualified as SM
 import StoreBackend.TypeIndex (ValueType (..))
+import Types.Result
 import Wire.Client.Command (cmdToPretty)
 
 resultToResp :: Result -> Resp

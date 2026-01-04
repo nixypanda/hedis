@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Protocol.Result (
+module Types.Result (
     Success (..),
     Failure (..),
     TransactionError (..),
@@ -17,10 +17,10 @@ import Data.ByteString (ByteString)
 
 import Auth (UserProperty)
 import Geo.Types (Coordinates)
-import Protocol.Command (Command, Key)
 import StoreBackend.StreamMap (ConcreteStreamId, StreamMapError (..))
 import StoreBackend.StreamMap qualified as SM
 import StoreBackend.TypeIndex (ValueType (..))
+import Types.Command (Command, Key)
 
 data Result
     = ResultOk Success

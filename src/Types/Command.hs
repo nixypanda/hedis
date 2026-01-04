@@ -1,4 +1,4 @@
-module Protocol.Command (
+module Types.Command (
     Command (..),
     CmdSTM (..),
     CmdIO (..),
