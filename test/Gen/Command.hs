@@ -10,8 +10,8 @@ import Data.Time (NominalDiffTime)
 
 import Data.String (fromString)
 import Gen.Stream (genConcreteStreamId, genXAddStreamId, genXRange, genXReadStreamId)
-import Types.Command
 import StoreBackend.ListMap qualified as LM
+import Types.Command
 
 --------------------------------------------------------------------------------
 -- Generators
@@ -118,30 +118,6 @@ genTransaction =
     Gen.element [CmdMulti, CmdExec, CmdDiscard]
 
 --------------------------------------------------------------------------------
--- Replication
---------------------------------------------------------------------------------
-
-genReplicaToMaster :: Gen ReplicaToMaster
-genReplicaToMaster =
-    Gen.choice
-        [ CmdReplConfListen <$> Gen.int (Range.linear 1 65535)
-        , pure CmdReplConfCapabilities
-        , CmdPSync <$> genBS <*> Gen.int (Range.linear (-1) 10_000)
-        , CmdReplConfAck <$> Gen.int (Range.linear 0 10_000)
-        ]
-
-genMasterToReplica :: Gen MasterToReplica
-genMasterToReplica =
-    pure CmdReplConfGetAck
-
-genCmdReplication :: Gen CmdReplication
-genCmdReplication =
-    Gen.choice
-        [ CmdReplicaToMaster <$> genReplicaToMaster
-        , CmdMasterToReplica <$> genMasterToReplica
-        ]
-
---------------------------------------------------------------------------------
 -- Command
 --------------------------------------------------------------------------------
 
@@ -152,7 +128,6 @@ genCommand =
         , RedIO <$> genCmdIO
         , RedTrans <$> genTransaction
         , RedInfo <$> Gen.maybe (Gen.choice [pure IReplication])
-        , RedRepl <$> genCmdReplication
         , CmdWait
             <$> Gen.int (Range.linear 0 10)
             <*> genTimeout
