@@ -1,9 +1,7 @@
 module Store.ListStore (
     ListStore,
     emptySTM,
-    runListStoreSTM,
     blpopSTM,
-    -- testing
     rpushSTM,
     lpushSTM,
     lpopSTM,
@@ -15,14 +13,10 @@ module Store.ListStore (
 import Control.Concurrent.STM (STM, TVar, newTVar, readTVar, retry, writeTVar)
 import Data.ByteString (ByteString)
 
-import Protocol.Command
-import Protocol.Result
-import Store.TypeStore (TypeIndex)
-import Store.TypeStore qualified as TS
 import StoreBackend.ListMap (ListMap, Range)
 import StoreBackend.ListMap qualified as LM
-import StoreBackend.TypeIndex (ValueType (..))
 
+type Key = ByteString
 type ListStore = ListMap Key ByteString
 
 emptySTM :: STM (TVar ListStore)
@@ -78,24 +72,3 @@ llenSTM :: TVar ListStore -> Key -> STM Int
 llenSTM tv key = do
     m <- readTVar tv
     pure (LM.lookupCount key m)
-
-runListStoreSTM :: TVar TypeIndex -> TVar ListStore -> ListCmd -> STM Success
-runListStoreSTM tvTypeIndex tvListMap cmd = case cmd of
-    CmdRPush key xs -> do
-        count <- TS.setIfAvailable tvTypeIndex key VList *> rpushSTM tvListMap key xs
-        pure $ ReplyResp $ RespInt count
-    CmdLPush key xs -> do
-        count <- TS.setIfAvailable tvTypeIndex key VList *> lpushSTM tvListMap key xs
-        pure $ ReplyResp $ RespInt count
-    CmdLPop key Nothing -> do
-        val <- lpopSTM tvListMap key
-        pure $ ReplyResp $ RespBulk val
-    CmdLPop key (Just mLen) -> do
-        vals <- lpopsSTM tvListMap key mLen
-        pure $ ReplyStrings vals
-    CmdLRange key range -> do
-        vals <- lrangeSTM tvListMap key range
-        pure $ ReplyStrings vals
-    CmdLLen key -> do
-        len <- llenSTM tvListMap key
-        pure $ ReplyResp $ RespInt len

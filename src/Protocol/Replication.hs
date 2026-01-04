@@ -15,6 +15,7 @@ import Data.Time (NominalDiffTime)
 import Geo.Types (Coordinates)
 import Protocol.Command
 import Protocol.Result
+import Store.SortedSetStore (ZScore)
 import StoreBackend.StreamMap (XAddStreamId)
 
 data ReplicaToMaster

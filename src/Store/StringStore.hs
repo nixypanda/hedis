@@ -3,24 +3,21 @@
 module Store.StringStore (
     StringStore,
     emptySTM,
-    runStringStoreSTM,
+    incrSTM,
+    setSTM,
+    getSTM,
 ) where
 
 import Control.Concurrent.STM (STM, TVar, modifyTVar', newTVar, readTVar, writeTVar)
-import Data.Bifunctor (Bifunctor (bimap))
 import Data.ByteString (ByteString)
 import Data.String (IsString (fromString))
 import Data.Time (NominalDiffTime, UTCTime)
 
 import Parsers (readIntBS)
-import Protocol.Command
-import Protocol.Result
-import Store.TypeStore (TypeIndex)
-import Store.TypeStore qualified as TS
 import StoreBackend.ExpiringMap (ExpiringMap)
 import StoreBackend.ExpiringMap qualified as EM
-import StoreBackend.TypeIndex (ValueType (..))
 
+type Key = ByteString
 type StringStore = ExpiringMap Key ByteString
 
 data IncrError = NotAnInteger
@@ -52,16 +49,3 @@ incrSTM tv key now = do
         Right (n, m') -> do
             writeTVar tv m'
             pure $ Right n
-
-runStringStoreSTM ::
-    TVar TypeIndex -> TVar StringStore -> UTCTime -> StringCmd -> STM (Either Failure Success)
-runStringStoreSTM tvTypeIndex tvStringMap now cmd = case cmd of
-    CmdSet key val mexpiry -> do
-        TS.setIfAvailable tvTypeIndex key VString *> setSTM tvStringMap key val now mexpiry
-        pure $ Right ReplyOk
-    CmdGet key -> do
-        val <- getSTM tvStringMap key now
-        pure $ Right $ ReplyResp $ RespBulk val
-    CmdIncr key -> do
-        val <- incrSTM tvStringMap key now
-        pure $ bimap (const ErrIncr) (ReplyResp . RespInt) val

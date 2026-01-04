@@ -14,12 +14,13 @@ module Store.TypeStore (
 import Control.Concurrent.STM (STM, TVar, modifyTVar', newTVar, readTVar, throwSTM)
 import Control.Exception (Exception)
 import Control.Monad (unless)
+import Data.ByteString (ByteString)
 import Data.Map (Map)
 import Data.Map qualified as M
 
-import Protocol.Command (Key)
 import StoreBackend.TypeIndex (RequiredType (..), ValueType, checkAvailable)
 
+type Key = ByteString
 type TypeIndex = Map Key ValueType
 
 data IncorrectType = IncorrectType deriving (Exception, Show)

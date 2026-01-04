@@ -18,6 +18,7 @@ import Parsers (readFloatBS, readIntBS, readScientificBS)
 import Protocol.Command
 import Resp.Core (Resp (..))
 import Resp.Utils
+import Store.SortedSetStore (ZScore (..))
 import Store.StreamStoreParsing (
     readConcreteStreamId,
     readXAddStreamId,

@@ -1,13 +1,13 @@
 module Store.PubSubStore (PubSubStore, emptySTM, addChannel, getChannels, removeChannel) where
 
 import Control.Concurrent.STM (STM, TVar, modifyTVar', newTVar, readTVar)
+import Data.ByteString (ByteString)
 import Data.List (nub)
 import Data.Map (Map)
 import Data.Map qualified as M
 import Network.Simple.TCP (Socket)
 
-import Protocol.Command (Key)
-
+type Key = ByteString
 type PubSubStore = Map Key [Socket]
 
 emptySTM :: STM (TVar PubSubStore)

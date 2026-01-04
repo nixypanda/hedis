@@ -12,7 +12,6 @@ module Protocol.Command (
     PubSub (..),
     SortedSetCmd (..),
     GeoCmd (..),
-    ZScore (..),
     CmdAuth (..),
 ) where
 
@@ -20,8 +19,8 @@ import Data.ByteString (ByteString)
 import Data.Time (NominalDiffTime)
 
 import Auth (Sha256)
-import Data.Word (Word64)
 import Geo.Types (Coordinates)
+import Store.SortedSetStore (ZScore)
 import StoreBackend.ListMap (Range (..))
 import StoreBackend.StreamMap (
     ConcreteStreamId,
@@ -117,6 +116,3 @@ data CmdAuth
     | CmdAclSetUser Key Sha256
     | CmdAuth Key Sha256
     deriving (Show, Eq)
-
-data ZScore = ZScore Double | GeoScore Word64
-    deriving (Eq, Ord, Show)

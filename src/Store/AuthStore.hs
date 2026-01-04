@@ -3,12 +3,13 @@
 module Store.AuthStore (AuthStore, emptySTM, getUserSTM, addPasswordSTM) where
 
 import Control.Concurrent.STM (STM, TVar, modifyTVar', newTVar, readTVar)
+import Data.ByteString (ByteString)
 import Data.Map (Map)
 import Data.Map qualified as M
 
 import Auth (Sha256 (..), UserFlags (..), UserProperty (..))
-import Protocol.Command (Key)
 
+type Key = ByteString
 type AuthStore = Map Key UserProperty
 
 emptySTM :: STM (TVar AuthStore)
