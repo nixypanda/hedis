@@ -30,6 +30,7 @@ import Control.Exception (Exception)
 import Control.Monad.Except (ExceptT (..), MonadError)
 import Control.Monad.IO.Class (MonadIO (liftIO))
 import Control.Monad.Reader (MonadReader, ReaderT, asks)
+import Control.Monad.STM (STM)
 import Data.Kind (Type)
 import Network.Simple.TCP (Socket)
 import System.Log.FastLogger (
@@ -42,7 +43,6 @@ import System.Log.FastLogger (
     simpleTimeFormat,
  )
 
-import Control.Monad.STM (STM)
 import Store.AuthStore (AuthStore)
 import Store.AuthStore qualified as AS
 import Store.ListStore (ListStore)

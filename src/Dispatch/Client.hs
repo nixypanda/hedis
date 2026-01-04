@@ -17,7 +17,6 @@ import Dispatch.Store (runCmdIO, runCmdSTM, runConfigInfoCmds, runServerInfoCmds
 import Resp.Core (encode)
 import Store.AuthStore (AuthStore)
 import Store.AuthStore qualified as AS
-import Store.PubSubStore (getChannels)
 import Store.PubSubStore qualified as PS
 import Store.TypeStore qualified as TS
 import StoreBackend.TypeIndex (ValueType (..))
@@ -142,7 +141,7 @@ handlePubSubMessage clientState command = do
 
 publishToChannel :: (HasStores r) => Env r -> Key -> ByteString -> IO Success
 publishToChannel env key msg = do
-    channels <- liftIO $ atomically $ getChannels key (getPubSubStore env)
+    channels <- liftIO $ atomically $ PS.getChannels key (getPubSubStore env)
     forM_ channels $ \chan -> do
         let msg' = MkMessage key msg
         send chan (encode $ toResp msg')

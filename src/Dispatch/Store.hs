@@ -21,7 +21,7 @@ import StoreBackend.TypeIndex (ValueType (..))
 import Time (timeout')
 import Types.Command
 import Types.Redis
-import Types.Replication (HasRdbConfig (..), replicationInfo)
+import Types.Replication
 import Types.Result
 
 runCmdSTM ::

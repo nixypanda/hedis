@@ -16,9 +16,10 @@ import Data.Word (Word64, Word8)
 
 import Rdb.Binary
 import Rdb.Type
-import Types.Command (Key)
 
 import Prelude hiding (take)
+
+type Key = ByteString
 
 parseRdb :: ByteString -> Either String RdbData
 parseRdb = parseOnly rdbParser
