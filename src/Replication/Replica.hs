@@ -7,7 +7,7 @@ import Control.Monad.Except (MonadError (throwError), liftEither)
 import Control.Monad.IO.Class (MonadIO (liftIO))
 import Data.Bifunctor (Bifunctor (first))
 
-import Protocol.Command
+import Protocol.Replication
 import Protocol.Result
 import Replication.Config
 import Resp.Client (RespConn, recvResp, sendResp)

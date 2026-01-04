@@ -27,7 +27,7 @@ import System.IO.Error (isDoesNotExistError)
 
 import Execution.Base (runCmdIO, runCmdSTM)
 import Protocol.Command
-import Protocol.MasterCmd
+import Protocol.Replication
 import Protocol.Result
 import Rdb.Load (loadRdbData)
 import Replication.Config

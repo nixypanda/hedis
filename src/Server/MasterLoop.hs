@@ -13,6 +13,7 @@ import Data.List (find)
 import Network.Simple.TCP (Socket, send)
 
 import Protocol.Command
+import Protocol.Replication
 import Protocol.Result
 import Replication.Config (MasterState (..), ReplicaConn (..))
 import Replication.Master (acceptReplica)

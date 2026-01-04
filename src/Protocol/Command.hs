@@ -4,8 +4,6 @@ module Protocol.Command (
     CmdIO (..),
     CmdTransaction (..),
     Key,
-    ReplicaToMaster (..),
-    MasterToReplica (..),
     SubInfo (..),
     StringCmd (..),
     ListCmd (..),
@@ -105,18 +103,6 @@ data CmdTransaction
     = CmdMulti
     | CmdExec
     | CmdDiscard
-    deriving (Show, Eq)
-
-data ReplicaToMaster
-    = CmdReplConfListen Int
-    | CmdReplConfCapabilities
-    | CmdPSync ByteString Int
-    | CmdReplConfAck Int
-    | CmdReplicaToMasterPing
-    deriving (Show, Eq)
-
-data MasterToReplica
-    = CmdReplConfGetAck
     deriving (Show, Eq)
 
 data PubSub

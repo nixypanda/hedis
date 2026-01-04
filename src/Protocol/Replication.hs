@@ -1,6 +1,8 @@
-module Protocol.MasterCmd (
+module Protocol.Replication (
     MasterCommand (..),
     PropogationCmd (..),
+    ReplicaToMaster (..),
+    MasterToReplica (..),
     propogationCmdToCmdSTM,
     replicateIOCmdAs,
     replicateSTMCmdAs,
@@ -14,6 +16,18 @@ import Geo.Types (Coordinates)
 import Protocol.Command
 import Protocol.Result
 import StoreBackend.StreamMap (XAddStreamId)
+
+data ReplicaToMaster
+    = CmdReplConfListen Int
+    | CmdReplConfCapabilities
+    | CmdPSync ByteString Int
+    | CmdReplConfAck Int
+    | CmdReplicaToMasterPing
+    deriving (Show, Eq)
+
+data MasterToReplica
+    = CmdReplConfGetAck
+    deriving (Show, Eq)
 
 data MasterCommand
     = PropogationCmd PropogationCmd

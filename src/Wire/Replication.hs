@@ -1,19 +1,39 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Wire.MasterCmd (masterCmdToResp, respToMasterCmd, propogationCmdToResp) where
+module Wire.Replication (
+    masterCmdToResp,
+    respToMasterCmd,
+    propogationCmdToResp,
+    cmdReplicaToMasterToResp,
+    respToReplicaToMasterCmd,
+    replicaToMasterToPretty,
+    cmdMasterToReplicaToResp,
+    respToMasterToReplicaCmd,
+    masterToReplicaPretty,
+) where
 
 import Data.String (fromString)
 
+import Data.ByteString (ByteString)
 import Data.Scientific (floatingOrInteger)
 import Geo.Types (Coordinates (MkCoordinates))
 import Parsers (readFloatBS, readIntBS, readScientificBS)
 import Protocol.Command
-import Protocol.MasterCmd
+import Protocol.Replication
 import Resp.Core (Resp (..))
 import Resp.Utils
 import Store.StreamStoreParsing (readXAddStreamId, showXaddId)
 import Time (millisToNominalDiffTime, nominalDiffTimeToMillis)
 
+cmdMasterToReplicaToResp :: MasterToReplica -> Resp
+cmdMasterToReplicaToResp CmdReplConfGetAck = Array 3 [BulkStr "REPLCONF", BulkStr "GETACK", BulkStr "*"]
+
+cmdReplicaToMasterToResp :: ReplicaToMaster -> Resp
+cmdReplicaToMasterToResp (CmdReplConfListen port) = Array 3 [BulkStr "REPLCONF", BulkStr "listening-port", BulkStr $ fromString $ show port]
+cmdReplicaToMasterToResp CmdReplConfCapabilities = Array 3 [BulkStr "REPLCONF", BulkStr "capa", BulkStr "psync2"]
+cmdReplicaToMasterToResp (CmdPSync sId s) = Array 3 [BulkStr "PSYNC", BulkStr sId, BulkStr $ fromString $ show s]
+cmdReplicaToMasterToResp (CmdReplConfAck n) = Array 3 [BulkStr "REPLCONF", BulkStr "ACK", BulkStr $ fromString $ show n]
+cmdReplicaToMasterToResp CmdReplicaToMasterPing = Array 1 [BulkStr "PING"]
 masterCmdToResp :: MasterCommand -> Resp
 masterCmdToResp MasterPing = Array 1 [BulkStr "PING"]
 masterCmdToResp (ReplicationCommand CmdReplConfGetAck) = Array 3 [BulkStr "REPLCONF", BulkStr "GETACK", BulkStr "*"]
@@ -66,3 +86,28 @@ respToMasterCmd (Array 5 [BulkStr "GEOADD", BulkStr k, BulkStr lat, BulkStr long
     long' <- readFloatBS long
     pure $ PropogationCmd $ RCmdGeoAdd k (MkCoordinates lat' long') v
 respToMasterCmd c = Left $ "Invalid Propogation Command: -> " <> show c
+
+respToReplicaToMasterCmd :: Resp -> Either String ReplicaToMaster
+respToReplicaToMasterCmd (Array 3 [BulkStr "REPLCONF", BulkStr "listening-port", BulkStr port]) = CmdReplConfListen <$> readIntBS port
+respToReplicaToMasterCmd (Array 3 [BulkStr "REPLCONF", BulkStr "capa", BulkStr "psync2"]) = pure CmdReplConfCapabilities
+respToReplicaToMasterCmd (Array 3 [BulkStr "REPLCONF", BulkStr "ACK", BulkStr n]) = CmdReplConfAck <$> readIntBS n
+respToReplicaToMasterCmd (Array 3 [BulkStr "PSYNC", BulkStr sid, BulkStr offset]) = CmdPSync sid <$> readIntBS offset
+-- Not handling PING so it falls through to the normal handling flow
+-- respToReplicaToMasterCmd (Array 1 [BulkStr "PING"]) = pure CmdReplicaToMasterPing
+respToReplicaToMasterCmd r = Left $ "Conversion Error: " <> show r
+
+respToMasterToReplicaCmd :: Resp -> Either String MasterToReplica
+respToMasterToReplicaCmd (Array 3 [BulkStr "REPLCONF", BulkStr "GETACK", BulkStr "*"]) = pure CmdReplConfGetAck
+respToMasterToReplicaCmd r = Left $ "Conversion Error: " <> show r
+
+-----------------
+
+masterToReplicaPretty :: MasterToReplica -> ByteString
+masterToReplicaPretty CmdReplConfGetAck = "REPLCONF"
+
+replicaToMasterToPretty :: ReplicaToMaster -> ByteString
+replicaToMasterToPretty (CmdReplConfListen{}) = "REPLCONF"
+replicaToMasterToPretty CmdReplConfCapabilities = "REPLCONF"
+replicaToMasterToPretty (CmdPSync{}) = "PSYNC"
+replicaToMasterToPretty (CmdReplConfAck{}) = "REPLCONF"
+replicaToMasterToPretty CmdReplicaToMasterPing = "PING"

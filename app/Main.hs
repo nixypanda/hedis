@@ -16,7 +16,7 @@ import GHC.Conc.Sync (atomically)
 import Replication.Config
 import Replication.Master (runRdbLoad)
 import Server.MasterLoop (runMasterLoop)
-import Server.ReplicationLoop
+import Server.ReplicaLoop
 import Types.Redis
 
 -- main

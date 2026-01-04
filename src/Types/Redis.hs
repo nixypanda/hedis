@@ -44,6 +44,7 @@ import System.Log.FastLogger (
 
 import Control.Monad.STM (STM)
 import Protocol.Command
+import Protocol.Replication (ReplicaToMaster)
 import Protocol.Result
 import Replication.Config (
     MasterConfig,

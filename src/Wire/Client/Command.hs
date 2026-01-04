@@ -4,12 +4,6 @@ module Wire.Client.Command (
     respToCmd,
     cmdToResp,
     cmdToPretty,
-    cmdReplicaToMasterToResp,
-    respToReplicaToMasterCmd,
-    replicaToMasterToPretty,
-    cmdMasterToReplicaToResp,
-    respToMasterToReplicaCmd,
-    masterToReplicaPretty,
 ) where
 
 import Data.String (IsString (fromString))
@@ -154,19 +148,6 @@ respToCmd (Array 3 [BulkStr "AUTH", BulkStr uname, BulkStr pass]) = pure $ RedAu
 -- Unhandled
 respToCmd r = Left $ "Conversion Error" <> show r
 
-respToReplicaToMasterCmd :: Resp -> Either String ReplicaToMaster
-respToReplicaToMasterCmd (Array 3 [BulkStr "REPLCONF", BulkStr "listening-port", BulkStr port]) = CmdReplConfListen <$> readIntBS port
-respToReplicaToMasterCmd (Array 3 [BulkStr "REPLCONF", BulkStr "capa", BulkStr "psync2"]) = pure CmdReplConfCapabilities
-respToReplicaToMasterCmd (Array 3 [BulkStr "REPLCONF", BulkStr "ACK", BulkStr n]) = CmdReplConfAck <$> readIntBS n
-respToReplicaToMasterCmd (Array 3 [BulkStr "PSYNC", BulkStr sid, BulkStr offset]) = CmdPSync sid <$> readIntBS offset
--- Not handling PING so it falls through to the normal handling flow
--- respToReplicaToMasterCmd (Array 1 [BulkStr "PING"]) = pure CmdReplicaToMasterPing
-respToReplicaToMasterCmd r = Left $ "Conversion Error: " <> show r
-
-respToMasterToReplicaCmd :: Resp -> Either String MasterToReplica
-respToMasterToReplicaCmd (Array 3 [BulkStr "REPLCONF", BulkStr "GETACK", BulkStr "*"]) = pure CmdReplConfGetAck
-respToMasterToReplicaCmd r = Left $ "Conversion Error: " <> show r
-
 -- Conversion (to Resp)
 
 cmdToResp :: Command -> Resp
@@ -197,16 +178,6 @@ configCmdToResp ConfigDbFilename = Array 3 [BulkStr "CONFIG", BulkStr "GET", Bul
 ioCmdToResp :: CmdIO -> Resp
 ioCmdToResp (CmdBLPop key t) = Array 3 [BulkStr "BLPOP", BulkStr key, BulkStr $ fromString $ show $ nominalDiffTimeToSeconds t]
 ioCmdToResp (CmdXReadBlock key sid t) = Array 6 [BulkStr "XREAD", BulkStr "block", BulkStr $ fromString $ show $ nominalDiffTimeToMillis t, BulkStr "streams", BulkStr key, BulkStr $ showXReadStreamId sid]
-
-cmdMasterToReplicaToResp :: MasterToReplica -> Resp
-cmdMasterToReplicaToResp CmdReplConfGetAck = Array 3 [BulkStr "REPLCONF", BulkStr "GETACK", BulkStr "*"]
-
-cmdReplicaToMasterToResp :: ReplicaToMaster -> Resp
-cmdReplicaToMasterToResp (CmdReplConfListen port) = Array 3 [BulkStr "REPLCONF", BulkStr "listening-port", BulkStr $ fromString $ show port]
-cmdReplicaToMasterToResp CmdReplConfCapabilities = Array 3 [BulkStr "REPLCONF", BulkStr "capa", BulkStr "psync2"]
-cmdReplicaToMasterToResp (CmdPSync sId s) = Array 3 [BulkStr "PSYNC", BulkStr sId, BulkStr $ fromString $ show s]
-cmdReplicaToMasterToResp (CmdReplConfAck n) = Array 3 [BulkStr "REPLCONF", BulkStr "ACK", BulkStr $ fromString $ show n]
-cmdReplicaToMasterToResp CmdReplicaToMasterPing = Array 1 [BulkStr "PING"]
 
 stmCmdToResp :: CmdSTM -> Resp
 stmCmdToResp CmdPing = Array 1 [BulkStr "PING"]
@@ -309,16 +280,6 @@ configCmdToPretty ConfigDbFilename = "CONFIG"
 ioCmdToPretty :: CmdIO -> ByteString
 ioCmdToPretty (CmdBLPop{}) = "BLPOP"
 ioCmdToPretty (CmdXReadBlock{}) = "XREAD"
-
-masterToReplicaPretty :: MasterToReplica -> ByteString
-masterToReplicaPretty CmdReplConfGetAck = "REPLCONF"
-
-replicaToMasterToPretty :: ReplicaToMaster -> ByteString
-replicaToMasterToPretty (CmdReplConfListen{}) = "REPLCONF"
-replicaToMasterToPretty CmdReplConfCapabilities = "REPLCONF"
-replicaToMasterToPretty (CmdPSync{}) = "PSYNC"
-replicaToMasterToPretty (CmdReplConfAck{}) = "REPLCONF"
-replicaToMasterToPretty CmdReplicaToMasterPing = "PING"
 
 stmCmdToPretty :: CmdSTM -> ByteString
 stmCmdToPretty CmdPing = "PING"

@@ -1,7 +1,7 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-module Server.ReplicationLoop (runReplication, runReplicaLoop) where
+module Server.ReplicaLoop (runReplication, runReplicaLoop) where
 
 import Control.Concurrent.STM (STM, atomically, modifyTVar, readTVar)
 import Control.Monad (forever)
@@ -13,8 +13,8 @@ import Data.Time (getCurrentTime)
 import Network.Simple.TCP (Socket, send)
 
 import Execution.Base (runCmdSTM)
-import Protocol.Command (Command, MasterToReplica (..))
-import Protocol.MasterCmd (MasterCommand (..), propogationCmdToCmdSTM)
+import Protocol.Command (Command)
+import Protocol.Replication
 import Protocol.Result
 import Replication.Replica (doHandshake)
 import Resp.Client (RespConn, mkRespConn, recvRdb, recvResp, sendResp)
