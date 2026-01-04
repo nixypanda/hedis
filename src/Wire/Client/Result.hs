@@ -8,7 +8,7 @@ import Data.String (IsString (fromString))
 import Text.Parsec (anyChar, char, manyTill, string)
 import Text.Parsec.ByteString (Parser)
 
-import Auth.Types (UserFlags (..), UserProperty (..), sha256Hex)
+import Auth (UserFlags (..), UserProperty (..), sha256Hex)
 import Geo.Types (Coordinates (..))
 import Parsers (intParser, parseBS, readIntBS)
 import Protocol.Result

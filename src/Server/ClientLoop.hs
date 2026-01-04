@@ -11,7 +11,7 @@ import Data.List (delete, nub)
 import Data.Time (UTCTime, getCurrentTime)
 import Network.Simple.TCP (send)
 
-import Auth.Types (Sha256, UserFlags (..), UserProperty (..))
+import Auth (Sha256, UserFlags (..), UserProperty (..))
 import Execution.Base (runConfigInfoCmds, runServerInfoCmds)
 import Protocol.Command
 import Protocol.Message (Message (MkMessage))

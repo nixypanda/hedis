@@ -1,4 +1,4 @@
-module Auth.Types (
+module Auth (
     UserFlags (..),
     UserProperty (..),
     Sha256 (..),

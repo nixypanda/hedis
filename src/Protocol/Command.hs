@@ -19,7 +19,7 @@ module Protocol.Command (
 import Data.ByteString (ByteString)
 import Data.Time (NominalDiffTime)
 
-import Auth.Types (Sha256)
+import Auth (Sha256)
 import Data.Word (Word64)
 import Geo.Types (Coordinates)
 import StoreBackend.ListMap (Range (..))

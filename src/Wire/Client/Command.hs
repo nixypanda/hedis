@@ -9,7 +9,7 @@ module Wire.Client.Command (
 import Data.String (IsString (fromString))
 import Data.Time (nominalDiffTimeToSeconds, secondsToNominalDiffTime)
 
-import Auth.Types (Sha256 (unSha256), hashPassword)
+import Auth (Sha256 (unSha256), hashPassword)
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.Scientific (floatingOrInteger)

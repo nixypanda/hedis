@@ -15,7 +15,7 @@ module Protocol.Result (
 
 import Data.ByteString (ByteString)
 
-import Auth.Types (UserProperty)
+import Auth (UserProperty)
 import Geo.Types (Coordinates)
 import Protocol.Command (Command, Key)
 import StoreBackend.StreamMap (ConcreteStreamId, StreamMapError (..))
