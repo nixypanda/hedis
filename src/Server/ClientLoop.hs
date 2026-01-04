@@ -76,7 +76,7 @@ runCmd clientState command = do
                     RedConfig section -> pure . ResultOk $ runConfigInfoCmds env section
                     RedIO cmd' -> ResultOk <$> runAndReplicateIO env cmd'
                     RedSub cmd' -> ResultOk <$> handlePubSubMessage clientState cmd'
-                    CmdWait n tout -> ResultOk <$> sendReplConfs clientState n tout
+                    CmdWait n tout -> sendReplConfs clientState n tout
                     cmd -> case txState of
                         InTx cs ->
                             case cmd of

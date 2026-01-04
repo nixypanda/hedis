@@ -75,6 +75,7 @@ data Failure
     | ErrCmdNotAllowedInMode Command Mode
     | ErrInvalidCoords Coordinates
     | ErrAuth AuthError
+    | ErrWaitOnRplica
     deriving (Show, Eq)
 
 data AuthError

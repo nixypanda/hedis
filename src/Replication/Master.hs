@@ -83,7 +83,7 @@ replicaSender sock rdbFile q = do
         resp <- liftIO $ atomically $ readTQueue q
         send sock resp
 
-sendReplConfs :: (HasReplication r) => ClientState -> Int -> NominalDiffTime -> Redis r Success
+sendReplConfs :: (HasReplication r) => ClientState -> Int -> NominalDiffTime -> Redis r Result
 sendReplConfs _clientState n tout = do
     env <- ask
     case getReplication env of
@@ -110,9 +110,9 @@ sendReplConfs _clientState n tout = do
 
             mres <- liftIO $ timeout' tout poll
             acked <- liftIO $ maybe (liftIO $ atomically countAcked) pure mres
-            pure $ ReplyResp $ RespInt $ if targetOffset > 0 then acked else length registry
+            pure $ ResultOk $ ReplyResp $ RespInt $ if targetOffset > 0 then acked else length registry
         MkReplicationReplica _ ->
-            error "WAIT called on replica"
+            pure $ ResultErr ErrWaitOnRplica
 
 runAndReplicateSTM ::
     (HasReplication r, HasStores r) => Env r -> UTCTime -> CmdSTM -> STM (Either Failure Success)

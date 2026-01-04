@@ -112,7 +112,7 @@ fullresyncParser = do
 
 -- error conversions
 
-strStreamErrBaseStreamId, strStreamErrNotLargerId, strRExecWithoutMulti, strRNotSupportedInTx, strRMultiInMulti, strRDiscardWithoutMulti, strIncrError :: ByteString
+strStreamErrBaseStreamId, strStreamErrNotLargerId, strRExecWithoutMulti, strRNotSupportedInTx, strRMultiInMulti, strRDiscardWithoutMulti, strIncrError, strWaitOnRplica :: ByteString
 strStreamErrBaseStreamId = "ERR The ID specified in XADD must be greater than 0-0"
 strStreamErrNotLargerId = "ERR The ID specified in XADD is equal or smaller than the target stream top item"
 strRExecWithoutMulti = "ERR EXEC without MULTI"
@@ -120,6 +120,7 @@ strRNotSupportedInTx = "ERR command not supported in transaction"
 strRMultiInMulti = "ERR MULTI inside MULTI"
 strRDiscardWithoutMulti = "ERR DISCARD without MULTI"
 strIncrError = "ERR value is not an integer or out of range"
+strWaitOnRplica = "WAIT cannot be used on a replica"
 
 errorToResp :: Failure -> Resp
 errorToResp (ErrStream e) = streamMapErrorToResp e
@@ -128,6 +129,7 @@ errorToResp (ErrTx txErr) = txErrorToResp txErr
 errorToResp (ErrCmdNotAllowedInMode cmd mode) = StrErr $ "ERR Can't execute '" <> cmdToPretty cmd <> "'in " <> modeToPretty mode <> "mode"
 errorToResp (ErrInvalidCoords (MkCoordinates lat long)) = StrErr $ "ERR invalid longitude,latitude pair " <> fromString (show long) <> "," <> fromString (show lat)
 errorToResp (ErrAuth err) = authErrorToResp err
+errorToResp ErrWaitOnRplica = StrErr strWaitOnRplica
 
 authErrorToResp :: AuthError -> Resp
 authErrorToResp AuthWrongPassword = StrErr "WRONGPASS invalid username-password pair or user is disabled."
@@ -152,4 +154,5 @@ respToErr s
     | s == strRMultiInMulti = Right $ ResultErr $ ErrTx TxMultiInMulti
     | s == strRDiscardWithoutMulti = Right $ ResultErr $ ErrTx TxDiscardWithoutMulti
     | s == strIncrError = Right $ ResultErr ErrIncr
+    | s == strWaitOnRplica = Right $ ResultErr ErrWaitOnRplica
     | otherwise = Left $ "unknown error: " <> show s
