@@ -53,14 +53,14 @@ runRdbLoad = do
             liftEither $ first RdbParsingError r
             pure ()
 
-acceptReplica :: Socket -> Redis r Success -- fix r to be Master
+acceptReplica :: Socket -> Redis Master Success -- fix r to be Master
 acceptReplica sock = do
     EnvMaster _ (MkMasterState{..}) <- ask
     _ <- initReplica sock
     masterReplOffset' <- liftIO $ readTVarIO masterReplOffset
     pure $ ReplyReplication $ ReplFullResync masterReplId masterReplOffset'
 
-initReplica :: Socket -> Redis r ()
+initReplica :: Socket -> Redis Master ()
 initReplica rcSocket = do
     EnvMaster _ ms@(MkMasterState{..}) <- ask
     rcOffset <- liftIO $ newTVarIO (-1)

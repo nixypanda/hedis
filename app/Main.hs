@@ -16,6 +16,7 @@ import GHC.Conc.Sync (atomically)
 import Replication.Config
 import Replication.Master (runRdbLoad)
 import Server.ClientLoop
+import Server.MasterReplicationLoop (runMasterLoop)
 import Server.ReplicationLoop
 import Types.Redis
 
@@ -55,11 +56,12 @@ runMaster :: Env Master -> Int -> IO ()
 runMaster env port = do
     let (logInfo', _) = loggingFuncs (getLogger env)
     runRedisIO env runRdbLoad
+
     logInfo' $ "Starting master server on port " <> show port
     serve HostAny (show port) $ \(socket, address) -> do
         logInfo' $ "successfully connected client: " ++ show address
         clientState <- liftIO $ atomically $ newClient socket
-        runRedisIO env (clientLoopWrite clientState socket)
+        runRedisIO env (runMasterLoop clientState)
         logInfo' "Closing connection"
         closeSock socket
 

@@ -80,7 +80,7 @@ data RedisError
     deriving (Show, Exception)
 
 data HandshakeError
-    = InvalidReturn Command Success Result
+    = InvalidReturn ReplicaToMaster Success Result
     deriving (Show, Eq)
 
 -- Transactions

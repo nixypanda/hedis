@@ -2,14 +2,14 @@ module Wire.Class (ToResp (..), FromResp (..)) where
 
 import Data.ByteString qualified as BS
 
-import Protocol.Command (Command)
+import Protocol.Command (Command, ReplicaToMaster)
 import Protocol.MasterCmd (MasterCommand, PropogationCmd)
 import Protocol.Message (Message)
-import Protocol.Result (Result)
+import Protocol.Result (Result, Success)
 import Resp.Core (Resp, encode)
-import Wire.Client.Command (cmdToResp, respToCmd)
+import Wire.Client.Command (cmdReplicaToMasterToResp, cmdToResp, respToCmd, respToReplicaToMasterCmd)
 import Wire.Client.Message (msgToResp, respToMsg)
-import Wire.Client.Result (respToResult, resultToResp)
+import Wire.Client.Result (cmdResultToResp, respToResult, resultToResp)
 import Wire.MasterCmd (masterCmdToResp, propogationCmdToResp, respToMasterCmd)
 
 class ToResp a where
@@ -46,3 +46,12 @@ instance ToResp Message where
 
 instance FromResp Message where
     fromResp = respToMsg
+
+instance FromResp ReplicaToMaster where
+    fromResp = respToReplicaToMasterCmd
+
+instance ToResp ReplicaToMaster where
+    toResp = cmdReplicaToMasterToResp
+
+instance ToResp Success where
+    toResp = cmdResultToResp

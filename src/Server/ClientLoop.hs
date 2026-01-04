@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Server.ClientLoop (clientLoopWrite) where
+module Server.ClientLoop (clientLoopWrite, runCmd) where
 
 import Control.Concurrent.STM (STM, TVar, atomically, modifyTVar, readTVar, writeTVar)
 import Control.Monad (forM_, forever)
@@ -19,7 +19,6 @@ import Protocol.Command
 import Protocol.Message (Message (MkMessage))
 import Protocol.Result
 import Replication.Master (runAndReplicateIO, runAndReplicateSTM, runMasterToReplicaReplicationCmds, sendReplConfs)
-import Replication.Replica (runReplicaToMasterReplicationCmds)
 import Resp.Client (mkRespConn, recvResp)
 import Resp.Core (encode)
 import Store.AuthStore (AuthStore)
@@ -72,8 +71,6 @@ runCmd clientState command = do
                     RedSub cmd' -> ResultOk <$> handlePubSubMessage clientState cmd'
                     cmd -> pure $ ResultErr $ ErrCmdNotAllowedInMode cmd ModeSubscribed
                 else case command of
-                    RedRepl (CmdReplicaToMaster c) ->
-                        resFromMaybe <$> runReplicaToMasterReplicationCmds clientState.socket c
                     RedRepl (CmdMasterToReplica c) ->
                         liftIO . atomically $ ResultOk <$> runMasterToReplicaReplicationCmds env c
                     RedAuth cmd' -> resFromEither <$> handleAuthCommands clientState cmd'

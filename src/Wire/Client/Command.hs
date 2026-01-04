@@ -1,6 +1,13 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Wire.Client.Command (respToCmd, cmdToResp, cmdToPretty) where
+module Wire.Client.Command (
+    respToCmd,
+    cmdToResp,
+    cmdToPretty,
+    cmdReplicaToMasterToResp,
+    respToReplicaToMasterCmd,
+    replicaToMasterToPretty,
+) where
 
 import Data.String (IsString (fromString))
 import Data.Time (nominalDiffTimeToSeconds, secondsToNominalDiffTime)
@@ -86,13 +93,7 @@ respToCmd (Array 1 [BulkStr "DISCARD"]) = pure $ RedTrans CmdDiscard
 -- Replication
 respToCmd (Array 2 [BulkStr "INFO", BulkStr "replication"]) = pure $ RedInfo (Just IReplication)
 respToCmd (Array 1 [BulkStr "INFO"]) = pure $ RedInfo Nothing
-respToCmd (Array 3 [BulkStr "REPLCONF", BulkStr "listening-port", BulkStr port]) = RedRepl . CmdReplicaToMaster . CmdReplConfListen <$> readIntBS port
-respToCmd (Array 3 [BulkStr "REPLCONF", BulkStr "capa", BulkStr "psync2"]) = pure $ RedRepl $ CmdReplicaToMaster CmdReplConfCapabilities
 respToCmd (Array 3 [BulkStr "REPLCONF", BulkStr "GETACK", BulkStr "*"]) = pure $ RedRepl $ CmdMasterToReplica CmdReplConfGetAck
-respToCmd (Array 3 [BulkStr "REPLCONF", BulkStr "ACK", BulkStr n]) = RedRepl . CmdReplicaToMaster . CmdReplConfAck <$> readIntBS n
-respToCmd (Array 3 [BulkStr "PSYNC", BulkStr sid, BulkStr offset]) = do
-    offset' <- readIntBS offset
-    pure $ RedRepl $ CmdReplicaToMaster $ CmdPSync sid offset'
 respToCmd (Array 3 [BulkStr "WAIT", BulkStr n, BulkStr t]) = do
     n' <- readIntBS n
     t' <- millisToNominalDiffTime <$> readIntBS t
@@ -151,6 +152,15 @@ respToCmd (Array 3 [BulkStr "AUTH", BulkStr uname, BulkStr pass]) = pure $ RedAu
 -- Unhandled
 respToCmd r = Left $ "Conversion Error" <> show r
 
+respToReplicaToMasterCmd :: Resp -> Either String ReplicaToMaster
+respToReplicaToMasterCmd (Array 3 [BulkStr "REPLCONF", BulkStr "listening-port", BulkStr port]) = CmdReplConfListen <$> readIntBS port
+respToReplicaToMasterCmd (Array 3 [BulkStr "REPLCONF", BulkStr "capa", BulkStr "psync2"]) = pure CmdReplConfCapabilities
+respToReplicaToMasterCmd (Array 3 [BulkStr "REPLCONF", BulkStr "ACK", BulkStr n]) = CmdReplConfAck <$> readIntBS n
+respToReplicaToMasterCmd (Array 3 [BulkStr "PSYNC", BulkStr sid, BulkStr offset]) = CmdPSync sid <$> readIntBS offset
+-- Not handling PING so it falls through to the normal handling flow
+-- respToReplicaToMasterCmd (Array 1 [BulkStr "PING"]) = pure CmdReplicaToMasterPing
+respToReplicaToMasterCmd r = Left $ "Conversion Error: " <> show r
+
 -- Conversion (to Resp)
 
 cmdToResp :: Command -> Resp
@@ -184,11 +194,14 @@ ioCmdToResp (CmdBLPop key t) = Array 3 [BulkStr "BLPOP", BulkStr key, BulkStr $ 
 ioCmdToResp (CmdXReadBlock key sid t) = Array 6 [BulkStr "XREAD", BulkStr "block", BulkStr $ fromString $ show $ nominalDiffTimeToMillis t, BulkStr "streams", BulkStr key, BulkStr $ showXReadStreamId sid]
 
 replicationCmdToResp :: CmdReplication -> Resp
-replicationCmdToResp (CmdReplicaToMaster (CmdReplConfListen port)) = Array 3 [BulkStr "REPLCONF", BulkStr "listening-port", BulkStr $ fromString $ show port]
-replicationCmdToResp (CmdReplicaToMaster CmdReplConfCapabilities) = Array 3 [BulkStr "REPLCONF", BulkStr "capa", BulkStr "psync2"]
-replicationCmdToResp (CmdReplicaToMaster (CmdPSync sId s)) = Array 3 [BulkStr "PSYNC", BulkStr sId, BulkStr $ fromString $ show s]
-replicationCmdToResp (CmdReplicaToMaster (CmdReplConfAck n)) = Array 3 [BulkStr "REPLCONF", BulkStr "ACK", BulkStr $ fromString $ show n]
 replicationCmdToResp (CmdMasterToReplica CmdReplConfGetAck) = Array 3 [BulkStr "REPLCONF", BulkStr "GETACK", BulkStr "*"]
+
+cmdReplicaToMasterToResp :: ReplicaToMaster -> Resp
+cmdReplicaToMasterToResp (CmdReplConfListen port) = Array 3 [BulkStr "REPLCONF", BulkStr "listening-port", BulkStr $ fromString $ show port]
+cmdReplicaToMasterToResp CmdReplConfCapabilities = Array 3 [BulkStr "REPLCONF", BulkStr "capa", BulkStr "psync2"]
+cmdReplicaToMasterToResp (CmdPSync sId s) = Array 3 [BulkStr "PSYNC", BulkStr sId, BulkStr $ fromString $ show s]
+cmdReplicaToMasterToResp (CmdReplConfAck n) = Array 3 [BulkStr "REPLCONF", BulkStr "ACK", BulkStr $ fromString $ show n]
+cmdReplicaToMasterToResp CmdReplicaToMasterPing = Array 1 [BulkStr "PING"]
 
 stmCmdToResp :: CmdSTM -> Resp
 stmCmdToResp CmdPing = Array 1 [BulkStr "PING"]
@@ -294,11 +307,14 @@ ioCmdToPretty (CmdBLPop{}) = "BLPOP"
 ioCmdToPretty (CmdXReadBlock{}) = "XREAD"
 
 replicationCmdToPretty :: CmdReplication -> ByteString
-replicationCmdToPretty (CmdReplicaToMaster (CmdReplConfListen{})) = "REPLCONF"
-replicationCmdToPretty (CmdReplicaToMaster CmdReplConfCapabilities) = "REPLCONF"
-replicationCmdToPretty (CmdReplicaToMaster (CmdPSync{})) = "PSYNC"
-replicationCmdToPretty (CmdReplicaToMaster (CmdReplConfAck{})) = "REPLCONF"
 replicationCmdToPretty (CmdMasterToReplica CmdReplConfGetAck) = "REPLCONF"
+
+replicaToMasterToPretty :: ReplicaToMaster -> ByteString
+replicaToMasterToPretty (CmdReplConfListen{}) = "REPLCONF"
+replicaToMasterToPretty CmdReplConfCapabilities = "REPLCONF"
+replicaToMasterToPretty (CmdPSync{}) = "PSYNC"
+replicaToMasterToPretty (CmdReplConfAck{}) = "REPLCONF"
+replicaToMasterToPretty CmdReplicaToMasterPing = "PING"
 
 stmCmdToPretty :: CmdSTM -> ByteString
 stmCmdToPretty CmdPing = "PING"

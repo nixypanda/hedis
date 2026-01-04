@@ -110,8 +110,7 @@ data CmdTransaction
     deriving (Show, Eq)
 
 data CmdReplication
-    = CmdReplicaToMaster ReplicaToMaster
-    | CmdMasterToReplica MasterToReplica
+    = CmdMasterToReplica MasterToReplica
     deriving (Show, Eq)
 
 data ReplicaToMaster
@@ -119,6 +118,7 @@ data ReplicaToMaster
     | CmdReplConfCapabilities
     | CmdPSync ByteString Int
     | CmdReplConfAck Int
+    | CmdReplicaToMasterPing
     deriving (Show, Eq)
 
 data MasterToReplica
