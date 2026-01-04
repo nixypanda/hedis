@@ -1,7 +1,7 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-module Server.MasterReplicationLoop (runMasterLoop) where
+module Server.MasterLoop (runMasterLoop) where
 
 import Control.Concurrent.STM (atomically, readTVarIO, writeTVar)
 import Control.Monad (forever)
@@ -41,7 +41,7 @@ runMasterLoop clientState = do
 
         case incoming of
             FromReplica replCmd -> do
-                result <- runReplicaToMasterReplicationCmds clientState.socket replCmd
+                result <- runReplicaToMasterCmds clientState.socket replCmd
                 case result of
                     Nothing -> pure ()
                     Just res -> do
@@ -55,8 +55,8 @@ runMasterLoop clientState = do
                         let encoded = encode $ toResp res
                         liftIO $ send clientState.socket encoded
 
-runReplicaToMasterReplicationCmds :: Socket -> ReplicaToMaster -> Redis Master (Maybe Success)
-runReplicaToMasterReplicationCmds socket cmd = do
+runReplicaToMasterCmds :: Socket -> ReplicaToMaster -> Redis Master (Maybe Success)
+runReplicaToMasterCmds socket cmd = do
     case cmd of
         CmdReplicaToMasterPing -> pure $ Just ReplyPong
         CmdReplConfCapabilities -> pure $ Just ReplyOk

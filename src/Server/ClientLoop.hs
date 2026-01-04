@@ -18,7 +18,7 @@ import Execution.Base (runConfigInfoCmds, runServerInfoCmds)
 import Protocol.Command
 import Protocol.Message (Message (MkMessage))
 import Protocol.Result
-import Replication.Master (runAndReplicateIO, runAndReplicateSTM, runMasterToReplicaReplicationCmds, sendReplConfs)
+import Replication.Master (runAndReplicateIO, runAndReplicateSTM, sendReplConfs)
 import Resp.Client (mkRespConn, recvResp)
 import Resp.Core (encode)
 import Store.AuthStore (AuthStore)
@@ -32,7 +32,7 @@ import Wire.Class (FromResp (..), ToResp (..))
 
 --- client server
 
-clientLoopWrite :: (HasLogger r, HasStores r, HasReplication r) => ClientState -> Socket -> Redis r ()
+clientLoopWrite :: (HasStores r, HasReplication r) => ClientState -> Socket -> Redis r ()
 clientLoopWrite clientState socket = do
     respConn <- liftIO $ mkRespConn socket
     forever $ do
@@ -47,7 +47,7 @@ clientLoopWrite clientState socket = do
 
 -- Common Command Execution
 
-runCmd :: (HasStores r, HasReplication r, HasLogger r) => ClientState -> Command -> Redis r Result
+runCmd :: (HasStores r, HasReplication r) => ClientState -> Command -> Redis r Result
 runCmd clientState command = do
     env <- ask
     authRes <- liftIO . atomically $ requireAuthSTM env clientState
@@ -71,8 +71,6 @@ runCmd clientState command = do
                     RedSub cmd' -> ResultOk <$> handlePubSubMessage clientState cmd'
                     cmd -> pure $ ResultErr $ ErrCmdNotAllowedInMode cmd ModeSubscribed
                 else case command of
-                    RedRepl (CmdMasterToReplica c) ->
-                        liftIO . atomically $ ResultOk <$> runMasterToReplicaReplicationCmds env c
                     RedAuth cmd' -> resFromEither <$> handleAuthCommands clientState cmd'
                     RedInfo section -> liftIO . atomically $ ResultOk <$> runServerInfoCmds env section
                     RedConfig section -> pure . ResultOk $ runConfigInfoCmds env section

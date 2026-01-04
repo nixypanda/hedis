@@ -7,6 +7,9 @@ module Wire.Client.Command (
     cmdReplicaToMasterToResp,
     respToReplicaToMasterCmd,
     replicaToMasterToPretty,
+    cmdMasterToReplicaToResp,
+    respToMasterToReplicaCmd,
+    masterToReplicaPretty,
 ) where
 
 import Data.String (IsString (fromString))
@@ -93,7 +96,6 @@ respToCmd (Array 1 [BulkStr "DISCARD"]) = pure $ RedTrans CmdDiscard
 -- Replication
 respToCmd (Array 2 [BulkStr "INFO", BulkStr "replication"]) = pure $ RedInfo (Just IReplication)
 respToCmd (Array 1 [BulkStr "INFO"]) = pure $ RedInfo Nothing
-respToCmd (Array 3 [BulkStr "REPLCONF", BulkStr "GETACK", BulkStr "*"]) = pure $ RedRepl $ CmdMasterToReplica CmdReplConfGetAck
 respToCmd (Array 3 [BulkStr "WAIT", BulkStr n, BulkStr t]) = do
     n' <- readIntBS n
     t' <- millisToNominalDiffTime <$> readIntBS t
@@ -161,12 +163,15 @@ respToReplicaToMasterCmd (Array 3 [BulkStr "PSYNC", BulkStr sid, BulkStr offset]
 -- respToReplicaToMasterCmd (Array 1 [BulkStr "PING"]) = pure CmdReplicaToMasterPing
 respToReplicaToMasterCmd r = Left $ "Conversion Error: " <> show r
 
+respToMasterToReplicaCmd :: Resp -> Either String MasterToReplica
+respToMasterToReplicaCmd (Array 3 [BulkStr "REPLCONF", BulkStr "GETACK", BulkStr "*"]) = pure CmdReplConfGetAck
+respToMasterToReplicaCmd r = Left $ "Conversion Error: " <> show r
+
 -- Conversion (to Resp)
 
 cmdToResp :: Command -> Resp
 cmdToResp (RedSTM cmd) = stmCmdToResp cmd
 cmdToResp (RedTrans cmd) = txCmdToResp cmd
-cmdToResp (RedRepl cmd) = replicationCmdToResp cmd
 cmdToResp (RedIO cmd) = ioCmdToResp cmd
 cmdToResp (RedInfo cmd) = infoCmdToResp cmd
 cmdToResp (RedConfig cmd) = configCmdToResp cmd
@@ -193,8 +198,8 @@ ioCmdToResp :: CmdIO -> Resp
 ioCmdToResp (CmdBLPop key t) = Array 3 [BulkStr "BLPOP", BulkStr key, BulkStr $ fromString $ show $ nominalDiffTimeToSeconds t]
 ioCmdToResp (CmdXReadBlock key sid t) = Array 6 [BulkStr "XREAD", BulkStr "block", BulkStr $ fromString $ show $ nominalDiffTimeToMillis t, BulkStr "streams", BulkStr key, BulkStr $ showXReadStreamId sid]
 
-replicationCmdToResp :: CmdReplication -> Resp
-replicationCmdToResp (CmdMasterToReplica CmdReplConfGetAck) = Array 3 [BulkStr "REPLCONF", BulkStr "GETACK", BulkStr "*"]
+cmdMasterToReplicaToResp :: MasterToReplica -> Resp
+cmdMasterToReplicaToResp CmdReplConfGetAck = Array 3 [BulkStr "REPLCONF", BulkStr "GETACK", BulkStr "*"]
 
 cmdReplicaToMasterToResp :: ReplicaToMaster -> Resp
 cmdReplicaToMasterToResp (CmdReplConfListen port) = Array 3 [BulkStr "REPLCONF", BulkStr "listening-port", BulkStr $ fromString $ show port]
@@ -279,7 +284,6 @@ infoCmdToResp Nothing = Array 1 [BulkStr "INFO"]
 cmdToPretty :: Command -> ByteString
 cmdToPretty (RedSTM cmd) = stmCmdToPretty cmd
 cmdToPretty (RedTrans cmd) = txCmdToPretty cmd
-cmdToPretty (RedRepl cmd) = replicationCmdToPretty cmd
 cmdToPretty (RedIO cmd) = ioCmdToPretty cmd
 cmdToPretty (RedInfo cmd) = infoCmdToPretty cmd
 cmdToPretty (RedConfig cmd) = configCmdToPretty cmd
@@ -306,8 +310,8 @@ ioCmdToPretty :: CmdIO -> ByteString
 ioCmdToPretty (CmdBLPop{}) = "BLPOP"
 ioCmdToPretty (CmdXReadBlock{}) = "XREAD"
 
-replicationCmdToPretty :: CmdReplication -> ByteString
-replicationCmdToPretty (CmdMasterToReplica CmdReplConfGetAck) = "REPLCONF"
+masterToReplicaPretty :: MasterToReplica -> ByteString
+masterToReplicaPretty CmdReplConfGetAck = "REPLCONF"
 
 replicaToMasterToPretty :: ReplicaToMaster -> ByteString
 replicaToMasterToPretty (CmdReplConfListen{}) = "REPLCONF"

@@ -4,7 +4,6 @@ module Protocol.Command (
     CmdIO (..),
     CmdTransaction (..),
     Key,
-    CmdReplication (..),
     ReplicaToMaster (..),
     MasterToReplica (..),
     SubInfo (..),
@@ -43,7 +42,6 @@ data Command
     | RedIO CmdIO
     | RedTrans CmdTransaction
     | RedConfig SubConfig
-    | RedRepl CmdReplication
     | RedSub PubSub
     | RedAuth CmdAuth
     | RedInfo (Maybe SubInfo)
@@ -107,10 +105,6 @@ data CmdTransaction
     = CmdMulti
     | CmdExec
     | CmdDiscard
-    deriving (Show, Eq)
-
-data CmdReplication
-    = CmdMasterToReplica MasterToReplica
     deriving (Show, Eq)
 
 data ReplicaToMaster

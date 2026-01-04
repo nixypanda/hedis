@@ -4,7 +4,6 @@
 module Replication.Master (
     runRdbLoad,
     acceptReplica,
-    runMasterToReplicaReplicationCmds,
     sendReplConfs,
     runAndReplicateIO,
     runAndReplicateSTM,
@@ -84,14 +83,6 @@ replicaSender sock rdbFile q = do
         resp <- liftIO $ atomically $ readTQueue q
         send sock resp
 
-runMasterToReplicaReplicationCmds ::
-    (HasReplication r) => Env r -> MasterToReplica -> STM Success
-runMasterToReplicaReplicationCmds env cmd = do
-    case cmd of
-        CmdReplConfGetAck -> do
-            offset <- readTVar (getOffset env)
-            pure $ ReplyReplication $ ReplConfAck offset
-
 sendReplConfs :: (HasReplication r) => ClientState -> Int -> NominalDiffTime -> Redis r Success
 sendReplConfs _clientState n tout = do
     env <- ask
@@ -104,7 +95,7 @@ sendReplConfs _clientState n tout = do
 
             -- trigger GETACK
             liftIO $ forM_ registry $ \r ->
-                send r.rcSocket (encode $ toResp $ RedRepl $ CmdMasterToReplica CmdReplConfGetAck)
+                send r.rcSocket (encode $ toResp CmdReplConfGetAck)
 
             -- The main server is already listening for commands so we just poll
             let countAcked :: STM Int
