@@ -14,8 +14,7 @@ import System.Log.FastLogger (LogStr, toLogStr)
 import Cli
 import GHC.Conc.Sync (atomically)
 import Replication.Config
-import Replication.Master (runRdbLoad)
-import Server.MasterLoop (runMasterLoop)
+import Server.MasterLoop (runMasterLoop, runRdbLoad)
 import Server.ReplicaLoop
 import Types.Redis
 

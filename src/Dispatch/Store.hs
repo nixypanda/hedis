@@ -1,7 +1,7 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-module Execution.Base (runCmdSTM, runCmdIO, runServerInfoCmds, runConfigInfoCmds) where
+module Dispatch.Store (runCmdSTM, runCmdIO, runServerInfoCmds, runConfigInfoCmds) where
 
 import Control.Concurrent.STM
 import Control.Monad.IO.Class (MonadIO (liftIO))
