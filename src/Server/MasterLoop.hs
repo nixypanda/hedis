@@ -50,11 +50,8 @@ runMasterLoop clientState = do
                         liftIO $ send clientState.socket encoded
             FromClient cmd -> do
                 result <- runCmd clientState cmd
-                case result of
-                    ResultIgnore -> pure ()
-                    res -> do
-                        let encoded = encode $ toResp res
-                        liftIO $ send clientState.socket encoded
+                let encoded = encode $ toResp result
+                liftIO $ send clientState.socket encoded
 
 runReplicaToMasterCmds :: Socket -> ReplicaToMaster -> Redis Master (Maybe Success)
 runReplicaToMasterCmds socket cmd = do

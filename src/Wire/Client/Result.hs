@@ -22,7 +22,6 @@ resultToResp :: Result -> Resp
 resultToResp (ResultOk r) = cmdResultToResp r
 resultToResp (ResultErr e) = errorToResp e
 resultToResp (ResultTx er) = Array (length er) (map (either errorToResp cmdResultToResp) er)
-resultToResp ResultIgnore = error "Nothing can't be converted to resp"
 
 cmdResultToResp :: Success -> Resp
 cmdResultToResp ReplyPong = Str "PONG"

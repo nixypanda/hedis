@@ -1,17 +1,15 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Server.ClientLoop (clientLoopWrite, runCmd) where
+module Server.ClientLoop (runCmd) where
 
 import Control.Concurrent.STM (STM, TVar, atomically, modifyTVar, readTVar, writeTVar)
-import Control.Monad (forM_, forever)
-import Control.Monad.Except (liftEither)
+import Control.Monad (forM_)
 import Control.Monad.IO.Class (MonadIO (liftIO))
 import Control.Monad.Reader (MonadReader (ask))
-import Data.Bifunctor (Bifunctor (first))
 import Data.ByteString (ByteString)
 import Data.List (delete, nub)
 import Data.Time (UTCTime, getCurrentTime)
-import Network.Simple.TCP (Socket, send)
+import Network.Simple.TCP (send)
 
 import Auth.Types (Sha256, UserFlags (..), UserProperty (..))
 import Execution.Base (runConfigInfoCmds, runServerInfoCmds)
@@ -19,7 +17,6 @@ import Protocol.Command
 import Protocol.Message (Message (MkMessage))
 import Protocol.Result
 import Replication.Master (runAndReplicateIO, runAndReplicateSTM, sendReplConfs)
-import Resp.Client (mkRespConn, recvResp)
 import Resp.Core (encode)
 import Store.AuthStore (AuthStore)
 import Store.AuthStore qualified as AS
@@ -28,22 +25,7 @@ import Store.PubSubStore qualified as PS
 import Store.TypeStore qualified as TS
 import StoreBackend.TypeIndex (ValueType (..))
 import Types.Redis
-import Wire.Class (FromResp (..), ToResp (..))
-
---- client server
-
-clientLoopWrite :: (HasStores r, HasReplication r) => ClientState -> Socket -> Redis r ()
-clientLoopWrite clientState socket = do
-    respConn <- liftIO $ mkRespConn socket
-    forever $ do
-        resp <- liftIO $ recvResp respConn
-        cmd <- liftEither $ first RespParsingError $ fromResp resp
-        result <- runCmd clientState cmd
-        case result of
-            ResultIgnore -> pure ()
-            res -> do
-                let encoded = encode $ toResp res
-                liftIO $ send socket encoded
+import Wire.Class (ToResp (..))
 
 -- Common Command Execution
 

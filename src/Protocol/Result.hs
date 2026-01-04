@@ -9,7 +9,6 @@ module Protocol.Result (
     Result (..),
     Mode (..),
     AuthError (..),
-    resFromMaybe,
     resFromEither,
     modeToPretty,
 ) where
@@ -27,11 +26,7 @@ data Result
     = ResultOk Success
     | ResultErr Failure
     | ResultTx [Either Failure Success]
-    | ResultIgnore
     deriving (Show, Eq)
-
-resFromMaybe :: Maybe Success -> Result
-resFromMaybe = maybe ResultIgnore ResultOk
 
 resFromEither :: Either Failure Success -> Result
 resFromEither = either ResultErr ResultOk
