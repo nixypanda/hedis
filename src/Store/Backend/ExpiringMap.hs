@@ -1,4 +1,4 @@
-module StoreBackend.ExpiringMap (
+module Store.Backend.ExpiringMap (
     ExpiringMap,
     empty,
     insert,

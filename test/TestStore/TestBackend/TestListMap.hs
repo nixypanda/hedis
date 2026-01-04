@@ -1,10 +1,10 @@
-module TestStoreBackend.TestListMap (tests) where
+module TestStore.TestBackend.TestListMap (tests) where
 
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertFailure, testCase, (@?=))
 
-import StoreBackend.ListMap (ListMap)
-import StoreBackend.ListMap qualified as LM
+import Store.Backend.ListMap (ListMap)
+import Store.Backend.ListMap qualified as LM
 
 tests :: TestTree
 tests =

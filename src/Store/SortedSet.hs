@@ -1,4 +1,4 @@
-module Store.SortedSetStore (
+module Store.SortedSet (
     SortedSetStore,
     ZScore (..),
     emptySTM,
@@ -24,10 +24,10 @@ import GHC.Float (castDoubleToWord64)
 
 import Geo.Encoding (decode, encode)
 import Geo.Types (Coordinates, coordinatesAreValid, haversineDistance)
-import Store.TypeStore qualified as TS
-import StoreBackend.SortedSetMap (SortedSetMap)
-import StoreBackend.SortedSetMap qualified as SSS
-import StoreBackend.TypeIndex (ValueType (..))
+import Store.Backend.SortedSetMap (SortedSetMap)
+import Store.Backend.SortedSetMap qualified as SSS
+import Store.Backend.TypeIndex (ValueType (..))
+import Store.Type qualified as TS
 
 type Key = ByteString
 

@@ -1,4 +1,4 @@
-module Store.StreamStore (
+module Store.Stream (
     StreamStore,
     emptySTM,
     xResolveStreamIdSTM,
@@ -12,14 +12,14 @@ import Control.Concurrent.STM (STM, TVar, newTVar, readTVar, retry, writeTVar)
 import Data.ByteString (ByteString)
 import Data.Time (UTCTime)
 
-import StoreBackend.StreamMap (
+import Store.Backend.StreamMap (
     ConcreteStreamId,
     StreamMap,
     StreamMapError,
     XAddStreamId,
     XReadStreamId (..),
  )
-import StoreBackend.StreamMap qualified as SM
+import Store.Backend.StreamMap qualified as SM
 
 type Key = ByteString
 type StreamStore = StreamMap Key ByteString ByteString

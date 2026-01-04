@@ -1,4 +1,4 @@
-module StoreBackend.SortedSetMap (
+module Store.Backend.SortedSetMap (
     SortedSetMap,
     insert,
     count,

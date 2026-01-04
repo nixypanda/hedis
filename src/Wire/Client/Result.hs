@@ -12,9 +12,9 @@ import Auth (UserFlags (..), UserProperty (..), sha256Hex)
 import Geo.Types (Coordinates (..))
 import Parsers (intParser, parseBS, readIntBS)
 import Resp.Core (Resp (..))
-import StoreBackend.StreamMap (ConcreteStreamId, StreamMapError (..))
-import StoreBackend.StreamMap qualified as SM
-import StoreBackend.TypeIndex (ValueType (..))
+import Store.Backend.StreamMap (ConcreteStreamId, StreamMapError (..))
+import Store.Backend.StreamMap qualified as SM
+import Store.Backend.TypeIndex (ValueType (..))
 import Types.Result
 import Wire.Client.Command (cmdToPretty)
 

@@ -8,12 +8,12 @@ import Data.Time (UTCTime)
 
 import Rdb.Parser (parseRdb)
 import Rdb.Type
-import Store.ListStore (ListStore)
-import Store.StreamStore (StreamStore)
-import Store.StringStore (StringStore)
-import Store.TypeStore (TypeIndex)
-import StoreBackend.ExpiringMap (StoredVal (MkStoredVal))
-import StoreBackend.TypeIndex (ValueType (VString))
+import Store.Backend.ExpiringMap (StoredVal (MkStoredVal))
+import Store.Backend.TypeIndex (ValueType (VString))
+import Store.List (ListStore)
+import Store.Stream (StreamStore)
+import Store.String (StringStore)
+import Store.Type (TypeIndex)
 import Types.Command (Key)
 import Types.Redis (Stores (..))
 

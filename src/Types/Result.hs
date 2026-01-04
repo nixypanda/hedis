@@ -17,9 +17,9 @@ import Data.ByteString (ByteString)
 
 import Auth (UserProperty)
 import Geo.Types (Coordinates)
-import StoreBackend.StreamMap (ConcreteStreamId, StreamMapError (..))
-import StoreBackend.StreamMap qualified as SM
-import StoreBackend.TypeIndex (ValueType (..))
+import Store.Backend.StreamMap (ConcreteStreamId, StreamMapError (..))
+import Store.Backend.StreamMap qualified as SM
+import Store.Backend.TypeIndex (ValueType (..))
 import Types.Command (Command, Key)
 
 data Result

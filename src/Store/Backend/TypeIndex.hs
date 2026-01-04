@@ -1,4 +1,4 @@
-module StoreBackend.TypeIndex (ValueType (..), RequiredType (..), checkAvailable) where
+module Store.Backend.TypeIndex (ValueType (..), RequiredType (..), checkAvailable) where
 
 data ValueType = VString | VList | VStream | VChannel | VSortedSet deriving (Show, Eq)
 

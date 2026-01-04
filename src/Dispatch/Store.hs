@@ -11,13 +11,13 @@ import Data.List (singleton)
 import Data.String (IsString (..))
 import Data.Time (UTCTime)
 
-import Store.ListStore qualified as LS
-import Store.SortedSetStore qualified as SSS
-import Store.StreamStore qualified as StS
-import Store.StringStore qualified as SS
-import Store.TypeStore qualified as TS
-import StoreBackend.ListMap (Range (..))
-import StoreBackend.TypeIndex (ValueType (..))
+import Store.Backend.ListMap (Range (..))
+import Store.Backend.TypeIndex (ValueType (..))
+import Store.List qualified as LS
+import Store.SortedSet qualified as SSS
+import Store.Stream qualified as StS
+import Store.String qualified as SS
+import Store.Type qualified as TS
 import Time (timeout')
 import Types.Command
 import Types.Redis

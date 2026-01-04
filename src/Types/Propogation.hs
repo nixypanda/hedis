@@ -13,8 +13,8 @@ import Data.String (fromString)
 import Data.Time (NominalDiffTime)
 
 import Geo.Types (Coordinates)
-import Store.SortedSetStore (ZScore)
-import StoreBackend.StreamMap (XAddStreamId)
+import Store.Backend.StreamMap (XAddStreamId)
+import Store.SortedSet (ZScore)
 import Types.Command
 import Types.Result
 

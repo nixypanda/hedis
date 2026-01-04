@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module TestStore.TestListStore (tests) where
+module TestStore.TestList (tests) where
 
 import Hedgehog
 import Hedgehog.Gen qualified as Gen
@@ -15,8 +15,8 @@ import Data.ByteString.Char8 qualified as BS
 import System.Timeout (timeout)
 
 import Data.Maybe (listToMaybe)
-import Store.ListStore
-import StoreBackend.ListMap (Range (MkRange))
+import Store.List
+import Store.Backend.ListMap (Range (MkRange))
 
 tests :: TestTree
 tests =

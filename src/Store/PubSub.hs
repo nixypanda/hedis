@@ -1,4 +1,4 @@
-module Store.PubSubStore (PubSubStore, emptySTM, addChannel, getChannels, removeChannel) where
+module Store.PubSub (PubSubStore, emptySTM, addChannel, getChannels, removeChannel) where
 
 import Control.Concurrent.STM (STM, TVar, modifyTVar', newTVar, readTVar)
 import Data.ByteString (ByteString)

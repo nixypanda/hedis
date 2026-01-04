@@ -43,20 +43,20 @@ import System.Log.FastLogger (
     simpleTimeFormat,
  )
 
-import Store.AuthStore (AuthStore)
-import Store.AuthStore qualified as AS
-import Store.ListStore (ListStore)
-import Store.ListStore qualified as LS
-import Store.PubSubStore (PubSubStore)
-import Store.PubSubStore qualified as PS
-import Store.SortedSetStore (SortedSetStore)
-import Store.SortedSetStore qualified as SSS
-import Store.StreamStore (StreamStore)
-import Store.StreamStore qualified as StS
-import Store.StringStore (StringStore)
-import Store.StringStore qualified as SS
-import Store.TypeStore (TypeIndex)
-import Store.TypeStore qualified as TS
+import Store.Auth (AuthStore)
+import Store.Auth qualified as AS
+import Store.List (ListStore)
+import Store.List qualified as LS
+import Store.PubSub (PubSubStore)
+import Store.PubSub qualified as PS
+import Store.SortedSet (SortedSetStore)
+import Store.SortedSet qualified as SSS
+import Store.Stream (StreamStore)
+import Store.Stream qualified as StS
+import Store.String (StringStore)
+import Store.String qualified as SS
+import Store.Type (TypeIndex)
+import Store.Type qualified as TS
 import Types.Command
 import Types.Propogation (ReplicaToMaster)
 import Types.Replication (

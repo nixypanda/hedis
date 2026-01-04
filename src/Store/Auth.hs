@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Store.AuthStore (AuthStore, emptySTM, getUserSTM, addPasswordSTM) where
+module Store.Auth (AuthStore, emptySTM, getUserSTM, addPasswordSTM) where
 
 import Control.Concurrent.STM (STM, TVar, modifyTVar', newTVar, readTVar)
 import Data.ByteString (ByteString)

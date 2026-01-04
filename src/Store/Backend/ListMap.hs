@@ -1,4 +1,4 @@
-module StoreBackend.ListMap (
+module Store.Backend.ListMap (
     ListMap,
     Range (..),
     empty,

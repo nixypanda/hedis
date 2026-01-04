@@ -9,8 +9,8 @@ import Test.Tasty.Hedgehog (testProperty)
 import Test.Tasty.HUnit (testCase, (@?=))
 
 import Gen.Stream (genConcreteStreamId, genXAddStreamId, genXRange)
+import Store.Backend.StreamMap
 import Store.StreamStoreParsing
-import StoreBackend.StreamMap
 
 tests :: TestTree
 tests =

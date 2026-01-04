@@ -6,29 +6,29 @@ import TestGeo.TestEncoding qualified
 import TestParsers qualified
 import TestRdb.TestParser qualified
 import TestResp.TestCore qualified
-import TestStore.TestListStore qualified
+import TestStore.TestBackend.TestExpiringMap qualified
+import TestStore.TestBackend.TestListMap qualified
+import TestStore.TestBackend.TestSortedSetMap qualified
+import TestStore.TestBackend.TestStreamMap qualified
+import TestStore.TestList qualified
 import TestStore.TestStreamStoreParsing qualified
-import TestStoreBackend.TestExpiringMap qualified
-import TestStoreBackend.TestListMap qualified
-import TestStoreBackend.TestSortedSetMap qualified
-import TestStoreBackend.TestStreamMap qualified
 import TestWire.TestClient.TestCommand qualified
 
 tests :: TestTree
 tests =
     testGroup
         "redis tests"
-        [ TestStoreBackend.TestExpiringMap.tests
-        , TestStoreBackend.TestListMap.tests
-        , TestStoreBackend.TestStreamMap.tests
+        [ TestStore.TestBackend.TestExpiringMap.tests
+        , TestStore.TestBackend.TestListMap.tests
+        , TestStore.TestBackend.TestStreamMap.tests
+        , TestStore.TestBackend.TestSortedSetMap.tests
+        , TestStore.TestStreamStoreParsing.tests
+        , TestStore.TestList.tests
         , TestParsers.tests
         , TestResp.TestCore.tests
-        , TestStore.TestStreamStoreParsing.tests
-        , TestStore.TestListStore.tests
-        , TestWire.TestClient.TestCommand.tests
         , TestRdb.TestParser.tests
-        , TestStoreBackend.TestSortedSetMap.tests
         , TestGeo.TestEncoding.tests
+        , TestWire.TestClient.TestCommand.tests
         ]
 
 main :: IO ()

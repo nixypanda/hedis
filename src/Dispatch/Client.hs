@@ -15,11 +15,11 @@ import Network.Simple.TCP (send)
 import Auth (Sha256, UserFlags (..), UserProperty (..))
 import Dispatch.Store (runCmdIO, runCmdSTM, runConfigInfoCmds, runServerInfoCmds)
 import Resp.Core (encode)
-import Store.AuthStore (AuthStore)
-import Store.AuthStore qualified as AS
-import Store.PubSubStore qualified as PS
-import Store.TypeStore qualified as TS
-import StoreBackend.TypeIndex (ValueType (..))
+import Store.Auth (AuthStore)
+import Store.Auth qualified as AS
+import Store.Backend.TypeIndex (ValueType (..))
+import Store.PubSub qualified as PS
+import Store.Type qualified as TS
 import Time (timeout')
 import Types.Command
 import Types.Message

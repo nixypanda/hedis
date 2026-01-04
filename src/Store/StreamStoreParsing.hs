@@ -20,7 +20,7 @@ import Text.Parsec (char, eof, optionMaybe, spaces)
 import Text.Parsec.ByteString (Parser)
 
 import Parsers (intParser, parseBS)
-import StoreBackend.StreamMap (
+import Store.Backend.StreamMap (
     ConcreteStreamId,
     IdSeq (..),
     XAddStreamId (..),

@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Store.StringStore (
+module Store.String (
     StringStore,
     emptySTM,
     incrSTM,
@@ -14,8 +14,8 @@ import Data.String (IsString (fromString))
 import Data.Time (NominalDiffTime, UTCTime)
 
 import Parsers (readIntBS)
-import StoreBackend.ExpiringMap (ExpiringMap)
-import StoreBackend.ExpiringMap qualified as EM
+import Store.Backend.ExpiringMap (ExpiringMap)
+import Store.Backend.ExpiringMap qualified as EM
 
 type Key = ByteString
 type StringStore = ExpiringMap Key ByteString

@@ -1,6 +1,6 @@
 {-# LANGUAGE DeriveAnyClass #-}
 
-module Store.TypeStore (
+module Store.Type (
     TypeIndex,
     IncorrectType,
     emptySTM,
@@ -18,7 +18,7 @@ import Data.ByteString (ByteString)
 import Data.Map (Map)
 import Data.Map qualified as M
 
-import StoreBackend.TypeIndex (RequiredType (..), ValueType, checkAvailable)
+import Store.Backend.TypeIndex (RequiredType (..), ValueType, checkAvailable)
 
 type Key = ByteString
 type TypeIndex = Map Key ValueType

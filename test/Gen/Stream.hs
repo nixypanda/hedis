@@ -10,7 +10,7 @@ import Hedgehog (Gen)
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 
-import StoreBackend.StreamMap
+import Store.Backend.StreamMap
 
 genInsertSeq :: Gen [XAddStreamId]
 genInsertSeq = Gen.list (Range.linear 100 200) genStreamId

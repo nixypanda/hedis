@@ -1,13 +1,13 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module TestStoreBackend.TestSortedSetMap (tests) where
+module TestStore.TestBackend.TestSortedSetMap (tests) where
 
 import Data.ByteString (ByteString)
 import Data.Map.Strict qualified as M
 import Test.Tasty
 import Test.Tasty.HUnit
 
-import StoreBackend.SortedSetMap
+import Store.Backend.SortedSetMap
 
 -- helpers ------------------------------------------------------------
 

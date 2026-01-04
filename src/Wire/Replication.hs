@@ -20,7 +20,7 @@ import Geo.Types (Coordinates (MkCoordinates))
 import Parsers (readFloatBS, readIntBS, readScientificBS)
 import Resp.Core (Resp (..))
 import Resp.Utils
-import Store.SortedSetStore (ZScore (..))
+import Store.SortedSet (ZScore (..))
 import Store.StreamStoreParsing (readXAddStreamId, showXaddId)
 import Time (millisToNominalDiffTime, nominalDiffTimeToMillis)
 import Types.Propogation

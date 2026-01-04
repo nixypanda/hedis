@@ -1,4 +1,4 @@
-module Store.ListStore (
+module Store.List (
     ListStore,
     emptySTM,
     blpopSTM,
@@ -13,8 +13,8 @@ module Store.ListStore (
 import Control.Concurrent.STM (STM, TVar, newTVar, readTVar, retry, writeTVar)
 import Data.ByteString (ByteString)
 
-import StoreBackend.ListMap (ListMap, Range)
-import StoreBackend.ListMap qualified as LM
+import Store.Backend.ListMap (ListMap, Range)
+import Store.Backend.ListMap qualified as LM
 
 type Key = ByteString
 type ListStore = ListMap Key ByteString

@@ -20,14 +20,14 @@ import Data.Time (NominalDiffTime)
 
 import Auth (Sha256)
 import Geo.Types (Coordinates)
-import Store.SortedSetStore (ZScore)
-import StoreBackend.ListMap (Range (..))
-import StoreBackend.StreamMap (
+import Store.Backend.ListMap (Range (..))
+import Store.Backend.StreamMap (
     ConcreteStreamId,
     XAddStreamId (..),
     XRange (..),
     XReadStreamId (..),
  )
+import Store.SortedSet (ZScore)
 
 type Key = ByteString
 
